@@ -4,10 +4,17 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new); release channels (stable/beta) come once Atlas is stable.
 
-## [Unreleased]
+## [1.2.0] — 2026-10-12
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
 
 ### Added
 
+- **Language servers, built in.** Completion (with snippets and auto-imports), hover docs, signature help, inline errors, go to definition (F12 / ⌘-click), find references, rename (F2), format (⇧⌥F), quick fixes (⌘.), inlay hints and document symbols for Rust, Go, TypeScript/JavaScript, PHP, Python, HTML, CSS, JSON, YAML and Bash. The servers run inside `atlas hostd` (new `atlas-lsp` crate, also on remote projects): one process per language and project, shared by every open file, stopped after 5 minutes unused, restarted if it crashes. On first use Atlas downloads the server into `~/.atlas/lsp` and verifies its checksum; a copy on your PATH (e.g. `rust-analyzer` from rustup) is used first.
+- **HTML live preview.** The globe button or ⌘⇧V opens the file in the built-in browser next to the editor, served from a local live server; saving reloads the page and CSS changes apply without a reload.
+- **A view for every dev file.** Syntax colors for Dockerfile, Makefile, `.env`, `go.mod`, ignore files, Procfile and dozens more, detected by file name. The eye button (⌘⇧M) shows a dedicated view for `.env` (values hidden, compared with `.env.example`), `package.json` (scripts you can run), Dockerfile (stages and warnings), Compose files, Makefile/Justfile (targets you can run), `atlas.yaml` (services with inline validation), Cargo.toml, pyproject.toml, go.mod, composer.json, GitHub Actions workflows, tsconfig, CSV (sortable table), JSON/YAML/TOML (collapsible tree) and notebooks. Format works without a language server (JSON built in, web formats via Prettier loaded on demand).
+- **Missing projects.** Projects whose folder is gone show as *Not found* with Locate…, Check again and Remove; Refresh and Remove all in the sidebar; Relink when a moved copy is found.
+- **Find projects** scans your code folders plus Spotlight, streams results with branch, remote and service count, adds several at once, and can list folders that could use Atlas with an Init button.
 - **Dracula is the default theme**, with its official light variant **Alucard** for light mode. Colors, the ANSI table, the UI palette and the syntax scope mapping follow the [Dracula specification](https://draculatheme.com/spec) exactly; one theme now styles the whole app: editor, terminal, diffs, logs, Markdown, language-server popups, git colors and scrollbars. You keep your own choice: only people still on the old default move over.
 - **Dracula Pro** (dark) built from the palette in your own Ghostty config, plus **Use your Ghostty theme**: Atlas reads `~/.config/ghostty/config` (including `theme =`, `config-file =` and the Ghostty app's bundled themes) and imports its colors, font and cursor settings.
 - **A theme system you can fully customize.** Any partial theme is completed automatically (surfaces, borders, accents and syntax derived from a few colors, with readable contrast). Import Ghostty configs, iTerm2 `.itermcolors`, VS Code themes and Base16 schemes, export as JSON or a Ghostty config, and drop files into `~/.atlas/themes/` (reloaded live). The terminal can use its own theme, font family (any installed font, including variable fonts such as Fira Code), thicken, cursor colors, selection colors and padding.
@@ -17,6 +24,11 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 - Diff hunks and the Config diff preview are highlighted with the editor's own colors, so they follow the theme.
 - The `theme` setting is now `{ v: 2, mode, light, dark, terminal }`; older values are read as before.
+- YAML parsing moved from the deprecated `serde_yaml` to `serde_norway`.
+
+### Fixed
+
+- Opening a project could crash with `state_unsafe_mutation` (also fixed in 1.1.2).
 
 ## [1.1.2] — 2026-10-12
 

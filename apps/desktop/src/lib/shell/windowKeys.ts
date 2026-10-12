@@ -1,5 +1,6 @@
 /** Window-level key handling of the main window: keymap dispatch, atlas.yaml bare keys and the ⌃Tab switcher. */
 import { configKey } from "#lib/actions.svelte.ts";
+import { editorOwnsKey } from "#lib/editor/ownedKeys.ts";
 import { dispatch } from "#lib/keymap.svelte.ts";
 import { cancelSwitcher, commitSwitcher, switcher } from "#lib/shell/switcher.svelte.ts";
 import { terminalKeeps } from "#lib/termKeys.ts";
@@ -18,7 +19,9 @@ export function onKeydownCapture(e: KeyboardEvent) {
 		return;
 	}
 	const sink = document.activeElement instanceof HTMLElement && document.activeElement.dataset.termTab;
-	if (e.isComposing || !dispatch(e, sink ? terminalKeeps : undefined)) return;
+	// A focused text editor keeps its editing chords (⌘/ comment, ⌘[ ⌘] indent, …); see editor/ownedKeys.ts.
+	const owned = sink ? terminalKeeps : editorOwnsKey;
+	if (e.isComposing || !dispatch(e, owned)) return;
 	e.preventDefault();
 	e.stopPropagation();
 }

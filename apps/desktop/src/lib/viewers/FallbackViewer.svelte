@@ -25,7 +25,7 @@
 		<h3>{reason === "large" ? "Too large to edit here" : "Binary file"}</h3>
 		<p>
 			{#if reason === "large"}
-				This file is {formatBytes(size)}. Atlas opens text files up to 2 MB.
+				This file is {formatBytes(size)}. Atlas opens text files up to 32 MB.
 			{:else}
 				{formatBytes(size)} · no preview for this format.
 			{/if}

@@ -3,16 +3,27 @@ import { describe, expect, test } from "bun:test";
 import {
 	CHECK_EVERY_MS,
 	EMPTY_PREFS,
+	EMPTY_PROGRESS,
+	badgesFor,
+	blurbOf,
 	compareVersions,
+	dateOf,
+	formatBytes,
 	isSkipped,
 	justUpdated,
+	parseNotes,
 	parsePrefs,
+	percent,
+	phaseFromLog,
+	reduceProgress,
 	selectNotes,
 	shouldNotify,
 	shouldRecheck,
 	showPill,
-	stepsFromLog,
+	splitItem,
+	stepsFrom,
 	stripVersionHeading,
+	versionAnchor,
 } from "./updates.ts";
 
 const rel = (version) => ({ version, url: "", published_at: "", notes: "" });
@@ -96,28 +107,199 @@ describe("shouldRecheck", () => {
 	});
 });
 
-describe("stepsFromLog", () => {
+describe("progress reducer", () => {
+	const run = (...events) => events.reduce(reduceProgress, EMPTY_PROGRESS);
+	const phase = (id) => ({ kind: "phase", id });
 	const states = (s) => s.map((x) => x.state);
-	test("starts on download before any output", () => {
-		expect(states(stepsFromLog([], "running"))).toEqual(["active", "pending", "pending"]);
+
+	test("phases only move forward", () => {
+		expect(run(phase("verify"), phase("download")).at).toBe(1);
+		expect(run(phase("nope")).at).toBe(-1);
 	});
-	test("advances with the CLI's phases", () => {
-		const log = ["◆ Checking for updates...", "◆ Downloading v1.0.2..."];
-		expect(states(stepsFromLog(log, "running"))[0]).toBe("active");
-		const more = [...log, "◆ Installing...", "✓ Updated to v1.0.2"];
-		expect(states(stepsFromLog(more, "running"))).toEqual(["done", "done", "active"]);
+	test("bytes belong to the current phase and reset on the next", () => {
+		const mid = run(phase("download"), { kind: "bytes", done: 50, total: 200 });
+		expect(percent(mid)).toBe(25);
+		const next = reduceProgress(mid, phase("verify"));
+		expect([next.done, next.total, percent(next)]).toEqual([0, 0, null]);
 	});
-	test("done completes all, failed marks the active step", () => {
-		expect(states(stepsFromLog(["Downloading"], "done"))).toEqual(["done", "done", "done"]);
-		expect(states(stepsFromLog(["Downloading", "Installing..."], "failed"))).toEqual([
-			"done",
-			"failed",
+	test("percent clamps and is null while the size is unknown", () => {
+		expect(percent({ ...EMPTY_PROGRESS, done: 300, total: 200 })).toBe(100);
+		expect(percent({ ...EMPTY_PROGRESS, done: 5, total: 0 })).toBeNull();
+	});
+	test("the host outcome is remembered", () => {
+		const p = run({ kind: "host", state: "needs-restart", live: 2 });
+		expect(p.host).toEqual({ state: "needs-restart", live: 2 });
+	});
+	test("rollback is remembered", () => {
+		expect(run({ kind: "rollback", state: "restored" }).rollback).toBe("restored");
+		expect(run({ kind: "rollback", state: "failed" }).rollback).toBe("failed");
+	});
+	test("steps: download is active before any report", () => {
+		expect(states(stepsFrom(EMPTY_PROGRESS, "running"))).toEqual([
+			"active",
+			"pending",
+			"pending",
+			"pending",
+			"pending",
 			"pending",
 		]);
 	});
+	test("steps follow the phase; failed marks the active one", () => {
+		const p = run(phase("download"), phase("verify"), phase("install-cli"));
+		expect(states(stepsFrom(p, "running"))).toEqual([
+			"done",
+			"done",
+			"active",
+			"pending",
+			"pending",
+			"pending",
+		]);
+		expect(states(stepsFrom(p, "failed"))).toEqual([
+			"done",
+			"done",
+			"failed",
+			"pending",
+			"pending",
+			"pending",
+		]);
+	});
+	test("done completes the install; relaunch waits for the restart", () => {
+		expect(states(stepsFrom(EMPTY_PROGRESS, "done"))).toEqual([
+			"done",
+			"done",
+			"done",
+			"done",
+			"done",
+			"pending",
+		]);
+		expect(states(stepsFrom(EMPTY_PROGRESS, "done", true))[5]).toBe("active");
+	});
+	test("an older CLI's lines still map to phases", () => {
+		expect(phaseFromLog("◆ Downloading v1.0.2...")).toEqual(phase("download"));
+		expect(phaseFromLog("◆ Installing...")).toEqual(phase("install-cli"));
+		expect(phaseFromLog("◆ Updating Atlas Desktop to v1.0.2...")).toEqual(phase("update-app"));
+		expect(phaseFromLog("◆ Downloading Atlas-1.0.2-aarch64.app.tar.gz...")).toEqual(phase("update-app"));
+		expect(phaseFromLog("hello")).toBeNull();
+	});
+});
+
+describe("dateOf", () => {
+	// Whatever the machine's timezone, a calendar date is that same day (not the UTC day before).
+	test("a date-only string is its own local calendar day", () => {
+		const expected = new Date(2026, 9, 12).toLocaleDateString("en-US", {
+			year: "numeric",
+			month: "short",
+			day: "numeric",
+		});
+		expect(dateOf("2026-10-12", "en-US")).toBe(expected);
+		expect(dateOf("2026-10-12", "en-US")).toBe("Oct 12, 2026");
+	});
+	test("impossible or empty dates give nothing", () => {
+		expect(dateOf("2026-02-31", "en-US")).toBe("");
+		expect(dateOf("", "en-US")).toBe("");
+		expect(dateOf("soon", "en-US")).toBe("");
+	});
+	test("a full timestamp still parses", () => {
+		expect(dateOf("2026-10-12T15:00:00Z", "en-US")).toMatch(/Oct 1[23], 2026/);
+	});
+});
+
+test("formatBytes", () => {
+	expect(formatBytes(0)).toBe("");
+	expect(formatBytes(512)).toBe("1 KB");
+	expect(formatBytes(860 * 1024)).toBe("860 KB");
+	expect(formatBytes(12.4 * 1024 * 1024)).toBe("12.4 MB");
+});
+
+describe("parseNotes", () => {
+	const md = [
+		"## [1.2.1] — 2026-10-12",
+		"",
+		"Faster startup and a new theme system.",
+		"",
+		"Atlas is in **alpha**: expect bugs. Please [report](https://x.y).",
+		"",
+		"### Added",
+		"",
+		"- **Language servers, built in.** Completion for `Rust` and Go.",
+		"- **Plain: colon.** Body.",
+		"- No title here, just text.",
+		"",
+		"### Fixed",
+		"",
+		"- Window drag failed.",
+		"  It works again.",
+		"- **Faster startup.** First screen loads less:",
+		"  - editor",
+		"  - charts",
+		"",
+		"### Weird",
+		"",
+		"- x",
+		"",
+		"### Empty",
+	].join("\n");
+	const n = parseNotes(md);
+
+	test("summary is the first paragraph; the alpha boilerplate is split out", () => {
+		expect(n.summary).toBe("Faster startup and a new theme system.");
+		expect(n.alpha).toContain("alpha");
+	});
+	test("groups keep order, map kinds and drop empty ones", () => {
+		expect(n.groups.map((g) => [g.kind, g.heading, g.items.length])).toEqual([
+			["added", "Added", 3],
+			["fixed", "Fixed", 2],
+			["other", "Weird", 1],
+		]);
+	});
+	test("`**Title.** body` splits into title and body", () => {
+		expect(n.groups[0].items[0]).toEqual({
+			title: "Language servers, built in",
+			body: "Completion for `Rust` and Go.",
+		});
+		expect(n.groups[0].items[1].title).toBe("Plain: colon");
+	});
+	test("a bullet without the convention keeps the whole text as body", () => {
+		expect(n.groups[0].items[2]).toEqual({ title: "", body: "No title here, just text." });
+	});
+	test("continuation lines and nested bullets stay in the body", () => {
+		expect(n.groups[1].items[0].body).toBe("Window drag failed.\nIt works again.");
+		expect(n.groups[1].items[1].body).toBe("First screen loads less:\n\n- editor\n\n- charts");
+	});
+	test("notes without summary or groups", () => {
+		expect(parseNotes("")).toEqual({ summary: "", alpha: "", groups: [] });
+		expect(parseNotes("- **A.** b").groups).toEqual([]);
+	});
+	test("a bold lead with nothing after it is not a title", () => {
+		expect(splitItem("**Only bold**")).toEqual({ title: "", body: "**Only bold**" });
+		expect(splitItem("**T** — body")).toEqual({ title: "T", body: "body" });
+	});
+});
+
+test("badgesFor", () => {
+	expect(badgesFor("1.2.1", "1.1.0", "1.2.1", false)).toEqual(["latest"]);
+	expect(badgesFor("1.1.0", "1.1.0", "1.2.1", false)).toEqual(["installed"]);
+	expect(badgesFor("1.2.1", "1.2.1", "1.2.1", false)).toEqual(["latest", "installed"]);
+	expect(badgesFor("1.2.1", "1.2.1", "1.2.1", true)).toEqual(["latest", "new"]);
+	expect(badgesFor("1.2.0", "1.1.0", "1.2.1", false)).toEqual([]);
+});
+
+test("versionAnchor is a safe DOM id", () => {
+	expect(versionAnchor("1.2.1")).toBe("v-1-2-1");
+	expect(versionAnchor("1.2.1-rc.1")).toBe("v-1-2-1-rc-1");
 });
 
 test("stripVersionHeading drops the leading release heading only", () => {
 	expect(stripVersionHeading("## [1.0.1] — 2026-10-11\n\n### Changed\n\n- x")).toBe("### Changed\n\n- x");
 	expect(stripVersionHeading("### Changed\n- x")).toBe("### Changed\n- x");
+});
+
+test("blurbOf prefers the summary, then the first change, and caps its length", () => {
+	expect(blurbOf(parseNotes("Faster startup.\n\n### Added\n- **A.** b"))).toBe("Faster startup.");
+	expect(blurbOf(parseNotes("### Fixed\n- **No more flash.** The window opens hidden."))).toBe(
+		"No more flash",
+	);
+	expect(blurbOf(parseNotes("### Fixed\n- Plain `code` text."))).toBe("Plain code text.");
+	expect(blurbOf(parseNotes("### Fixed\n- " + "x".repeat(200))).length).toBe(90);
+	expect(blurbOf(parseNotes(""))).toBe("");
 });

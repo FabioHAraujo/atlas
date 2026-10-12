@@ -15,6 +15,8 @@ import {
 	type WorkspaceEdit,
 } from "#lib/lsp/convert.ts";
 import type { LspDiagnostic } from "#lib/lsp/client.svelte.ts";
+import { explainUnserved } from "#lib/lsp/hints.svelte.ts";
+import type { Feature } from "#lib/lsp/messages.ts";
 
 interface LspLocation {
 	uri: string;
@@ -32,9 +34,9 @@ const toLocation = (l: LspLocation | LspLocationLink): Location => {
 	return { path: uriToPath(link ? l.targetUri : l.uri), line: r.start.line, character: r.start.character };
 };
 
-async function locate(view: EditorView, method: string, label: string) {
+async function locate(view: EditorView, method: string, label: string, feature: Feature) {
 	const env = envOf(view);
-	if (!env?.doc.open) return toast.info("No language server for this file");
+	if (!env || !explainUnserved(view, feature)) return;
 	const res = await env.doc.request<LspLocation | LspLocationLink | (LspLocation | LspLocationLink)[]>(
 		method,
 		posParams(view, env),
@@ -45,15 +47,16 @@ async function locate(view: EditorView, method: string, label: string) {
 	else env.showLocations(label[0].toUpperCase() + label.slice(1) + "s", list);
 }
 
-export const goToDefinition = (view: EditorView) => locate(view, "textDocument/definition", "definition");
+export const goToDefinition = (view: EditorView) =>
+	locate(view, "textDocument/definition", "definition", "definition");
 export const goToTypeDefinition = (view: EditorView) =>
-	locate(view, "textDocument/typeDefinition", "type definition");
+	locate(view, "textDocument/typeDefinition", "type definition", "type-definition");
 export const goToImplementation = (view: EditorView) =>
-	locate(view, "textDocument/implementation", "implementation");
+	locate(view, "textDocument/implementation", "implementation", "implementation");
 
 export async function findReferences(view: EditorView) {
 	const env = envOf(view);
-	if (!env?.doc.open) return toast.info("No language server for this file");
+	if (!env || !explainUnserved(view, "references")) return;
 	const res = await env.doc.request<LspLocation[]>("textDocument/references", {
 		...posParams(view, env),
 		context: { includeDeclaration: true },
@@ -71,7 +74,7 @@ export async function findReferences(view: EditorView) {
 
 export async function renameSymbol(view: EditorView) {
 	const env = envOf(view);
-	if (!env?.doc.open) return toast.info("No language server for this file");
+	if (!env || !explainUnserved(view, "rename")) return;
 	const p = posParams(view, env);
 	const rp = env.doc.caps?.renameProvider;
 	let current = "";
@@ -100,13 +103,13 @@ export async function renameSymbol(view: EditorView) {
 	else toast.error(`Rename failed: ${r.error}`);
 }
 
-/** Format the document (or the selection when there is one) with the server's formatter. */
-export async function formatDocument(view: EditorView, quiet = false): Promise<boolean> {
+/**
+ * Format the document (or the selection when there is one) with the server's formatter. Returns
+ * false when no server can: the caller falls back to the built-in formatter (see `formatAction.ts`).
+ */
+export async function formatDocument(view: EditorView): Promise<boolean> {
 	const env = envOf(view);
-	if (!env?.doc.open || !env.doc.caps?.documentFormattingProvider) {
-		if (!quiet) toast.info("No formatter for this file");
-		return false;
-	}
+	if (!env?.doc.open || !env.doc.caps?.documentFormattingProvider) return false;
 	const sel = view.state.selection.main;
 	const options = {
 		tabSize: view.state.tabSize,

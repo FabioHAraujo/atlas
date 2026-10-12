@@ -269,10 +269,10 @@ atlas file diff [--worktree W]
 ## `atlas hostd` (hidden)
 
 ```text
-atlas hostd [--dir PATH] [--status | --stop]
+atlas hostd [--dir PATH] [--status | --stop | --upgrade | --check | --restart | --reconcile [--choice ask|idle|later]]
 ```
 
-The terminal/exec daemon behind Atlas Desktop, started by the app. `--status` prints its info (exit 1 when down); `--stop` ends it and its terminals; `--upgrade` replaces the running daemon with this binary while keeping every terminal alive. `--dir` (or `ATLAS_HOSTD_DIR`) moves its socket, token and scrollback away from `~/.atlas`, which is also how it runs on SSH hosts.
+The terminal/exec daemon behind Atlas Desktop, started by the app. `--status` prints its info (exit 1 when down); `--stop` ends it and its terminals; `--upgrade` replaces the running daemon with this binary while keeping every terminal alive. `--check` prints whether it is older than this binary (version, uptime, running terminals, what is off, the fix commands; exit 0 current, 3 stale, 1 not running); `--reconcile` brings it to this binary (live handoff when it can, silent restart when no terminal runs, otherwise it asks, or follows `--choice`; exit 0 also when it is not running); `--restart` ends its terminals, starts a fresh daemon and verifies it. A daemon with no running terminal and no client for 10 minutes (`ATLAS_HOSTD_IDLE_SECS`) exits by itself. `--dir` (or `ATLAS_HOSTD_DIR`) moves its socket, token and scrollback away from `~/.atlas`, which is also how it runs on SSH hosts.
 
 ## `atlas install` (hidden)
 

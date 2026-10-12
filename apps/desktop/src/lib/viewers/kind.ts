@@ -57,10 +57,14 @@ const KIND_BY_EXT: Record<string, ViewerKind> = {
 
 export const viewerKind = (path: string): ViewerKind => KIND_BY_EXT[extOf(path)] ?? "text";
 
-/** Largest file each kind will load (bytes). Text stays small: CodeMirror holds the whole doc. */
+/**
+ * Largest file each kind will load (bytes). Text goes up to 32 MB: past the large-file thresholds
+ * (editor/largeFile.ts) the editor drops the heavy features instead of refusing the file, but it
+ * still holds the whole document and reads it through base64 IPC, so there is a ceiling.
+ */
 export const MAX_BYTES: Record<ViewerKind, number> = {
-	text: 2 * 1024 * 1024,
-	markdown: 2 * 1024 * 1024,
+	text: 32 * 1024 * 1024,
+	markdown: 8 * 1024 * 1024,
 	svg: 8 * 1024 * 1024,
 	image: 64 * 1024 * 1024,
 	pdf: 200 * 1024 * 1024,

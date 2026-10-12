@@ -12,6 +12,9 @@ use clap::{Args, Subcommand};
 use serde_json::{Value, json};
 
 use super::AtlasCommand;
+use super::hostd_reconcile::{
+    check_report, interactive, parse_choice, reconcile_host, restart_host, snapshot,
+};
 
 #[derive(Debug, Args)]
 pub struct HostdArgs {
@@ -31,10 +34,24 @@ pub struct HostdArgs {
     /// Replace the running daemon with this binary, keeping every terminal alive
     #[arg(long, conflicts_with_all = ["stop", "status"])]
     pub upgrade: bool,
+    /// Report whether the running daemon is current (exit 0 current, 3 stale, 1 not running)
+    #[arg(long, conflicts_with_all = ["stop", "status", "upgrade", "reconcile", "restart"])]
+    pub check: bool,
+    /// Bring the running daemon to this binary's version: live handoff when it can, a silent
+    /// restart when no terminal runs, otherwise ask (never ends a terminal without consent)
+    #[arg(long, conflicts_with_all = ["stop", "status", "upgrade", "restart"])]
+    pub reconcile: bool,
+    /// What `--reconcile` does when terminals would be lost and you are not asked
+    #[arg(long, value_parser = ["ask", "idle", "later"], default_value = "ask", requires = "reconcile")]
+    pub choice: String,
+    /// Restart the daemon now, ending its terminals, and verify the new one
+    #[arg(long, conflicts_with_all = ["stop", "status", "upgrade"])]
+    pub restart: bool,
 }
 
 impl AtlasCommand for HostdArgs {
     async fn run(self) -> Result<()> {
+        let explicit_dir = self.dir.is_some();
         let dir = self.dir.unwrap_or_else(paths::base);
         if let Some(sock) = self.takeover {
             return atlas_host::server::serve_with(
@@ -44,6 +61,38 @@ impl AtlasCommand for HostdArgs {
                 },
             )
             .await;
+        }
+        let bundled = env!("CARGO_PKG_VERSION");
+        let hint = if explicit_dir {
+            format!(" --dir {}", dir.display())
+        } else {
+            String::new()
+        };
+        if self.check {
+            return match snapshot(&dir).await {
+                None => {
+                    println!("Terminal host is not running ({}).", dir.display());
+                    std::process::exit(1);
+                }
+                Some((_, s)) => match check_report(&s, bundled, &hint) {
+                    None => {
+                        println!("Terminal host {bundled} is current.");
+                        Ok(())
+                    }
+                    Some(r) => {
+                        println!("{r}");
+                        std::process::exit(3);
+                    }
+                },
+            };
+        }
+        if self.reconcile {
+            reconcile_host(&dir, bundled, parse_choice(&self.choice), interactive()).await?;
+            return Ok(());
+        }
+        if self.restart {
+            restart_host(&dir, bundled).await?;
+            return Ok(());
         }
         if self.stop || self.status || self.upgrade {
             let c = HostClient::connect_dir(&dir, "cli")

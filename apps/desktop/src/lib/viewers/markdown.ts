@@ -65,3 +65,21 @@ export function renderMarkdown(text: string, dir: string, untrusted = false): st
 	});
 	return m.parse(text) as string;
 }
+
+/** Renderer overrides for text that came over the network: raw HTML is text, only http(s)/mailto links work. */
+const NETWORK_TEXT = {
+	html: ({ text: raw }: Tokens.HTML | Tokens.Tag) => esc(raw),
+	image: ({ text: alt }: Tokens.Image) => esc(alt),
+	link({ href, text: label }: Tokens.Link) {
+		return /^(https?:|mailto:)/i.test(href) ? `<a href="${esc(href)}">${label}</a>` : label;
+	},
+};
+
+/**
+ * One changelog bullet's markdown as HTML (code spans, emphasis, links). Inline when it is one
+ * paragraph; block when it carries a nested list or several paragraphs.
+ */
+export function renderNote(text: string): string {
+	const m = new Marked({ async: false, gfm: true, renderer: NETWORK_TEXT });
+	return (/\n\s*([-*]\s|\n)/.test(text) ? m.parse(text) : m.parseInline(text)) as string;
+}

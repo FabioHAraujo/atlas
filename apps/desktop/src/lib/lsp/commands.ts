@@ -12,12 +12,13 @@ import type { EditorView } from "@codemirror/view";
 const actions = () => import("#lib/lsp/actions.ts");
 
 /**
- * The focused editor, when a language server serves it and the keyboard focus is inside it: F2/F12
- * must not fire from the palette, the rename prompt or a terminal that merely sits in the same pane.
+ * The focused editor of a file that has a language session (served or not) with the keyboard focus
+ * inside it: F2/F12 must not fire from the palette, the rename prompt or a terminal that merely
+ * sits in the same pane. An unserved file still gets the command so it can say why nothing happens.
  */
 const lspView = () => {
 	const v = activeEditor();
-	return v && ops.lspEnv(v)?.doc.open && v.dom.contains(document.activeElement) ? v : undefined;
+	return v && ops.lspEnv(v) && v.dom.contains(document.activeElement) ? v : undefined;
 };
 
 /** Any focused file editor, served by a language server or not (Format falls back to the built-in formatter). */

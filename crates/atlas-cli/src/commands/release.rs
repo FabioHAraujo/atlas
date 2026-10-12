@@ -11,16 +11,20 @@ pub const REPO: &str = "codeatlasdev/atlas";
 
 /// Download `asset` and its `.sha256` from the public release `tag` into `dir` and verify
 /// the checksum. Fails closed: a missing asset, a missing checksum or a mismatch is an error.
-pub fn download_verified(tag: &str, asset: &str, dir: &Path) -> Result<PathBuf> {
+/// `on_progress(bytes_done, bytes_total)` reports the asset itself (total 0 = unknown).
+pub fn download_verified(
+    tag: &str,
+    asset: &str,
+    dir: &Path,
+    on_progress: impl FnMut(u64, u64),
+) -> Result<PathBuf> {
     let tarball = dir.join(asset);
-    let sum = dir.join(format!("{asset}.sha256"));
-    for (name, dest) in [
-        (asset.to_string(), &tarball),
-        (format!("{asset}.sha256"), &sum),
-    ] {
-        github::download_asset(REPO, tag, &name, dest)
-            .with_context(|| format!("{tag} has no {name} (download failed or missing asset)"))?;
-    }
+    let sum_name = format!("{asset}.sha256");
+    let sum = dir.join(&sum_name);
+    github::download_asset_progress(REPO, tag, asset, &tarball, on_progress)
+        .with_context(|| format!("{tag} has no {asset} (download failed or missing asset)"))?;
+    github::download_asset(REPO, tag, &sum_name, &sum)
+        .with_context(|| format!("{tag} has no {sum_name} (download failed or missing asset)"))?;
     verify_sha256(&tarball)?;
     Ok(tarball)
 }

@@ -105,6 +105,34 @@ describe("searchSettings", () => {
 			).toContain(e.id);
 		}
 	});
+
+	test("language server words find the Languages tab", () => {
+		for (const q of ["language server typescript", "gopls", "rust-analyzer", "custom command"]) {
+			const hit = searchSettings(q).find((e) => e.tab === "languages");
+			expect(hit, q).toBeDefined();
+		}
+		expect(searchSettings("custom command")[0]).toMatchObject({
+			id: "lsp-custom",
+			section: "appearance",
+			tab: "languages",
+		});
+		expect(
+			searchSettings("language server typescript gopls rust-analyzer custom command").length,
+		).toBeGreaterThan(0);
+	});
+
+	test("editor settings are searchable and live in the Editor tab", () => {
+		expect(searchSettings("tab size")[0]).toMatchObject({ id: "editor-tab-size", tab: "editor" });
+		expect(searchSettings("word_wrap")[0]).toMatchObject({ id: "editor-word-wrap", tab: "editor" });
+		expect(searchSettings("minimap")[0]).toMatchObject({ id: "editor-minimap", tab: "editor" });
+	});
+
+	test("Languages is its own Appearance tab, between Editor and Interface", () => {
+		const ids = APPEARANCE_TABS.map((t) => t.id);
+		expect(ids.indexOf("languages")).toBe(ids.indexOf("editor") + 1);
+		expect(resolveSection("appearance/languages")).toEqual({ section: "appearance", tab: "languages" });
+		expect(crumb(searchSettings("custom command")[0]!)).toBe("Appearance › Languages");
+	});
 });
 
 describe("crumb", () => {

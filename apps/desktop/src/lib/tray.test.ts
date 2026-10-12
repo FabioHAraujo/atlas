@@ -109,7 +109,10 @@ describe("recommend", () => {
 	});
 	test("update, then outdated host, then nothing", () => {
 		expect(recommend(snap({ update: { version: "1.2.3" } }), NOW).action).toEqual({ kind: "update" });
-		expect(recommend(snap({ host: { status: "outdated", version: "0.5.0" } }), NOW).icon).toBe("host");
+		const host = recommend(snap({ host: { status: "outdated", version: "0.5.0" } }), NOW);
+		expect(host.icon).toBe("host");
+		expect(host.title).toBe("Terminal host needs a restart");
+		expect(host.action).toEqual({ kind: "host" });
 		expect(recommend(snap(), NOW)).toBeNull();
 	});
 });

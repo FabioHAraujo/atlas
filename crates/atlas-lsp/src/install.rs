@@ -24,6 +24,18 @@ pub const NODE_VERSION: &str = "v24.21.0";
 /// Oldest system Node accepted (typescript-language-server's engine floor is the strictest).
 const NODE_MIN: (u32, u32, u32) = (22, 22, 2);
 
+/// Where a resolved server executable comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    /// Already on `PATH` (or `~/.cargo/bin`, `~/go/bin`…): never touched by Atlas.
+    Path,
+    /// Installed by Atlas under `~/.atlas/lsp/<server>/<version>/`.
+    Managed,
+    /// The user's own command from settings (`lsp.<language>.command`).
+    Custom,
+}
+
 /// How to launch a resolved server.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Launch {
@@ -31,6 +43,113 @@ pub struct Launch {
     pub args: Vec<String>,
     /// Extra `PATH` entries (managed node's bin dir) so servers can spawn `node`/`tsserver`.
     pub path_prepend: Vec<PathBuf>,
+    pub source: Source,
+    /// Version of the main package when Atlas manages it (`None`: a PATH binary, version unknown).
+    pub version: Option<String>,
+}
+
+impl Launch {
+    /// A launch of an executable the user provides (tests, custom commands).
+    pub fn custom(program: impl Into<PathBuf>, args: Vec<String>) -> Launch {
+        Launch {
+            program: program.into(),
+            args,
+            path_prepend: vec![],
+            source: Source::Custom,
+            version: None,
+        }
+    }
+}
+
+/// Why a server could not be resolved: machine-readable `code` for the UI, a one-line
+/// `message`, and what to do about it. Travels as the error of [`Installer::resolve`]
+/// (`anyhow::Error::downcast_ref::<Failure>()`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Failure {
+    /// `no_go` | `no_curl` | `offline` | `unsupported_platform` | `install_failed` | `custom_not_found` | `crashed`
+    pub code: &'static str,
+    pub message: String,
+    /// A sentence telling the user what to do.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// A shell command that fixes it, when there is one worth copying.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Failure {}
+
+impl Failure {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Failure {
+        Failure {
+            code,
+            message: message.into(),
+            hint: None,
+            command: None,
+        }
+    }
+    pub fn hint(mut self, hint: impl Into<String>) -> Failure {
+        self.hint = Some(hint.into());
+        self
+    }
+    pub fn command(mut self, command: impl Into<String>) -> Failure {
+        self.command = Some(command.into());
+        self
+    }
+
+    /// Classify an install error: network trouble reads as `offline`, anything else as
+    /// `install_failed` with the underlying message.
+    pub fn from_install(server: &str, e: &anyhow::Error) -> Failure {
+        if let Some(f) = e.downcast_ref::<Failure>() {
+            return f.clone();
+        }
+        let text = format!("{e:#}");
+        let lower = text.to_lowercase();
+        if lower.contains("curl not found") {
+            return Failure::new(
+                "no_curl",
+                format!("Could not download {server}: curl is missing"),
+            )
+            .hint("Atlas downloads language servers with curl. Install it and open the file again.")
+            .command("brew install curl");
+        }
+        if lower.contains("no rust-analyzer build for") || lower.contains("no node.js build for") {
+            return Failure::new("unsupported_platform", text)
+                .hint("There is no prebuilt server for this OS/CPU. Install one yourself and set its command in Settings → Languages.");
+        }
+        let net = [
+            "could not resolve",
+            "connection refused",
+            "timed out",
+            "network is unreachable",
+            "failed to connect",
+            "ssl",
+            "curl: (6)",
+            "curl: (7)",
+            "curl: (28)",
+            "enotfound",
+            "etimedout",
+            "getaddrinfo",
+        ]
+        .iter()
+        .any(|n| lower.contains(n));
+        if net {
+            Failure::new("offline", format!("Could not download {server}: {text}"))
+                .hint("Check the internet connection and open the file again.")
+        } else {
+            Failure::new(
+                "install_failed",
+                format!("Installing {server} failed: {text}"),
+            )
+            .hint("The install log is in ~/.atlas/lsp/logs. Retry from Settings → Languages.")
+        }
+    }
 }
 
 /// Where a server is in resolution; mirrored into the status pushed to clients.
@@ -56,7 +175,7 @@ fn version_dir(base: &Path, name: &str, version: &str) -> PathBuf {
     lsp_dir(base).join(name).join(version)
 }
 
-type Resolution = Arc<OnceCell<Result<Launch, String>>>;
+type Resolution = Arc<OnceCell<Result<Launch, Failure>>>;
 
 /// Shares one resolution per (server, version) between concurrent first-opens.
 #[derive(Default)]
@@ -65,47 +184,72 @@ pub struct Installer {
 }
 
 impl Installer {
-    /// Resolve `server`, installing it if needed. A failed install is cached for the process
-    /// lifetime only when `retry_failed` is false; callers normally retry on the next open.
+    /// Resolve `server`, installing it if needed. A failure is not pinned: the next open
+    /// (or `lsp_install`) tries again. The error downcasts to [`Failure`].
     pub async fn resolve(
         &self,
         base: &Path,
         server: &'static Server,
         progress: &dyn Progress,
     ) -> Result<Launch> {
-        let cell = self
-            .cells
-            .lock()
-            .entry(format!("{}@{}", server.name, server.version))
-            .or_default()
-            .clone();
+        let key = format!("{}@{}", server.name, server.version);
+        let cell = self.cells.lock().entry(key.clone()).or_default().clone();
         let res = cell
             .get_or_init(|| async {
                 resolve_uncached(base, server, progress)
                     .await
-                    .map_err(|e| format!("{e:#}"))
+                    .map_err(|e| Failure::from_install(server.name, &e))
             })
             .await
             .clone();
         if res.is_err() {
-            // Do not pin a failure (offline first run): the next open tries again.
-            self.cells
-                .lock()
-                .remove(&format!("{}@{}", server.name, server.version));
+            self.cells.lock().remove(&key);
         }
-        res.map_err(|e| anyhow!(e))
+        res.map_err(anyhow::Error::new)
     }
+
+    /// Forget a cached resolution (after an uninstall, so the next resolve looks again).
+    pub fn forget(&self, server: &Server) {
+        self.cells
+            .lock()
+            .remove(&format!("{}@{}", server.name, server.version));
+    }
+}
+
+fn path_launch(s: &Server, bin: PathBuf) -> Launch {
+    Launch {
+        program: bin,
+        args: s.args.iter().map(|a| (*a).to_string()).collect(),
+        path_prepend: vec![],
+        source: Source::Path,
+        version: None,
+    }
+}
+
+fn managed(program: PathBuf, args: Vec<String>, prepend: Vec<PathBuf>, s: &Server) -> Launch {
+    Launch {
+        program,
+        args,
+        path_prepend: prepend,
+        source: Source::Managed,
+        version: Some(s.version.to_string()),
+    }
+}
+
+fn no_go() -> Failure {
+    Failure::new(
+        "no_go",
+        "gopls is not installed and `go` was not found to build it",
+    )
+    .hint("Install Go, then open the file again. Atlas builds gopls with it.")
+    .command("brew install go")
 }
 
 async fn resolve_uncached(base: &Path, s: &'static Server, p: &dyn Progress) -> Result<Launch> {
     if let Some(bin) = which_in(s.bin, &extra_bin_dirs())
         && (s.install != Install::GithubGz || probe(&bin).await)
     {
-        return Ok(Launch {
-            program: bin,
-            args: s.args.iter().map(|a| (*a).to_string()).collect(),
-            path_prepend: vec![],
-        });
+        return Ok(path_launch(s, bin));
     }
     let dir = version_dir(base, s.name, s.version);
     match s.install {
@@ -115,26 +259,16 @@ async fn resolve_uncached(base: &Path, s: &'static Server, p: &dyn Progress) -> 
                 p.set(&format!("Downloading {} {}", s.name, s.version));
                 install_rust_analyzer(&dir, s.bin, s.version).await?;
             }
-            Ok(Launch {
-                program: bin,
-                args: vec![],
-                path_prepend: vec![],
-            })
+            Ok(managed(bin, vec![], vec![], s))
         }
         Install::GoInstall => {
             let bin = dir.join("bin").join(s.bin);
             if !bin.is_file() {
-                let go = which_in("go", &extra_bin_dirs()).ok_or_else(|| {
-                    anyhow!("gopls is not installed and `go` was not found to build it")
-                })?;
+                let go = which_in("go", &extra_bin_dirs()).ok_or_else(no_go)?;
                 p.set(&format!("Installing {} {}", s.name, s.version));
                 go_install(&go, &dir, s).await?;
             }
-            Ok(Launch {
-                program: bin,
-                args: vec![],
-                path_prepend: vec![],
-            })
+            Ok(managed(bin, vec![], vec![], s))
         }
         Install::Npm => {
             let (node, node_bin) = ensure_node(base, p).await?;
@@ -148,17 +282,97 @@ async fn resolve_uncached(base: &Path, s: &'static Server, p: &dyn Progress) -> 
             }
             let mut args = vec![entry.to_string_lossy().into_owned()];
             args.extend(s.args.iter().map(|a| (*a).to_string()));
-            Ok(Launch {
-                program: node,
-                args,
-                path_prepend: node_bin.into_iter().collect(),
-            })
+            Ok(managed(node, args, node_bin.into_iter().collect(), s))
         }
     }
 }
 
+/// What is installed for a server right now, without installing anything.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Detected {
+    /// `path` | `managed`; absent when not installed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// The toolchain needed to install it (`go`) is missing: install is impossible until it is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<Failure>,
+}
+
+/// Look for `s` the way [`Installer::resolve`] would, but never download or run an installer.
+/// A PATH rust-analyzer is probed (`--version`) because a rustup proxy may lack the component.
+pub async fn detect(base: &Path, s: &'static Server) -> Detected {
+    if let Some(bin) = which_in(s.bin, &extra_bin_dirs())
+        && (s.install != Install::GithubGz || probe(&bin).await)
+    {
+        return Detected {
+            source: Some(Source::Path),
+            version: version_of(&bin).await,
+            path: Some(bin),
+            blocked: None,
+        };
+    }
+    let dir = version_dir(base, s.name, s.version);
+    let installed = match s.install {
+        Install::GithubGz => dir.join(s.bin),
+        Install::GoInstall => dir.join("bin").join(s.bin),
+        Install::Npm => dir.join("node_modules").join(s.entry),
+    };
+    if installed.is_file() {
+        return Detected {
+            source: Some(Source::Managed),
+            path: Some(installed),
+            version: Some(s.version.to_string()),
+            blocked: None,
+        };
+    }
+    let blocked = (s.install == Install::GoInstall && which_in("go", &extra_bin_dirs()).is_none())
+        .then(no_go);
+    Detected {
+        source: None,
+        path: None,
+        version: None,
+        blocked,
+    }
+}
+
+/// First line of `<bin> --version`, trimmed; `None` when the binary does not answer in 3 s.
+async fn version_of(bin: &Path) -> Option<String> {
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        Command::new(bin)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let line = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+    (out.status.success() && !line.is_empty()).then_some(line)
+}
+
+/// Remove Atlas's managed copy of `s` (every version). PATH binaries are never touched.
+pub fn uninstall(base: &Path, s: &Server) -> Result<bool> {
+    let dir = lsp_dir(base).join(s.name);
+    if !dir.is_dir() {
+        return Ok(false);
+    }
+    std::fs::remove_dir_all(&dir).with_context(|| format!("remove {}", dir.display()))?;
+    Ok(true)
+}
+
 /// `~/.cargo/bin`, `~/go/bin` and friends: GUI apps often start without the shell's `PATH`.
-fn extra_bin_dirs() -> Vec<PathBuf> {
+pub fn extra_bin_dirs() -> Vec<PathBuf> {
     let Some(home) = dirs::home_dir() else {
         return vec![];
     };
@@ -631,6 +845,93 @@ mod tests {
         let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         e.write_all(&raw).unwrap();
         e.finish().unwrap()
+    }
+
+    #[test]
+    fn install_errors_classify_into_actionable_failures() {
+        let f = |m: &str| Failure::from_install("rust-analyzer", &anyhow!("{m}"));
+        assert_eq!(
+            f("curl: (6) Could not resolve host: github.com").code,
+            "offline"
+        );
+        assert_eq!(f("download x failed: Operation timed out").code, "offline");
+        assert_eq!(
+            f("curl not found — install it and try again").code,
+            "no_curl"
+        );
+        assert_eq!(
+            f("no rust-analyzer build for freebsd/x86_64").code,
+            "unsupported_platform"
+        );
+        let other = f("sha256 mismatch for u");
+        assert_eq!(other.code, "install_failed");
+        assert!(other.message.contains("sha256 mismatch"));
+        // A typed Failure inside the chain is returned as is.
+        let typed = anyhow::Error::new(no_go()).context("while installing");
+        let t = Failure::from_install("gopls", &typed);
+        assert_eq!(
+            (t.code, t.command.as_deref()),
+            ("no_go", Some("brew install go"))
+        );
+    }
+
+    #[tokio::test]
+    async fn detect_reports_managed_installs_and_blocked_toolchains_without_installing() {
+        let tmp = tempfile::tempdir().unwrap();
+        // An npm server nobody has on PATH: only a managed copy can satisfy detection.
+        let s = crate::registry::by_name("bash-language-server").unwrap();
+        if which_in(s.bin, &extra_bin_dirs()).is_some() {
+            return; // the machine has its own copy; `Source::Path` is covered by `resolve` tests
+        }
+        let none = detect(tmp.path(), s).await;
+        assert_eq!((none.source, none.path, none.version), (None, None, None));
+        assert!(
+            none.blocked.is_none(),
+            "an npm server is never blocked: Node is downloaded"
+        );
+
+        let entry = version_dir(tmp.path(), s.name, s.version)
+            .join("node_modules")
+            .join(s.entry);
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(&entry, "x").unwrap();
+        let managed = detect(tmp.path(), s).await;
+        assert_eq!(managed.source, Some(Source::Managed));
+        assert_eq!(managed.version.as_deref(), Some(s.version));
+        assert_eq!(managed.path.as_deref(), Some(entry.as_path()));
+
+        // gopls without Go: blocked with the install command, nothing is created.
+        let gopls = crate::registry::by_name("gopls").unwrap();
+        if which_in(gopls.bin, &extra_bin_dirs()).is_none()
+            && which_in("go", &extra_bin_dirs()).is_none()
+        {
+            let go = detect(tmp.path(), gopls).await;
+            let b = go.blocked.expect("gopls needs go");
+            assert_eq!(
+                (b.code, b.command.as_deref()),
+                ("no_go", Some("brew install go"))
+            );
+        }
+        assert!(!tmp.path().join("lsp/gopls").exists());
+    }
+
+    #[test]
+    fn uninstall_removes_every_managed_version_and_reports_absence() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = crate::registry::by_name("gopls").unwrap();
+        assert!(!uninstall(tmp.path(), s).unwrap());
+        for v in ["v0.1.0", "v0.2.0"] {
+            let d = version_dir(tmp.path(), s.name, v).join("bin");
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("gopls"), "x").unwrap();
+        }
+        assert!(uninstall(tmp.path(), s).unwrap());
+        assert!(!lsp_dir(tmp.path()).join("gopls").exists());
+        // Other servers are untouched.
+        let other = version_dir(tmp.path(), "rust-analyzer", "x");
+        std::fs::create_dir_all(&other).unwrap();
+        assert!(!uninstall(tmp.path(), s).unwrap());
+        assert!(other.exists());
     }
 
     #[test]

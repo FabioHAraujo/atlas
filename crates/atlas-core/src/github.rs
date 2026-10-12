@@ -140,11 +140,93 @@ pub fn latest_release(repo: &str) -> Result<ReleaseInfo, GithubError> {
 
 /// Download the release asset `name` of `tag` into `dest`.
 pub fn download_asset(repo: &str, tag: &str, name: &str, dest: &Path) -> Result<(), GithubError> {
+    download_asset_progress(repo, tag, name, dest, |_, _| {})
+}
+
+/// Like [`download_asset`], reporting `(bytes_done, bytes_total)` (total 0 while unknown)
+/// as the file grows. curl writes straight to `dest`; its size is polled from this thread
+/// until curl exits, so no output parsing and no extra copy are involved.
+pub fn download_asset_progress(
+    repo: &str,
+    tag: &str,
+    name: &str,
+    dest: &Path,
+    on_progress: impl FnMut(u64, u64),
+) -> Result<(), GithubError> {
+    let url = format!("https://github.com/{repo}/releases/download/{tag}/{name}");
+    let total = content_length(&url).unwrap_or(0);
     let mut c = curl();
-    c.arg("-L").arg("-o").arg(dest).arg(format!(
+    c.arg("-L").arg("-o").arg(dest).arg(&url);
+    watch_download(
+        c,
+        dest,
+        total,
+        std::time::Duration::from_millis(120),
+        on_progress,
+    )
+}
+
+/// Run `cmd` (which writes `dest`) to completion, calling `on_progress(size, total)` every
+/// `poll` while the file grows and once more at the end with the final size. A failed exit
+/// is an error carrying the command's stderr.
+fn watch_download(
+    mut cmd: Command,
+    dest: &Path,
+    total: u64,
+    poll: std::time::Duration,
+    mut on_progress: impl FnMut(u64, u64),
+) -> Result<(), GithubError> {
+    cmd.stdout(Stdio::null()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|_| GithubError::Missing)?;
+    let size = || std::fs::metadata(dest).map_or(0, |m| m.len());
+    let mut last = u64::MAX;
+    loop {
+        if let Some(st) = child
+            .try_wait()
+            .map_err(|e| GithubError::Failed(e.to_string()))?
+        {
+            if !st.success() {
+                let mut err = String::new();
+                if let Some(mut s) = child.stderr.take() {
+                    let _ = std::io::Read::read_to_string(&mut s, &mut err);
+                }
+                return Err(GithubError::Failed(err.trim().to_string()));
+            }
+            break;
+        }
+        let done = size();
+        if done != last {
+            last = done;
+            on_progress(done, total);
+        }
+        std::thread::sleep(poll);
+    }
+    let done = size();
+    on_progress(done, done.max(total));
+    Ok(())
+}
+
+/// `Content-Length` of release asset `name` of `tag`; `None` when unknown or offline.
+pub fn asset_size(repo: &str, tag: &str, name: &str) -> Option<u64> {
+    content_length(&format!(
         "https://github.com/{repo}/releases/download/{tag}/{name}"
-    ));
-    run(c).map(drop)
+    ))
+}
+
+/// `Content-Length` of the final response of `url` (follows redirects); `None` when unknown.
+fn content_length(url: &str) -> Option<u64> {
+    let mut c = curl();
+    c.args([
+        "-L",
+        "-I",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%header{content-length}",
+    ])
+    .arg(url);
+    let out = run(c).ok()?;
+    String::from_utf8_lossy(&out).trim().parse().ok()
 }
 
 #[cfg(test)]
@@ -176,5 +258,89 @@ mod tests {
             ("2.0.0", "", "")
         );
         assert!(sections("o/r", "no headings").is_empty());
+    }
+
+    fn sh(script: &str) -> Command {
+        let mut c = Command::new("sh");
+        c.args(["-c", script]);
+        c
+    }
+
+    #[test]
+    fn watch_reports_growth_then_the_final_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("a.bin");
+        let script = format!(
+            "printf aaaa > {d}; sleep 0.4; printf bbbb >> {d}; sleep 0.4; printf cccc >> {d}",
+            d = dest.display()
+        );
+        let mut seen = Vec::new();
+        watch_download(
+            sh(&script),
+            &dest,
+            12,
+            std::time::Duration::from_millis(20),
+            |d, t| {
+                seen.push((d, t));
+            },
+        )
+        .unwrap();
+        assert!(
+            seen.windows(2).all(|w| w[0].0 <= w[1].0),
+            "monotonic: {seen:?}"
+        );
+        assert!(
+            seen.iter().any(|&(d, _)| d == 4 || d == 8),
+            "intermediate: {seen:?}"
+        );
+        assert_eq!(seen.last(), Some(&(12, 12)));
+    }
+
+    #[test]
+    fn watch_total_follows_the_file_when_the_size_was_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("a.bin");
+        let script = format!("printf hello > {}", dest.display());
+        let mut last = (0, 0);
+        watch_download(
+            sh(&script),
+            &dest,
+            0,
+            std::time::Duration::from_millis(10),
+            |d, t| {
+                last = (d, t);
+            },
+        )
+        .unwrap();
+        assert_eq!(last, (5, 5));
+    }
+
+    #[test]
+    fn watch_failure_carries_the_commands_stderr() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("a.bin");
+        let e = watch_download(
+            sh("echo 'curl: (22) 404' >&2; exit 22"),
+            &dest,
+            0,
+            std::time::Duration::from_millis(10),
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("404"), "{e}");
+    }
+
+    #[test]
+    fn watch_missing_program_is_reported_as_missing_curl() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = watch_download(
+            Command::new("definitely-not-a-program"),
+            &dir.path().join("x"),
+            0,
+            std::time::Duration::from_millis(10),
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert!(matches!(e, GithubError::Missing));
     }
 }

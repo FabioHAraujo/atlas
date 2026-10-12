@@ -32,15 +32,31 @@ pub(crate) async fn handle(hub: &Hub, cmd: HostCmd, conn_id: u64) -> Option<Resu
             language_id,
             text,
             version,
+            overrides,
         } => {
             if let Err(e) = abs(&path) {
                 return Some(Err(e));
             }
+            let overrides: atlas_lsp::Overrides = match overrides {
+                None | Some(Value::Null) => Default::default(),
+                Some(v) => match serde_json::from_value(v) {
+                    Ok(o) => o,
+                    Err(e) => return Some(Err(format!("bad overrides: {e}"))),
+                },
+            };
             // No marker found: the file's own directory. The desktop opens projects at
             // worktree roots, which carry a marker for every language that matters.
             hub.lsp_docs.lock().insert(path.clone(), conn_id);
-            let r = lsp.open(&path, &language_id, text, version, None).await;
-            Ok(json!({"server": r.server, "status": r.status, "capabilities": r.capabilities}))
+            let r = lsp
+                .open_with(&path, &language_id, text, version, None, &overrides)
+                .await;
+            Ok(json!({
+                "server": r.server,
+                "status": r.status,
+                "capabilities": r.capabilities,
+                "reason": r.reason,
+                "supported": r.supported,
+            }))
         }
         HostCmd::LspChange {
             path,
@@ -75,6 +91,26 @@ pub(crate) async fn handle(hub: &Hub, cmd: HostCmd, conn_id: u64) -> Option<Resu
             Ok(json!({}))
         }
         HostCmd::LspStatus {} => Ok(json!({"servers": lsp.status()})),
+        HostCmd::LspCatalog {} => Ok(json!({
+            "servers": lsp.catalog().await,
+            "supported": atlas_lsp::registry::supported_languages(),
+        })),
+        HostCmd::LspInstall { name, reinstall } => match lsp.install(&name, reinstall).await {
+            Ok(()) => Ok(json!({"ok": true})),
+            Err(f) => Ok(json!({"ok": false, "reason": f})),
+        },
+        HostCmd::LspUninstall { name } => lsp
+            .uninstall(&name)
+            .await
+            .map(|removed| json!({"removed": removed}))
+            .map_err(|e| format!("{e:#}")),
+        HostCmd::LspRestart { name, root } => {
+            Ok(json!({"restarted": lsp.restart(&name, root.as_deref()).await}))
+        }
+        HostCmd::LspLog { name, lines } => {
+            let (path, text) = lsp.log(&name, lines);
+            Ok(json!({"path": path, "text": text}))
+        }
         HostCmd::LspApplyEditResult { id, applied } => {
             lsp.apply_edit_result(&id, applied);
             Ok(json!({}))
@@ -270,6 +306,75 @@ done
             (none["server"].clone(), none["status"].clone()),
             (Value::Null, json!("disabled"))
         );
+        // No server for the language: the reply says which languages do have one.
+        let sup: Vec<&str> = none["supported"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert!(
+            sup.contains(&"TypeScript") && sup.contains(&"Rust"),
+            "{sup:?}"
+        );
+        // A per-language `disabled` override never starts anything.
+        let off = client
+            .call(
+                "lsp_open",
+                json!({"path": file, "language_id": "rust", "text": "", "overrides": {"disabled": true}}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(off["status"], "disabled");
+        // Malformed overrides are an error reply, not a dropped connection.
+        let bad = client
+            .call(
+                "lsp_open",
+                json!({"path": file, "language_id": "rust", "text": "", "overrides": {"args": 5}}),
+            )
+            .await
+            .unwrap_err();
+        assert!(bad.to_string().contains("bad overrides"), "{bad}");
+        // Catalog, log and restart commands answer over the wire.
+        let cat = client.call("lsp_catalog", json!({})).await.unwrap();
+        assert!(
+            cat["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["name"] == "gopls" && s["install"] == "go")
+        );
+        assert!(cat["supported"].as_array().unwrap().len() > 5);
+        let log = client
+            .call("lsp_log", json!({"name": "rust-analyzer", "lines": 5}))
+            .await
+            .unwrap();
+        assert!(
+            log["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("lsp/logs/rust-analyzer.log")
+        );
+        let rs = client
+            .call("lsp_restart", json!({"name": "klingon"}))
+            .await
+            .unwrap();
+        assert_eq!(rs["restarted"], false);
+        let un = client
+            .call("lsp_uninstall", json!({"name": "klingon"}))
+            .await
+            .unwrap_err();
+        assert!(un.to_string().contains("unknown server"), "{un}");
+        let inst = client
+            .call("lsp_install", json!({"name": "klingon"}))
+            .await
+            .unwrap();
+        assert_eq!(inst["ok"], false);
+        assert_eq!(inst["reason"]["code"], "install_failed");
+        let st = client.call("lsp_status", json!({})).await.unwrap();
+        let s0 = &st["servers"][0];
+        assert_eq!(s0["label"], "rust-analyzer");
+        assert!(s0["log"].as_str().unwrap().ends_with("rust-analyzer.log"));
 
         // A dropped connection's documents are closed; the new owner of a re-opened one is
         // the connection that re-opened it.

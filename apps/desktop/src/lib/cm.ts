@@ -163,15 +163,32 @@ const theme = EditorView.theme({
 		color: "var(--cm-syn-variable-parameter, var(--cm-fg, var(--ca-text-primary)))",
 		fontStyle: "var(--cm-syn-variable-parameter-italic, normal)",
 	},
+	// Layout: the editor is the whole pane, whatever the document holds. CodeMirror's base theme pins
+	// `.cm-editor` to `position: relative !important`, so it cannot be taken out of flow: its host is
+	// a plain block (see Editor.svelte `.cm`) and the editor fills it with `width`/`height` 100%.
+	// Inside a flex row it was a content-sized item, i.e. as wide as the longest line. The scroller
+	// is the only scroll container (both axes, contained so the app never rubber-bands) and the
+	// content is at least as wide as the pane.
 	"&": {
+		width: "100%",
 		height: "100%",
 		fontSize: "var(--atlas-buffer-font-size, 12.5px)",
 		backgroundColor: "transparent",
 		color: FG,
 	},
-	".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "var(--atlas-buffer-line-height, 1.55)" },
+	".cm-scroller": {
+		fontFamily: "var(--mono)",
+		lineHeight: "var(--atlas-buffer-line-height, 1.55)",
+		overflow: "auto",
+		overscrollBehavior: "contain",
+		scrollbarGutter: "auto",
+	},
+	".cm-content": {
+		caretColor: "var(--cm-caret, var(--ca-brand-main))",
+		minWidth: "100%",
+		boxSizing: "border-box",
+	},
 	"&.cm-focused": { outline: "none" },
-	".cm-content": { caretColor: "var(--cm-caret, var(--ca-brand-main))" },
 	".cm-cursor, .cm-dropCursor": {
 		borderLeftColor: "var(--cm-caret, var(--ca-brand-main))",
 		borderLeftWidth: "2px",
@@ -183,7 +200,11 @@ const theme = EditorView.theme({
 
 	// Gutters and lines
 	".cm-gutters": {
-		backgroundColor: "transparent",
+		position: "sticky",
+		left: 0,
+		zIndex: 2,
+		flexShrink: 0,
+		backgroundColor: "var(--cm-gutter-bg, var(--ca-surface-base))",
 		border: "none",
 		color: "var(--cm-gutter, var(--ca-text-disabled))",
 	},

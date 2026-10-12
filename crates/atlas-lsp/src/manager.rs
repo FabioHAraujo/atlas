@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::caps;
-use crate::install::{self, Installer, Launch};
+use crate::install::{self, Failure, Installer, Launch, Source};
 use crate::registry::{self, Server};
 use crate::rpc::{Peer, RpcError};
 use crate::server::{self, Event, Live, Shared};
@@ -41,6 +41,8 @@ pub enum Push {
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ServerStatus {
     pub name: String,
+    /// Human name (`TypeScript`, `rust-analyzer`…) for UI.
+    pub label: String,
     pub root: String,
     pub language: String,
     pub state: State,
@@ -48,6 +50,36 @@ pub struct ServerStatus {
     pub progress: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+    /// Absolute path of this server's stderr log.
+    pub log: String,
+    /// Last stderr lines, for `crashed`/`missing`: why it died without opening the log.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tail: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<Failure>,
+}
+
+/// Per-language launch customization from the user's settings (`lsp.<language>` in
+/// `settings.json` / `.atlas/settings.json`); sent by the client with every `lsp_open`.
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
+pub struct Overrides {
+    /// Replaces the registry's server: run this program (looked up on `PATH`) instead.
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub initialization_options: Option<Value>,
+    /// Answers `workspace/configuration` (merged over Atlas's defaults) and is pushed with
+    /// `workspace/didChangeConfiguration`.
+    #[serde(default)]
+    pub settings: Option<Value>,
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
@@ -123,8 +155,12 @@ enum Phase {
     Downloading,
     Starting,
     Ready(Arc<Live>),
-    Crashed(String),
-    Missing(String),
+    Crashed(Failure),
+    Missing(Failure),
+}
+
+fn crashed(message: impl Into<String>) -> Phase {
+    Phase::Crashed(Failure::new("crashed", message))
 }
 
 struct InstState {
@@ -133,6 +169,8 @@ struct InstState {
     docs: Vec<String>,
     restarts: VecDeque<Instant>,
     idle_gen: u64,
+    /// How the running (or last started) process was launched.
+    launch: Option<(Source, Option<String>)>,
 }
 
 pub struct Inst {
@@ -140,6 +178,8 @@ pub struct Inst {
     root: String,
     language: String,
     gen_id: u64,
+    overrides: Overrides,
+    log: PathBuf,
     st: Mutex<InstState>,
     shared: Arc<Shared>,
     /// Bumped on every phase change; `open` waits on it.
@@ -149,12 +189,20 @@ pub struct Inst {
 impl Inst {
     fn status(&self) -> ServerStatus {
         let st = self.st.lock();
-        let (state, message) = match &st.phase {
-            Phase::Downloading => (State::Downloading, None),
-            Phase::Starting => (State::Starting, None),
-            Phase::Ready(_) => (State::Ready, self.shared.message.lock().clone()),
-            Phase::Crashed(m) => (State::Crashed, Some(m.clone())),
-            Phase::Missing(m) => (State::Missing, Some(m.clone())),
+        let (state, message, reason) = match &st.phase {
+            Phase::Downloading => (State::Downloading, None, None),
+            Phase::Starting => (State::Starting, None, None),
+            Phase::Ready(_) => (State::Ready, self.shared.message.lock().clone(), None),
+            Phase::Crashed(f) => (State::Crashed, Some(f.message.clone()), Some(f.clone())),
+            Phase::Missing(f) => (State::Missing, Some(f.message.clone()), Some(f.clone())),
+        };
+        let tail = match state {
+            State::Crashed | State::Missing => log_tail(&self.log, TAIL_LINES),
+            _ => vec![],
+        };
+        let (source, version) = match &st.launch {
+            Some((s, v)) => (Some(*s), v.clone()),
+            None => (None, None),
         };
         let progress = match &st.phase {
             Phase::Downloading | Phase::Starting | Phase::Ready(_) => self.shared.progress_text(),
@@ -162,11 +210,17 @@ impl Inst {
         };
         ServerStatus {
             name: self.server.name.into(),
+            label: registry::server_label(self.server).into(),
             root: self.root.clone(),
             language: self.language.clone(),
             state,
             progress,
             message,
+            version,
+            source,
+            log: self.log.to_string_lossy().into_owned(),
+            tail,
+            reason,
         }
     }
 
@@ -190,11 +244,28 @@ pub trait Resolver: Send + Sync + 'static {
         server: &'static Server,
         progress: &'a dyn install::Progress,
     ) -> std::pin::Pin<Box<dyn Future<Output = Result<Launch>> + Send + 'a>>;
+
+    /// Drop any cached resolution of `server` (after an uninstall).
+    fn forget(&self, _server: &'static Server) {}
 }
 
 pub struct DefaultResolver {
     pub base: PathBuf,
     pub installer: Installer,
+}
+
+/// One server in `lsp_catalog`: what Atlas can run and what it finds on this machine.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CatalogEntry {
+    pub name: &'static str,
+    pub label: &'static str,
+    /// LSP language ids it serves (settings keys).
+    pub languages: Vec<&'static str>,
+    pub language_labels: Vec<&'static str>,
+    /// `github` | `go` | `npm`
+    pub install: &'static str,
+    pub version: &'static str,
+    pub detected: install::Detected,
 }
 
 impl Resolver for DefaultResolver {
@@ -204,6 +275,10 @@ impl Resolver for DefaultResolver {
         progress: &'a dyn install::Progress,
     ) -> std::pin::Pin<Box<dyn Future<Output = Result<Launch>> + Send + 'a>> {
         Box::pin(self.installer.resolve(&self.base, server, progress))
+    }
+
+    fn forget(&self, server: &'static Server) {
+        self.installer.forget(server);
     }
 }
 
@@ -223,7 +298,8 @@ struct Inner {
     /// Request ids chosen by clients (`rid`) → (peer, server request id), for `lsp_cancel`.
     cancels: Mutex<HashMap<String, (Peer, i64)>>,
     edit_acks: Mutex<HashMap<String, oneshot::Sender<bool>>>,
-    /// Test hook: launch command overrides per server name.
+    /// Explicit installs in flight (server name → progress text), see `Manager::install`.
+    installing: Mutex<HashMap<String, String>>,
     closed: std::sync::atomic::AtomicBool,
 }
 
@@ -231,6 +307,81 @@ pub struct OpenReply {
     pub server: Option<&'static str>,
     pub status: &'static str,
     pub capabilities: Value,
+    /// Why the server is unavailable (`missing`/`crashed`).
+    pub reason: Option<Failure>,
+    /// For `disabled` (no server for the language): the languages that do have one.
+    pub supported: Vec<&'static str>,
+}
+
+impl OpenReply {
+    fn none(server: Option<&'static str>, status: &'static str) -> OpenReply {
+        OpenReply {
+            server,
+            status,
+            capabilities: Value::Null,
+            reason: None,
+            supported: vec![],
+        }
+    }
+}
+
+/// Key of an instance: the registry name, or a distinct one for a user-supplied command.
+fn instance_name(server: &Server, o: &Overrides) -> String {
+    match &o.command {
+        Some(c) => format!("{}#{c} {}", server.name, o.args.join(" ")),
+        None => server.name.to_string(),
+    }
+}
+
+/// Resolve the user's own server command: an absolute path, or a name looked up on `PATH`
+/// (plus the usual tool dirs). Never installs anything.
+fn custom_launch(cmd: &str, args: &[String]) -> std::result::Result<Launch, Failure> {
+    let program = if cmd.contains('/') {
+        let p = PathBuf::from(cmd);
+        p.is_file().then_some(p)
+    } else {
+        install::which_in(cmd, &install::extra_bin_dirs())
+    };
+    match program {
+        Some(p) => Ok(Launch::custom(p, args.to_vec())),
+        None => Err(Failure::new(
+            "custom_not_found",
+            format!("The custom language server command `{cmd}` was not found"),
+        )
+        .hint("Check the command in Settings → Languages (or .atlas/settings.json); it must be an executable on PATH or an absolute path.")),
+    }
+}
+
+/// Stderr lines kept in a status for a dead server.
+const TAIL_LINES: usize = 12;
+
+/// Last `n` non-empty lines of `log` (the server's stderr), reading only the file's tail.
+pub fn log_tail(log: &Path, n: usize) -> Vec<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const WINDOW: u64 = 16 * 1024;
+    let Ok(mut f) = std::fs::File::open(log) else {
+        return vec![];
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    if f.seek(SeekFrom::Start(len.saturating_sub(WINDOW))).is_err() {
+        return vec![];
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return vec![];
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<String> = text
+        .lines()
+        .map(|l| l.trim_end().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    // A window starting mid-file may begin with a partial line.
+    if len > WINDOW && !lines.is_empty() {
+        lines.remove(0);
+    }
+    let from = lines.len().saturating_sub(n);
+    lines.split_off(from)
 }
 
 impl Manager {
@@ -262,6 +413,7 @@ impl Manager {
             next_gen: AtomicU64::new(1),
             cancels: Mutex::default(),
             edit_acks: Mutex::default(),
+            installing: Mutex::default(),
             closed: Default::default(),
         });
         tokio::spawn(event_loop(Arc::downgrade(&inner), rx));
@@ -270,6 +422,125 @@ impl Manager {
 
     pub fn status(&self) -> Vec<ServerStatus> {
         self.inner.statuses()
+    }
+
+    /// Every server Atlas knows, with what is installed (PATH or managed) on this machine.
+    /// Never downloads or runs an installer.
+    pub async fn catalog(&self) -> Vec<CatalogEntry> {
+        let mut out = Vec::new();
+        for s in registry::SERVERS {
+            let mut languages: Vec<&'static str> = s.languages.to_vec();
+            languages.dedup();
+            let mut labels: Vec<&'static str> = vec![];
+            for l in s.languages {
+                let label = registry::language_label(l);
+                if !labels.contains(&label) {
+                    labels.push(label);
+                }
+            }
+            out.push(CatalogEntry {
+                name: s.name,
+                label: registry::server_label(s),
+                languages,
+                language_labels: labels,
+                install: match s.install {
+                    registry::Install::GithubGz => "github",
+                    registry::Install::GoInstall => "go",
+                    registry::Install::Npm => "npm",
+                },
+                version: s.version,
+                detected: install::detect(&self.inner.base, s).await,
+            });
+        }
+        out
+    }
+
+    /// Install (or reinstall) a managed server now, reporting progress through the normal
+    /// status push. Unlike an `open`, it does not need a document.
+    pub async fn install(&self, name: &str, reinstall: bool) -> Result<(), Failure> {
+        let s = registry::by_name(name)
+            .ok_or_else(|| Failure::new("install_failed", format!("unknown server {name}")))?;
+        if reinstall {
+            // Stops the running instances (they restart on the next open) and drops the copy.
+            self.uninstall(name)
+                .await
+                .map_err(|e| Failure::from_install(name, &e))?;
+        }
+        let inner = self.inner.clone();
+        inner.set_installing(name, Some("Installing".to_string()));
+        let me = inner.clone();
+        let n = name.to_string();
+        let progress = move |m: &str| me.set_installing(&n, Some(m.to_string()));
+        let res = inner
+            .resolver
+            .resolve(s, &progress)
+            .await
+            .map(|_| ())
+            .map_err(|e| Failure::from_install(s.name, &e));
+        inner.set_installing(name, None);
+        res
+    }
+
+    /// Remove Atlas's managed copy of a server (stops its instances first). PATH binaries stay.
+    pub async fn uninstall(&self, name: &str) -> Result<bool> {
+        let s = registry::by_name(name).ok_or_else(|| anyhow!("unknown server {name}"))?;
+        self.stop_instances(name).await;
+        self.inner.resolver.forget(s);
+        install::uninstall(&self.inner.base, s)
+    }
+
+    /// Stop and start again the instances of `name` (all roots, or only `root`); documents
+    /// stay open and are replayed. Resets the crash budget.
+    pub async fn restart(&self, name: &str, root: Option<&str>) -> bool {
+        let insts: Vec<Arc<Inst>> = self
+            .inner
+            .insts
+            .lock()
+            .values()
+            .filter(|i| i.server.name == name && root.is_none_or(|r| i.root == r))
+            .cloned()
+            .collect();
+        let hit = !insts.is_empty();
+        for i in insts {
+            if let Some(live) = i.live() {
+                server::shutdown(&live).await;
+            }
+            i.st.lock().restarts.clear();
+            let me = self.inner.clone();
+            tokio::spawn(async move { me.bring_up(i).await });
+        }
+        hit
+    }
+
+    async fn stop_instances(&self, name: &str) {
+        let insts: Vec<Arc<Inst>> = {
+            let mut m = self.inner.insts.lock();
+            let keys: Vec<_> = m
+                .iter()
+                .filter(|(_, i)| i.server.name == name)
+                .map(|(k, _)| k.clone())
+                .collect();
+            keys.iter().filter_map(|k| m.remove(k)).collect()
+        };
+        for i in insts {
+            i.st.lock().idle_gen += 1;
+            if let Some(live) = i.live() {
+                server::shutdown(&live).await;
+            }
+            i.set_phase(crashed("uninstalled"));
+        }
+        self.inner
+            .docs
+            .lock()
+            .retain(|_, d| d.inst.server.name != name);
+        self.inner.notify_status();
+    }
+
+    /// The last `lines` of a server's stderr log and its path.
+    pub fn log(&self, name: &str, lines: usize) -> (PathBuf, String) {
+        let path = install::log_dir(&self.inner.base).join(format!("{name}.log"));
+        let text = log_tail(&path, lines.clamp(1, 500)).join("\n");
+        (path, text)
     }
 
     /// Open (or re-open after a client reconnect) a document. Returns once the server is
@@ -283,18 +554,43 @@ impl Manager {
         version: i64,
         fallback_root: Option<&Path>,
     ) -> OpenReply {
+        self.open_with(
+            path,
+            language_id,
+            text,
+            version,
+            fallback_root,
+            &Overrides::default(),
+        )
+        .await
+    }
+
+    /// [`Manager::open`] with the user's per-language customization (custom command,
+    /// initialization options, settings, disabled).
+    pub async fn open_with(
+        &self,
+        path: &str,
+        language_id: &str,
+        text: String,
+        version: i64,
+        fallback_root: Option<&Path>,
+        overrides: &Overrides,
+    ) -> OpenReply {
         let inner = &self.inner;
         let Some(server) = registry::for_language(language_id) else {
             return OpenReply {
-                server: None,
-                status: "disabled",
-                capabilities: Value::Null,
+                supported: registry::supported_languages(),
+                ..OpenReply::none(None, "disabled")
             };
         };
+        if overrides.disabled {
+            return OpenReply::none(Some(server.name), "disabled");
+        }
         let root = registry::find_root(server, Path::new(path), fallback_root)
             .to_string_lossy()
             .into_owned();
-        let key = (server.name.to_string(), root.clone());
+        // A custom command is a different process than the registry's: never share an instance.
+        let key = (instance_name(server, overrides), root.clone());
         // Re-open of an already tracked path: close the old attachment first.
         if inner.docs.lock().contains_key(path) {
             self.close_inner(path, false).await;
@@ -310,6 +606,7 @@ impl Manager {
                         root: root.clone(),
                         progress: Mutex::default(),
                         message: Mutex::default(),
+                        settings: overrides.settings.clone(),
                         events: inner.events.clone(),
                         gen_id,
                         next_edit: AtomicU64::new(1),
@@ -319,11 +616,14 @@ impl Manager {
                         root: root.clone(),
                         language: language_id.to_string(),
                         gen_id,
+                        overrides: overrides.clone(),
+                        log: install::log_dir(&inner.base).join(format!("{}.log", server.name)),
                         st: Mutex::new(InstState {
                             phase: Phase::Downloading,
                             docs: vec![],
                             restarts: VecDeque::new(),
                             idle_gen: 0,
+                            launch: None,
                         }),
                         shared,
                         phase_changed: tokio::sync::watch::channel(0).0,
@@ -359,14 +659,14 @@ impl Manager {
         loop {
             enum Settled {
                 Ready(Arc<Live>),
-                Missing,
-                Crashed,
+                Missing(Failure),
+                Crashed(Failure),
                 Pending,
             }
             let settled = match &inst.st.lock().phase {
                 Phase::Ready(live) => Settled::Ready(live.clone()),
-                Phase::Missing(_) => Settled::Missing,
-                Phase::Crashed(_) => Settled::Crashed,
+                Phase::Missing(f) => Settled::Missing(f.clone()),
+                Phase::Crashed(f) => Settled::Crashed(f.clone()),
                 Phase::Downloading | Phase::Starting => Settled::Pending,
             };
             match settled {
@@ -375,33 +675,26 @@ impl Manager {
                     // registered before ready; this covers a doc opened on a ready server.
                     inner.did_open_if_needed(&inst, path, &live).await;
                     return OpenReply {
-                        server: Some(server.name),
-                        status: "ready",
                         capabilities: live.capabilities.clone(),
+                        ..OpenReply::none(Some(server.name), "ready")
                     };
                 }
-                Settled::Missing => {
+                Settled::Missing(f) => {
                     return OpenReply {
-                        server: None,
-                        status: "missing",
-                        capabilities: Value::Null,
+                        reason: Some(f),
+                        ..OpenReply::none(Some(server.name), "missing")
                     };
                 }
-                Settled::Crashed => {
+                Settled::Crashed(f) => {
                     return OpenReply {
-                        server: Some(server.name),
-                        status: "crashed",
-                        capabilities: Value::Null,
+                        reason: Some(f),
+                        ..OpenReply::none(Some(server.name), "crashed")
                     };
                 }
                 Settled::Pending => {}
             }
             if rx.changed().await.is_err() {
-                return OpenReply {
-                    server: Some(server.name),
-                    status: "crashed",
-                    capabilities: Value::Null,
-                };
+                return OpenReply::none(Some(server.name), "crashed");
             }
         }
     }
@@ -573,7 +866,7 @@ impl Manager {
                 if let Some(live) = i.live() {
                     server::shutdown(&live).await;
                 }
-                i.set_phase(Phase::Crashed("shut down".into()));
+                i.set_phase(crashed("shut down"));
             });
         }
         set.join_all().await;
@@ -602,12 +895,52 @@ impl Manager {
 impl Inner {
     fn statuses(&self) -> Vec<ServerStatus> {
         let mut v: Vec<_> = self.insts.lock().values().map(|i| i.status()).collect();
+        for (name, text) in self.installing.lock().iter() {
+            if v.iter()
+                .any(|s| s.name == *name && s.state == State::Downloading)
+            {
+                continue;
+            }
+            if let Some(srv) = registry::by_name(name) {
+                v.push(ServerStatus {
+                    name: srv.name.into(),
+                    label: registry::server_label(srv).into(),
+                    root: String::new(),
+                    language: srv.languages[0].into(),
+                    state: State::Downloading,
+                    progress: Some(text.clone()),
+                    message: None,
+                    version: Some(srv.version.into()),
+                    source: Some(Source::Managed),
+                    log: install::log_dir(&self.base)
+                        .join(format!("{}.log", srv.name))
+                        .to_string_lossy()
+                        .into_owned(),
+                    tail: vec![],
+                    reason: None,
+                });
+            }
+        }
         v.sort_by(|a, b| (&a.name, &a.root).cmp(&(&b.name, &b.root)));
         v
     }
 
     fn notify_status(&self) {
         let _ = self.push.try_send(Push::Status(self.statuses()));
+    }
+
+    /// An explicit install (`lsp_install`) in progress: shown as a `downloading` entry even
+    /// when no document has an instance of that server yet.
+    fn set_installing(&self, name: &str, text: Option<String>) {
+        match text {
+            Some(t) => {
+                self.installing.lock().insert(name.to_string(), t);
+            }
+            None => {
+                self.installing.lock().remove(name);
+            }
+        }
+        self.notify_status();
     }
 
     /// Resolve → start → replay open docs. Also the restart path (after a crash).
@@ -621,20 +954,41 @@ impl Inner {
                 HashMap::from([("install".to_string(), (m.to_string(), String::new()))]);
             me.notify_status();
         };
-        let launch = match self.resolver.resolve(inst.server, &progress).await {
+        let resolved = match &inst.overrides.command {
+            Some(cmd) => custom_launch(cmd, &inst.overrides.args),
+            None => self
+                .resolver
+                .resolve(inst.server, &progress)
+                .await
+                .map_err(|e| Failure::from_install(inst.server.name, &e)),
+        };
+        let launch = match resolved {
             Ok(l) => l,
-            Err(e) => {
+            Err(f) => {
                 inst.shared.progress.lock().clear();
-                inst.set_phase(Phase::Missing(format!("{e:#}")));
+                inst.set_phase(Phase::Missing(f));
                 self.notify_status();
                 return;
             }
         };
         inst.shared.progress.lock().clear();
+        inst.st.lock().launch = Some((launch.source, launch.version.clone()));
         inst.set_phase(Phase::Starting);
         self.notify_status();
-        let log = install::log_dir(&self.base).join(format!("{}.log", inst.server.name));
-        match server::start(&launch, inst.shared.clone(), &log, self.cfg.init_timeout).await {
+        let init = inst
+            .overrides
+            .initialization_options
+            .clone()
+            .unwrap_or_else(|| caps::init_options(inst.server.name));
+        match server::start(
+            &launch,
+            inst.shared.clone(),
+            &inst.log,
+            self.cfg.init_timeout,
+            init,
+        )
+        .await
+        {
             Ok(live) => {
                 let live = Arc::new(live);
                 // Replay documents under the lock-free snapshot, then flip to ready; a doc
@@ -647,7 +1001,10 @@ impl Inner {
                 self.notify_status();
             }
             Err(e) => {
-                inst.set_phase(Phase::Crashed(format!("{e:#}")));
+                inst.set_phase(Phase::Crashed(
+                    Failure::new("crashed", format!("{e:#}"))
+                        .hint("Open the server log from the status bar, or restart the server."),
+                ));
                 self.notify_status();
             }
         }
@@ -702,7 +1059,7 @@ impl Inner {
             if let Some(live) = inst.live() {
                 server::shutdown(&live).await;
             }
-            inst.set_phase(Phase::Crashed("idle".into()));
+            inst.set_phase(crashed("idle"));
             me.notify_status();
         });
     }
@@ -750,7 +1107,7 @@ impl Inner {
             self.insts
                 .lock()
                 .remove(&(inst.server.name.to_string(), inst.root.clone()));
-            inst.set_phase(Phase::Crashed("exited".into()));
+            inst.set_phase(crashed("exited"));
             self.notify_status();
         } else if retry {
             inst.set_phase(Phase::Starting);
@@ -763,10 +1120,13 @@ impl Inner {
             tokio::time::sleep(backoff).await;
             self.bring_up(inst).await;
         } else {
-            inst.set_phase(Phase::Crashed(format!(
-                "{} crashed repeatedly; reopen the file to retry",
-                inst.server.name
-            )));
+            inst.set_phase(Phase::Crashed(
+                Failure::new(
+                    "crashed",
+                    format!("{} crashed repeatedly", inst.server.name),
+                )
+                .hint("Open the server log from the status bar, then restart the server."),
+            ));
             self.notify_status();
         }
     }

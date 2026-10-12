@@ -19,6 +19,7 @@
 	import { tilde } from "#lib/format.ts";
 	import { updates as u } from "#lib/stores/updates.svelte.ts";
 	import Group from "./Group.svelte";
+	import HostStatusRow from "./HostStatusRow.svelte";
 	import Row from "./Row.svelte";
 	import SectionTitle from "./SectionTitle.svelte";
 
@@ -84,6 +85,13 @@
 	<Alert severity="error" title="Could not check for updates">{u.error}</Alert>
 {/if}
 
+{#if u.available && !u.pill && !u.linked}
+	<p class="skipnote">
+		You skipped {u.release?.version}, so Atlas will not remind you. It will tell you about the next one.
+		<button class="link" onclick={u.unskip}>Stop skipping</button>
+	</p>
+{/if}
+
 <Group>
 	<Row
 		icon={Terminal}
@@ -111,6 +119,7 @@
 			{#if u.appBehind && !u.linked}<ArrowRight size={12} /><b>{u.release?.version}</b>{/if}
 		</div>
 	</Row>
+	<HostStatusRow />
 	<Row icon={Sparkles} name="Channel" sub="Stable releases from GitHub">
 		<button class="link" onclick={() => api.openUrl(CHANGELOG_URL)}
 			>Full changelog <ExternalLink size={11} /></button
@@ -357,5 +366,10 @@
 		display: flex;
 		justify-content: flex-end;
 		gap: 8px;
+	}
+	.skipnote {
+		margin: 8px 2px 0;
+		font-size: 12px;
+		color: var(--ca-text-secondary);
 	}
 </style>

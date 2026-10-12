@@ -4,16 +4,27 @@
 	import { fly } from "svelte/transition";
 	import { updates } from "#lib/stores/updates.svelte.ts";
 
+	const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 	// Shown once per update; the store clears it when dismissed or when the sheet opens.
 	let v = $derived(updates.updatedTo);
+	/** One line about this release: its summary when the changelog has one, else the first change. */
+	let summary = $state("");
+	$effect(() => {
+		summary = "";
+		if (!v) return;
+		let live = true;
+		void updates.summaryOf(v).then((t) => live && (summary = t));
+		return () => (live = false);
+	});
 </script>
 
 {#if v && !updates.whatsNewOpen}
-	<div class="card" role="status" transition:fly={{ y: 12, duration: 220 }}>
+	<div class="card" role="status" transition:fly={{ y: reduced ? 0 : 12, duration: reduced ? 0 : 220 }}>
 		<span class="ok"><Check size={13} strokeWidth={3} /></span>
 		<div class="text">
 			<b>Updated to {v}</b>
-			<span>Atlas is on the latest version.</span>
+			<span>{summary || "Atlas is on the latest version."}</span>
 		</div>
 		<Button size="sm" variant="glass" onclick={updates.showWhatsNew}>See what's new</Button>
 		<button class="x" aria-label="Dismiss" onclick={updates.dismissUpdated}><X size={13} /></button>
@@ -53,6 +64,10 @@
 		font-size: 12.5px;
 	}
 	.text span {
+		max-width: 38ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-size: 11.5px;
 		color: var(--ca-text-secondary);
 	}

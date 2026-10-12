@@ -146,15 +146,19 @@ pub fn atlas_bin() -> Result<PathBuf> {
 
 /// Connect to the local hostd, starting it (detached, own session) if needed.
 pub async fn ensure_local(atlas: &Path, client: &str) -> Result<HostClient> {
-    let dir = paths::base();
-    if let Ok(c) = HostClient::connect_dir(&dir, client).await {
+    ensure_in(&paths::base(), atlas, client).await
+}
+
+/// [`ensure_local`] for the hostd at `dir`.
+pub async fn ensure_in(dir: &Path, atlas: &Path, client: &str) -> Result<HostClient> {
+    if let Ok(c) = HostClient::connect_dir(dir, client).await {
         return Ok(c);
     }
-    std::fs::create_dir_all(&dir)?;
-    let log = paths::open_log(&dir)?;
+    std::fs::create_dir_all(dir)?;
+    let log = paths::open_log(dir)?;
     let mut cmd = std::process::Command::new(atlas);
     cmd.arg("hostd")
-        .env(paths::DIR_ENV, &dir)
+        .env(paths::DIR_ENV, dir)
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
@@ -167,13 +171,13 @@ pub async fn ensure_local(atlas: &Path, client: &str) -> Result<HostClient> {
     let mut last = None;
     for _ in 0..50 {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        match HostClient::connect_dir(&dir, client).await {
+        match HostClient::connect_dir(dir, client).await {
             Ok(c) => return Ok(c),
             Err(e) => last = Some(e),
         }
     }
     Err(last.unwrap_or_else(|| anyhow!("hostd did not start")))
-        .with_context(|| format!("see {}", paths::log(&dir).display()))
+        .with_context(|| format!("see {}", paths::log(dir).display()))
 }
 
 /// A `pty_attach_raw` connection: `read` yields the pty's raw output (replay first);

@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from "svelte";
-	import { EditorView, basicSetup } from "codemirror";
-	import { Compartment, EditorState } from "@codemirror/state";
-	import { keymap } from "@codemirror/view";
+	import { EditorView } from "@codemirror/view";
 	import { toast } from "@codeatlasdev/ui";
 	import {
 		WrapText,
@@ -13,10 +11,10 @@
 		FolderSearch,
 		ExternalLink,
 		Globe,
+		Undo2,
 	} from "@lucide/svelte";
-	import { atlasTheme } from "#lib/cm.ts";
-	import { host, b64bytes } from "#lib/host.ts";
-	import { api, errText } from "#lib/api.ts";
+	import { host } from "#lib/host.ts";
+	import { errText } from "#lib/api.ts";
 	import { ws } from "#lib/stores/workspace.svelte.ts";
 	import DiffView from "#lib/components/DiffView.svelte";
 	import Tip from "#lib/components/Tip.svelte";
@@ -25,14 +23,23 @@
 	import "#lib/outline.ts";
 	import { registerEditor, unregisterEditor } from "#lib/symbols.ts";
 	import { LspDoc } from "#lib/lsp/client.svelte.ts";
+	import { lspGated } from "#lib/lsp/uiState.svelte.ts";
 	import { applyDiagnostics, countDiagnostics } from "#lib/lsp/diagnostics.ts";
 	import { formatBeforeSave, lspCompletion, lspExtension } from "#lib/lsp/extension.ts";
 	import LspStatus from "#lib/lsp/LspStatus.svelte";
 	import { openLocation, showLocations } from "#lib/lsp/workspace.ts";
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
+	import { EditorSession } from "#lib/editor/EditorSession.svelte.ts";
+	import { registerSession } from "#lib/editor/registry.ts";
+	import { editorPrefs } from "#lib/editor/settings.ts";
+	import { runStatusAction } from "#lib/editor/statusActions.ts";
+	import { convertIndentation } from "#lib/editor/commands.ts";
+	import StatusBar from "#lib/editor/StatusBar.svelte";
+	import Breadcrumbs from "#lib/editor/Breadcrumbs.svelte";
+	import { gotoLine } from "@codemirror/search";
 	import { MAX_BYTES, MIME, extOf, viewerKind } from "#lib/viewers/kind.ts";
 	import { readBlob } from "#lib/viewers/load.ts";
-	import { langForPath, langIdForPath, loadLanguage, lspLanguageId } from "#lib/viewers/lang.ts";
+	import { loadLanguage, lspLanguageId } from "#lib/viewers/lang.ts";
 	import { fileType } from "#lib/viewers/fileType.ts";
 	import { rememberRich, wantsRich } from "#lib/viewers/richPref.ts";
 	import RichView from "#lib/viewers/rich/RichView.svelte";
@@ -49,33 +56,19 @@
 		focused = false,
 	}: { worktreeId: string; path: string; focused?: boolean } = $props();
 
-	const SAVE_IDLE_MS = 500;
-	const HEX_BYTES = 4096;
-
 	let el: HTMLDivElement | undefined = $state();
-	let view: EditorView | undefined;
-	let phase = $state<"loading" | "text" | "media" | "large" | "binary" | "error">("loading");
+	let view: EditorView | undefined = $state.raw();
+	/** Non-text kinds and load failures; text uses the session's phase. */
+	let own = $state<"media" | "error" | null>(null);
 	let error = $state("");
 	let progress = $state(0);
-	let fileSize = $state(0);
-	let head = $state<Uint8Array | undefined>();
 	let media = $state<{ url: string; blob: Blob } | null>(null);
-	let wrap = $state(false);
 	let rich = $state(false);
-	let mounted = $state(false);
 	/** SVG: rendered image (true) or source in the editor (false). */
 	let rendered = $state(true);
 	let changes = $state(false);
-	let text = $state("");
-	const wrapC = new Compartment();
-	const langC = new Compartment();
-	const lspC = new Compartment();
 	let lspDoc = $state<LspDoc | undefined>();
 	let problems = $state({ error: 0, warning: 0 });
-	let saveTimer: number | undefined;
-	let lastSaved = "";
-	/** Unmounting: save as is, never format a view that is being destroyed. */
-	let closing = false;
 	const abort = new AbortController();
 
 	let root = $derived(ws.worktree(worktreeId)?.path ?? "");
@@ -87,38 +80,50 @@
 	/** Rich view of a non-Markdown file type (Markdown, SVG keep their own viewers). */
 	let richKind = $derived(kind === "text" ? ft.view : undefined);
 	let hasRich = $derived(isMd || !!richKind);
+
+	// svelte-ignore state_referenced_locally
+	const session = new EditorSession(abs, path, root, {
+		extensions: () => [],
+		onChange: (u) => lspDoc?.change(u.startState.doc, u.changes),
+		onConflict: () => {},
+	});
+	let phase = $derived(own ?? session.phase);
+	let text = $derived(session.text);
+	let fileSize = $derived(session.fileSize);
+	let head = $derived(session.head);
+	let wrap = $derived(session.wrap);
 	/** Text-backed view shown right now (CodeMirror is mounted but hidden otherwise). */
 	let showCm = $derived(
 		phase === "text" && !changes && !(isMd && rich) && !(!!richKind && rich) && !(isSvg && rendered),
 	);
+	let languageId = $derived(lspLanguageId(path) ?? ft.lang ?? "plaintext");
 
-	async function save() {
-		if (view && lspDoc?.open && !closing) await formatBeforeSave(view);
-		const cur = view?.state.doc.toString();
-		if (cur === undefined || cur === lastSaved) return;
-		try {
-			await host.fsWrite(abs, cur);
-			lastSaved = cur;
-			void lspDoc?.save();
-		} catch (e) {
-			toast.error(`Save failed: ${errText(e)}`);
-		}
-	}
+	/** Format on save (language server), then write. Returns once the write finished. */
+	const save = () =>
+		session.save(async () => {
+			if (view && lspDoc?.open) await formatBeforeSave(view);
+		});
 
 	/** Start (or stop) the language server session for this document per the settings. */
 	function syncLsp() {
 		const id = lspLanguageId(path);
-		const want = !!view && !!id && prefs.value.enable_language_servers && kind === "text";
+		const want = !!view && !!id && kind === "text";
 		if (!want) {
 			lspDoc?.close();
 			lspDoc = undefined;
 			problems = { error: 0, warning: 0 };
-			view?.dispatch({ effects: lspC.reconfigure([]) });
+			view?.dispatch({ effects: session.lspC.reconfigure([]) });
 			return;
 		}
 		if (lspDoc) return;
 		const v = view!;
-		const doc = new LspDoc(abs, id, () => v.state.doc.toString());
+		const doc = new LspDoc(
+			abs,
+			id,
+			() => v.state.doc.toString(),
+			root,
+			() => lspGated(id),
+		);
 		doc.listenDiagnostics((version, diags) => {
 			applyDiagnostics(v, diags, version, doc.version);
 			const c = countDiagnostics(v);
@@ -126,7 +131,7 @@
 		});
 		lspDoc = doc;
 		v.dispatch({
-			effects: lspC.reconfigure([
+			effects: session.lspC.reconfigure([
 				lspCompletion,
 				lspExtension({
 					env: {
@@ -143,90 +148,47 @@
 		});
 	}
 
-	function mountEditor() {
-		view = new EditorView({
-			parent: el!,
-			state: EditorState.create({
-				doc: text,
-				extensions: [
-					basicSetup,
-					lspC.of([]),
-					atlasTheme,
-					langC.of(langForPath(path)),
-					wrapC.of([]),
-					keymap.of([
-						{
-							key: "Alt-z",
-							run: () => {
-								toggleWrap();
-								return true;
-							},
-						},
-						{
-							key: "Mod-s",
-							run: () => {
-								void save();
-								return true;
-							},
-						},
-					]),
-					EditorView.updateListener.of((u) => {
-						if (!u.docChanged) return;
-						text = u.state.doc.toString();
-						lspDoc?.change(u.startState.doc, u.changes);
-						clearTimeout(saveTimer);
-						saveTimer = window.setTimeout(save, SAVE_IDLE_MS);
-					}),
-				],
-			}),
-		});
-		registerEditor(`${worktreeId}:${path}`, view, save, { path, root });
-		mounted = true;
-		syncLsp();
-	}
-
 	async function load() {
 		const st = await host.fsStat(abs);
-		fileSize = st.size;
 		const max = MAX_BYTES[kind];
 		if (st.size > max) {
-			phase = "large";
+			session.fileSize = st.size;
+			session.phase = "large";
 			return;
 		}
 		if (kind === "image" || kind === "pdf" || kind === "video" || kind === "audio") {
+			session.fileSize = st.size;
 			const blob = await readBlob(abs, st.size, MIME[extOf(path)], (p) => (progress = p), abort.signal);
 			media = { url: URL.createObjectURL(blob), blob };
-			phase = "media";
+			own = "media";
 			return;
 		}
-		const r = await host.fsRead(abs, max);
-		const bytes = b64bytes(r.data);
-		try {
-			text = lastSaved = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-		} catch {
-			head = bytes.subarray(0, HEX_BYTES);
-			phase = "binary";
-			return;
-		}
+		const plan = await session.read(max, abort.signal);
+		if (!plan) return;
 		rich = wantsRich(ft);
-		phase = "text";
+		session.phase = "text";
 		await Promise.resolve();
-		mountEditor();
+		const v = session.mount(el!, plan);
+		view = v;
+		registerEditor(`${worktreeId}:${path}`, v, () => save(), { path, root });
+		registerSession(v, session);
+		syncLsp();
 	}
 
 	onMount(() => {
 		load().catch((e) => {
 			if (e?.name === "AbortError") return;
 			error = errText(e);
-			phase = "error";
+			own = "error";
 		});
 		return () => {
 			abort.abort();
-			closing = true;
-			clearTimeout(saveTimer);
-			void save().finally(() => lspDoc?.close());
-			if (view) unregisterEditor(`${worktreeId}:${path}`, view);
-			view?.destroy();
+			const v = view;
+			void session
+				.dispose(() => {
+					if (v) unregisterEditor(`${worktreeId}:${path}`, v);
+				})
+				.finally(() => lspDoc?.close());
 			if (media?.url) URL.revokeObjectURL(media.url);
 		};
 	});
@@ -234,14 +196,15 @@
 		if (focused && showCm) view?.focus();
 	});
 	// Grammar for the file type: bundled ones are instant, the rest load as separate chunks.
-	// `mounted` is state so this re-runs once the (plain `let`) view exists.
 	$effect(() => {
 		const id = ft.lang;
 		const v = view;
-		if (!mounted || !v) return;
+		if (!v) return;
 		let live = true;
-		void loadLanguage(id).then((ext) => {
-			if (live && view === v) v.dispatch({ effects: langC.reconfigure(ext) });
+		// Huge files stay plain text: a grammar would parse the whole document in the background.
+		const grammar = session.plan?.large.disable.syntax === "none" ? Promise.resolve([]) : loadLanguage(id);
+		void grammar.then((ext) => {
+			if (live && view === v) v.dispatch({ effects: session.langC.reconfigure(ext) });
 		});
 		return () => (live = false);
 	});
@@ -249,11 +212,11 @@
 		void prefs.value.enable_language_servers;
 		syncLsp();
 	});
-
-	function toggleWrap() {
-		wrap = !wrap;
-		view?.dispatch({ effects: wrapC.reconfigure(wrap ? EditorView.lineWrapping : []) });
-	}
+	// Editor preferences (tab size, guides, rulers, wrap, …) apply live to the open view.
+	$effect(() => {
+		void editorPrefs();
+		session.applyPrefs();
+	});
 
 	const reveal = () => host.exec(root, ["open", "-R", abs]).catch((e) => toast.error(errText(e)));
 	const openExternal = () => host.exec(root, ["open", abs]).catch((e) => toast.error(errText(e)));
@@ -285,6 +248,31 @@
 			setRich(!rich);
 			e.preventDefault();
 		}
+		if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyZ" && showCm) {
+			session.setWrap(!session.wrap);
+			e.preventDefault();
+		}
+	}
+
+	let status = $derived(
+		session.status({ id: languageId }, { errors: problems.error, warnings: problems.warning }),
+	);
+
+	function statusAction(id: string) {
+		const v = view;
+		if (!v) return;
+		runStatusAction(id, {
+			indent: session.plan?.indent ?? { style: "space", size: 4 },
+			eol: status.eol,
+			setIndent: (style, size) => session.setIndent(style, size),
+			convertIndent: (style) => convertIndentation(style)(v),
+			setEol: (eol) => session.setEol(eol),
+			gotoLine: () => {
+				v.focus();
+				gotoLine(v);
+			},
+			showProblems: () => v.focus(),
+		});
 	}
 </script>
 
@@ -292,12 +280,7 @@
 
 <div class="editor">
 	<div class="bar">
-		<button class="path mono" title="Reveal in Finder" onclick={reveal}>
-			{path}
-		</button>
-		{#if lspDoc && showCm}
-			<LspStatus doc={lspDoc} errors={problems.error} warnings={problems.warning} />
-		{/if}
+		<span class="grow"></span>
 		{#if phase === "text"}
 			{#if isSvg}
 				<Tip label={rendered ? "Edit source" : "Show image"} side="bottom">
@@ -308,8 +291,17 @@
 					{/snippet}
 				</Tip>
 			{/if}
+			{#if session.dirty}
+				<Tip label="Revert file" side="bottom">
+					{#snippet child(props)}
+						<button {...props} onclick={() => void session.revert()}><Undo2 size={13} /></button>
+					{/snippet}
+				</Tip>
+			{/if}
 			{#if showCm || changes}
-				<button class:on={wrap} title="Word wrap (⌥Z)" onclick={toggleWrap}><WrapText size={13} /></button>
+				<button class:on={wrap} title="Word wrap (⌥Z)" onclick={() => session.setWrap(!session.wrap)}
+					><WrapText size={13} /></button
+				>
 				<button class:on={changes} title="Changes vs HEAD" onclick={() => (changes = !changes)}>
 					<DiffIcon size={13} />
 				</button>
@@ -344,6 +336,28 @@
 			</Tip>
 		{/if}
 	</div>
+	{#if showCm}
+		<Breadcrumbs {view} {path} line={session.cursor.line} doc={lspDoc} onreveal={reveal} />
+	{:else}
+		<div class="pathbar">
+			<button class="path mono" title="Reveal in Finder" onclick={reveal}>{path}</button>
+		</div>
+	{/if}
+	{#if session.plan?.large.notice && showCm}
+		<p class="notice" role="note">{session.plan.large.notice}</p>
+	{/if}
+	{#if session.conflict}
+		<div class="banner" role="alert">
+			<span>This file changed on disk and you have unsaved edits.</span>
+			<button onclick={() => void session.resolve("reload")}>Load from disk</button>
+			<button onclick={() => void session.resolve("keep")}>Keep my version</button>
+		</div>
+	{:else if session.deleted}
+		<div class="banner" role="alert">
+			<span>This file was deleted on disk. Saving writes it again.</span>
+			<button onclick={() => void save()}>Save</button>
+		</div>
+	{/if}
 	{#if phase === "loading"}
 		<div class="msg" aria-busy="true">
 			Loading…
@@ -372,6 +386,13 @@
 		<RichView view={richKind} ctx={{ text, path, worktreeId, root, size: fileSize, toSource }} />
 	{/if}
 	<div class="cm" class:hidden={!showCm} bind:this={el}></div>
+	{#if showCm}
+		<StatusBar input={status} onaction={statusAction}>
+			{#snippet lsp()}
+				{#if lspDoc}<LspStatus doc={lspDoc} errors={0} warnings={0} />{/if}
+			{/snippet}
+		</StatusBar>
+	{/if}
 </div>
 
 <style>
@@ -386,11 +407,16 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		padding: 4px 10px;
+		padding: 2px 10px;
+	}
+	.grow {
+		margin-right: auto;
+	}
+	.pathbar {
+		padding: 0 10px 4px;
 		border-bottom: 0.5px solid var(--ca-outline-subtle);
 	}
 	.path {
-		margin-right: auto;
 		border: 0;
 		background: none;
 		font-size: 11.5px;
@@ -399,7 +425,7 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.bar button:not(.path) {
+	.bar button {
 		display: inline-flex;
 		padding: 4px;
 		border: 0;
@@ -418,8 +444,16 @@
 	.fill {
 		flex: 1;
 		min-height: 0;
+		min-width: 0;
 		overflow: hidden;
+	}
+	.fill {
 		display: flex;
+	}
+	/* A block host: the CodeMirror view fills it (width/height 100%, see cm.ts), never the longest line. */
+	.cm {
+		display: block;
+		contain: strict;
 	}
 	.cm.hidden {
 		display: none;
@@ -430,5 +464,25 @@
 		padding: 20px;
 		color: var(--ca-text-secondary);
 		font-size: 13px;
+	}
+	.notice,
+	.banner {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0;
+		padding: 4px 10px;
+		font-size: 11.5px;
+		color: var(--ca-text-secondary);
+		background: color-mix(in oklab, var(--ca-semantic-warning) 12%, transparent);
+		border-bottom: 0.5px solid var(--ca-outline-subtle);
+	}
+	.banner button {
+		border: 0.5px solid var(--ca-outline-default);
+		border-radius: 5px;
+		background: var(--ca-action-hover);
+		color: var(--ca-text-primary);
+		padding: 1px 8px;
+		font: inherit;
 	}
 </style>

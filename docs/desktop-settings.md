@@ -24,6 +24,77 @@ Editor, interface and terminal preferences use [Zed's setting names](https://zed
 | `project_panel.indent_size` | `12` | 4–40 px |
 | `active_pane_modifiers.border_size` | `0` | 0–8 px border around the active pane |
 | `active_pane_modifiers.inactive_opacity` | `1` | 0.2–1; lower dims inactive panes |
+| `enable_language_servers` | `true` | language servers (completion, diagnostics, hover, go to definition) |
+| `format_on_save` | `false` | format with the language server when saving |
+| `inlay_hints.enabled` | `true` | inferred types and parameter names shown inline |
+
+## Code editor
+
+Settings → Appearance → Editor.
+
+| Key | Default | Notes |
+|---|---|---|
+| `editor.tab_size` | `4` | 1–16 columns |
+| `editor.insert_spaces` | `true` | Tab inserts spaces; `false` inserts tab characters |
+| `editor.word_wrap` | `false` | wrap long lines at the edge of the editor |
+| `editor.render_whitespace` | `"none"` | `none`, `selection` or `all` |
+| `editor.line_numbers` | `true` | |
+| `editor.minimap` | `false` | |
+| `editor.sticky_scroll` | `true` | keeps the enclosing function or class pinned while you scroll its body |
+| `editor.bracket_pair_colorization` | `true` | |
+| `editor.indent_guides` | `true` | |
+| `editor.rulers` | `[]` | columns for vertical lines, whole numbers 1–500, e.g. `[80, 100]`; anything else in the list is dropped |
+| `editor.highlight_active_line` | `true` | |
+| `editor.trim_trailing_whitespace_on_save` | `true` | |
+| `editor.insert_final_newline_on_save` | `true` | |
+| `editor.large_file_threshold_bytes` | `2000000` | 100000–100000000; bigger files open in a light mode without language features |
+| `editor.scroll_past_end` | `true` | |
+| `editor.smooth_scrolling` | `true` | |
+| `editor.auto_reload` | `true` | reload a file changed on disk when it has no unsaved edits |
+
+## Language servers
+
+Settings → Appearance → Languages lists every language server Atlas knows, shows whether it is on your `PATH`, managed by Atlas or missing, and lets you install, update, uninstall, restart it and open its log. Atlas runs a server from your `PATH` when it finds one, and otherwise downloads one the first time you open a file of that language.
+
+`lsp` replaces the server of a language or changes how it starts. Keys are LSP language ids (`typescript`, `rust`, `go`, `python`…); the same shape works in a project's `.atlas/settings.json`.
+
+```json
+{
+  "lsp": {
+    "typescript": {
+      "command": "/opt/homebrew/bin/typescript-language-server",
+      "args": ["--stdio"],
+      "initialization_options": { "preferences": { "importModuleSpecifier": "relative" } },
+      "settings": { "typescript": { "inlayHints": { "parameterNames": { "enabled": "all" } } } }
+    },
+    "python": { "disabled": true }
+  }
+}
+```
+
+| Key | Notes |
+|---|---|
+| `lsp.<language>.command` | run this program instead of the one Atlas finds or installs: a name on `PATH` or an absolute path. If it cannot be started the status bar says so |
+| `lsp.<language>.args` | arguments for `command` |
+| `lsp.<language>.initialization_options` | JSON object sent to the server once, when it starts |
+| `lsp.<language>.settings` | JSON object sent as the server's workspace configuration |
+| `lsp.<language>.disabled` | `true` turns language features off for that language |
+
+Entries of the wrong type are dropped one by one (a `command` that is not a string, `args` that is not a list of strings, a non-object option), and an entry left empty is removed, so a bad edit never stops the others from working. Changes apply to servers started afterwards; **Restart** in the Languages tab applies them to a running one.
+
+### Per-project overrides
+
+A project can carry its own overrides in `.atlas/settings.json` at the root of the worktree, with the same `lsp` shape:
+
+```json
+{
+  "lsp": {
+    "go": { "command": "/usr/local/bin/gopls", "settings": { "gopls": { "staticcheck": true } } }
+  }
+}
+```
+
+The project file wins over `~/.atlas/desktop/settings.json` field by field for the language it names (`command`, `args` and `disabled` are replaced; `initialization_options` and `settings` are merged deeper, project keys winning); languages and fields it does not mention keep your own settings. Settings → Languages links to the file (`.atlas/settings.json` in the footer) and creates it when it does not exist. An unreadable file is ignored and reported in the editor's language server status.
 
 ## Terminal
 

@@ -15,6 +15,13 @@
 
 	const space = useSpace();
 	let p = $derived(space.project);
+	// "Not now" hides the omp prompt on this Mac until the integration is enabled from Settings.
+	const OMP_DISMISSED = "atlas.ompPromptDismissed";
+	let ompDismissed = $state(localStorage.getItem(OMP_DISMISSED) === "1");
+	function dismissOmp() {
+		localStorage.setItem(OMP_DISMISSED, "1");
+		ompDismissed = true;
+	}
 </script>
 
 {#if p?.missing}
@@ -33,11 +40,12 @@
 
 	<div class="rule"></div>
 	<div class="float-anchor">
-		{#if agents.ompIntegration === "missing"}
+		{#if agents.ompIntegration === "missing" && !ompDismissed}
 			<div class="banner floating">
 				<Alert severity="info" title="Enable omp integration">
 					Atlas shows omp's state (working, needs you, done) through a small omp extension.
 					<Button size="sm" onclick={() => agents.enableOmp()}>Enable</Button>
+					<Button size="sm" variant="ghost" onclick={dismissOmp}>Not now</Button>
 				</Alert>
 			</div>
 		{/if}
@@ -65,12 +73,18 @@
 		height: 0;
 		z-index: 5;
 	}
+	/* Bottom-right card over the workbench: never covers the tab strip or the editor's first lines,
+	   and never moves the layout (or the native terminal views laid over it). */
 	.banner.floating {
-		position: absolute;
-		inset: 0 0 auto 0;
+		position: fixed;
+		right: 16px;
+		bottom: 104px;
+		width: min(420px, calc(100vw - 32px));
 		z-index: 5;
-		padding-top: 10px;
+		padding: 0;
 		pointer-events: none;
+		box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
+		border-radius: 12px;
 	}
 	.banner.floating :global(*) {
 		pointer-events: auto;

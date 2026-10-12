@@ -1,0 +1,86 @@
+// @ts-nocheck bun test runtime types are not part of the app tsconfig
+import { expect, test } from "bun:test";
+import { longestLine, planOpen, planSave, toViewText } from "./session.ts";
+import { DEFAULT_PREFS } from "#lib/prefs.ts";
+
+const prefs = { ...DEFAULT_PREFS.editor };
+const plan = (raw: string, over: Partial<Parameters<typeof planOpen>[0]> = {}) =>
+	planOpen({ raw, bytes: raw.length, path: "/w/src/a.ts", files: [], prefs, ...over });
+
+test("CRLF files show as \\n in the view and are written back as CRLF", () => {
+	const p = plan("a\r\nb\r\n");
+	expect(p.text).toBe("a\nb\n");
+	expect(p.eol).toBe("crlf");
+	expect(p.mixedEol).toBe(false);
+	expect(planSave("a\nb\nc\n", p)).toBe("a\r\nb\r\nc\r\n");
+});
+
+test("mixed endings are flagged and normalised to LF on save", () => {
+	const p = plan("a\r\nb\nc\r");
+	expect(p.mixedEol).toBe(true);
+	expect(p.eol).toBe("lf");
+	expect(p.text).toBe("a\nb\nc\n");
+});
+
+test(".editorconfig beats detection and preferences", () => {
+	const files = [
+		{
+			dir: "/w",
+			text: "root=true\n[*]\nindent_style=tab\ntab_width=8\nend_of_line=crlf\ntrim_trailing_whitespace=false\ninsert_final_newline=false\n",
+		},
+	];
+	const p = plan("    spaced();\n    x();\n", { files });
+	expect(p.indent).toEqual({ style: "tab", size: 8, detected: false });
+	expect(p.eol).toBe("crlf");
+	expect(p.save).toEqual({ trim: false, finalNewline: false });
+	expect(planSave("x  ", p)).toBe("x  ");
+});
+
+test("without config the file's own indentation wins over the preference, and says it was detected", () => {
+	const two = plan("function f() {\n  if (x) {\n    y();\n  }\n}\n");
+	expect(two.indent).toEqual({ style: "space", size: 2, detected: true });
+	const tabs = plan("function f() {\n\tif (x) {\n\t\ty();\n\t}\n}\n");
+	expect(tabs.indent.style).toBe("tab");
+	// No evidence: the preference, not marked as detected.
+	expect(plan("one line\n").indent).toEqual({ style: "space", size: 4, detected: false });
+});
+
+test("the save policy comes from preferences when there is no .editorconfig", () => {
+	const p = plan("x");
+	expect(p.save).toEqual({ trim: true, finalNewline: true });
+	expect(planSave("a  \nb", p)).toBe("a\nb\n");
+	expect(planSave("", p)).toBe("");
+});
+
+test("an untouched file saves back to exactly what was on disk (no phantom dirty state)", () => {
+	const disk = "a\nb\n";
+	const p = plan(disk);
+	expect(planSave(p.text, p)).toBe(disk);
+	const crlf = "a\r\nb\r\n";
+	const q = plan(crlf);
+	expect(planSave(q.text, q)).toBe(crlf);
+});
+
+test("a 5 MB minified one-liner is huge, skips indent sniffing and stays fast", () => {
+	const raw = `{"a":${"1,".repeat(2_500_000)}0}`;
+	const t0 = performance.now();
+	const p = plan(raw);
+	const ms = performance.now() - t0;
+	expect(p.large.tier).toBe("huge");
+	expect(p.large.notice).toContain("Huge file");
+	expect(p.large.disable.lsp).toBe(true);
+	expect(ms).toBeLessThan(500);
+});
+
+test("the large threshold preference moves the tier boundary", () => {
+	const raw = "x\n".repeat(60_000);
+	expect(plan(raw, { prefs: { ...prefs, large_file_threshold_bytes: 1_000_000 } }).large.tier).toBe("normal");
+	expect(plan(raw, { prefs: { ...prefs, large_file_threshold_bytes: 100_000 } }).large.tier).toBe("large");
+});
+
+test("longestLine and toViewText", () => {
+	expect(longestLine("")).toBe(0);
+	expect(longestLine("ab\nabcd\nabc")).toBe(4);
+	expect(toViewText("a\rb\r\nc")).toBe("a\nb\nc");
+	expect(toViewText("plain")).toBe("plain");
+});

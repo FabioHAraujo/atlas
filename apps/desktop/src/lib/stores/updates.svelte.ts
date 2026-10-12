@@ -8,13 +8,19 @@ import { agents } from "#lib/stores/agents.svelte.ts";
 import {
 	CHECK_EVERY_MS,
 	EMPTY_PREFS,
+	EMPTY_PROGRESS,
+	blurbOf,
 	justUpdated,
+	parseNotes,
 	parsePrefs,
+	phaseFromLog,
+	reduceProgress,
 	selectNotes,
 	shouldNotify,
 	shouldRecheck,
 	showPill,
-	stepsFromLog,
+	stepsFrom,
+	type ProgressEvent,
 	type ReleaseNotes,
 	type UpdatePrefs,
 } from "#lib/updates.ts";
@@ -47,6 +53,12 @@ class Updates {
 	/** How the last install ended; drives the step list. */
 	outcome = $state<"running" | "done" | "failed">("running");
 	log = $state<string[]>([]);
+	/** Why the last install failed (the CLI's last line); null until it does. */
+	failure = $state<string | null>(null);
+	/** Structured install progress (phases, download bytes, terminal-host outcome). */
+	progress = $state({ ...EMPTY_PROGRESS });
+	/** Bytes the pending update downloads (null while unknown). */
+	size = $state<number | null>(null);
 	relaunchNeeded = $state(false);
 	open = $state(false);
 	section = $state<SettingsSection>("general");
@@ -87,11 +99,13 @@ class Updates {
 	available = $derived(this.cliBehind || this.appBehind);
 	/** The pill in the sidebar: available, not skipped, not a dev build. */
 	pill = $derived(showPill(this.available, this.dev, this.prefs, this.release?.version));
-	steps = $derived(stepsFromLog(this.log, this.outcome));
+	steps = $derived(stepsFrom(this.progress, this.outcome, this.relaunchNeeded));
 
 	#started = false;
 	#unlisten: UnlistenFn[] = [];
 	#timer: number | null = null;
+	/** The running install speaks the `@@atlas` protocol: do not also guess phases from its text. */
+	#structured = false;
 
 	async init() {
 		if (this.#started) return;
@@ -101,6 +115,13 @@ class Updates {
 			await listen<string>("updates://log", (e) => {
 				this.log.push(e.payload);
 				if (this.log.length > 500) this.log.splice(0, this.log.length - 500);
+				// An older CLI has no `@@atlas` protocol: its plain lines still advance the phases.
+				const p = phaseFromLog(e.payload);
+				if (p && !this.#structured) this.progress = reduceProgress(this.progress, p);
+			}),
+			await listen<ProgressEvent>("updates://progress", (e) => {
+				this.#structured = true;
+				this.progress = reduceProgress(this.progress, e.payload);
 			}),
 			await getCurrentWindow().onFocusChanged(({ payload }) => {
 				if (payload && shouldRecheck(this.prefs, this.checkedAt, Date.now())) void this.check();
@@ -142,12 +163,25 @@ class Updates {
 			this.info = await invoke<SystemInfo>("system_info");
 			this.release = await invoke<Release>("latest_release");
 			this.checkedAt = Date.now();
+			void this.#loadSize();
 			await this.#notify();
 		} catch (e) {
 			this.error = errText(e);
 		} finally {
 			this.checking = false;
 		}
+	}
+
+	/** Download size of the pending update, for the sheet's button. Best effort. */
+	async #loadSize() {
+		const r = this.release;
+		this.size = null;
+		if (!r || !this.available) return;
+		this.size = await invoke<number | null>("update_size", {
+			version: r.version,
+			cli: r.cli_behind,
+			app: r.app_behind,
+		}).catch(() => null);
 	}
 
 	/** Native notification once per version, through the same path (and switch) as agent alerts. */
@@ -184,6 +218,19 @@ class Updates {
 		}
 	}
 
+	/** One line about release `version` for the "Updated to" card; "" when unavailable (offline). */
+	summaryOf = async (version: string): Promise<string> => {
+		const cached = this.notes.find((n) => n.version === version);
+		if (cached) return blurbOf(parseNotes(cached.notes));
+		try {
+			const all = await invoke<ReleaseNotes[]>("releases_between", { from: version, to: version });
+			const n = selectNotes(all, version, version)[0];
+			return n ? blurbOf(parseNotes(n.notes)) : "";
+		} catch {
+			return "";
+		}
+	};
+
 	/** Open the sheet on the available update, the version just installed, or the running one. */
 	showWhatsNew = () => {
 		this.whatsNewOpen = true;
@@ -201,6 +248,9 @@ class Updates {
 		toast.info(`Skipped ${v}. Atlas will tell you about the next one.`);
 	};
 
+	/** Take back "Skip this version": the pill and the notification return. */
+	unskip = () => this.#save({ skipped: null, notified: null });
+
 	setAuto = (auto: boolean) => this.#save({ auto });
 
 	/** Explicit check (palette, Settings): always says what it found. */
@@ -216,18 +266,24 @@ class Updates {
 	async #run(kind: Run, cmd: string) {
 		this.running = kind;
 		this.outcome = "running";
+		this.failure = null;
 		this.log = [];
+		this.progress = { ...EMPTY_PROGRESS };
+		this.#structured = false;
 		try {
 			const res = await invoke<boolean | null>(cmd);
 			if (res === true) this.relaunchNeeded = true;
 			this.outcome = "done";
-			toast.success(kind === "unlink" ? "Back on the release build" : "Atlas is up to date");
+			if (!this.whatsNewOpen)
+				toast.success(kind === "unlink" ? "Back on the release build" : "Atlas is up to date");
 			await this.check();
 			// The app bundle itself may have been replaced even when we could not detect it.
 			if (kind === "reinstall") this.relaunchNeeded = true;
 		} catch (e) {
 			this.outcome = "failed";
-			toast.error(errText(e), 10_000);
+			this.failure = errText(e);
+			// The sheet shows the failure inline with Retry; elsewhere a toast is all there is.
+			if (!this.whatsNewOpen) toast.error(this.failure, 10_000);
 		} finally {
 			this.running = null;
 		}

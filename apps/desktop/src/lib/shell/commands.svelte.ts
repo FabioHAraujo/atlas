@@ -25,6 +25,7 @@ import { isHtml } from "#lib/stores/preview.ts";
 import { previewHtml } from "#lib/stores/preview.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
 import { worktrees } from "#lib/stores/worktrees.svelte.ts";
+import { editorShellCommands } from "#lib/editor/shellCommands.ts";
 import { lspCommands } from "#lib/lsp/commands.ts";
 import { saveAllEditors } from "#lib/symbols.ts";
 
@@ -286,6 +287,7 @@ export function shellCommands(): Command[] {
 		...tabCommands(),
 		...projectCommands(),
 		...lspCommands(),
+		...editorShellCommands(),
 		...numberedCommands(),
 	];
 }

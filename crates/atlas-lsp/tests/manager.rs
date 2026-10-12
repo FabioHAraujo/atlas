@@ -42,11 +42,7 @@ impl Resolver for Fake {
                 .map(|(k, v)| format!("export {k}='{v}'; "))
                 .collect();
             args.push(format!("{exports}exec '{FAKE}'"));
-            Ok(Launch {
-                program: PathBuf::from("/bin/sh"),
-                args,
-                path_prepend: vec![],
-            })
+            Ok(Launch::custom("/bin/sh", args))
         })
     }
 }
@@ -203,7 +199,7 @@ async fn unknown_language_is_disabled_and_missing_server_reports_missing() {
     let r2 = rig_with(fast(), &[], 0, true);
     let a2 = r2.file("a.rs");
     let rep = r2.m.open(&a2, "rust", String::new(), 1, None).await;
-    assert_eq!((rep.server, rep.status), (None, "missing"));
+    assert_eq!((rep.server, rep.status), (Some("rust-analyzer"), "missing"));
     let st = r2.m.status();
     assert_eq!(st[0].state, State::Missing);
     assert!(st[0].message.as_deref().unwrap().contains("no such server"));

@@ -4,6 +4,39 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new); release channels (stable/beta) come once Atlas is stable.
 
+## [Unreleased]
+
+### Added
+
+- **A redesigned *What's new* sheet.** Each version gets a header with its version, date and a *Latest*, *Installed* or *New* badge, the changelog's one-line summary, and its changes in cards by kind (Added, Changed, Fixed, Security, Removed), each change as a bold title with its text under it (long ones fold behind *More*; code and links are styled). When several versions are between yours and the latest, a sticky version index follows your scroll, each version folds, and `j`/`k` or the arrows move between them. Loading, offline and empty states have a Retry, and the footer has *Full changelog* and *View on GitHub*. Light and dark themes, reduced motion respected.
+- **Updating shows what it is doing.** The button says what you get (*Update to 1.2.2 and relaunch · 15 MB*) and, while it runs, the footer shows Download, Verify, Install CLI, Update app, Terminal host and Relaunch with a real progress bar and byte count for the download.
+- **An update can no longer leave the CLI and the app on different versions.** If the app cannot be updated after the CLI was, the previous CLI is put back and Atlas tells you so; if even that fails it says exactly what to run. Only one update runs at a time (`~/.atlas/.update.lock`), across the app, the terminal and other windows.
+- **Skipping a version can be undone.** Settings → General → Updates says when you skipped the latest version and offers *Stop skipping*. *Remind me later* only closes the sheet; the pill stays.
+- **The "Updated to X" card shows what changed**, in one line from the changelog.
+
+- **`atlas update` never leaves the terminal host stale in silence.** After the app updates, a new _Terminal host_ step compares the running `atlas hostd` with the new version: it hands it over live without ending terminals, restarts it silently when none is running, and otherwise asks before ending anything (`Restart now and end N terminals? [y/N]`). Declined or non-interactive runs print what stays old, what that turns off (for example language features) and the command to fix it.
+- **`atlas hostd --check`, `--reconcile` and `--restart`.** `--check` reports the host's version, uptime and running terminals against the CLI and exits `0` current, `3` stale or `1` not running; `--reconcile [--choice ask|idle|later]` brings it up to date without losing terminals when it can; `--restart` replaces it on request and verifies the new one.
+
+- **The app tells you when the terminal host is stale.** On every connect Atlas Desktop compares the running host with itself: it hands it over live (a _Terminal host updated_ toast, no terminal lost) or restarts an empty one silently. When terminals run and features such as language servers would stay off, a _Restart the terminal host?_ dialog lists them (`title — ~/folder`) with **Restart now**, **Restart when idle** (also applied when you quit with nothing running) and **Later**; it asks once per host per session and never ends a terminal without your choice. A _Terminal host needs a restart_ chip in the sidebar footer, a _Terminal host_ row in Settings → Updates and a line in the menu-bar popover stay visible until it is current; a host that only differs in version shows a calm _Terminal host 1.1.0_ chip.
+
+- **The editor says why a language server is not working, and how to fix it.** A status bar chip under every text file shows its state (ready with name and version, starting, installing with progress, off in settings, no server for this language with the supported ones listed, needs Go or curl with the command to install it, offline, crashed with the last lines of the server's log, custom command not found) with the actions that fix it. F12, F2, ⇧F12 and ⌘. in a file without a server now explain once instead of showing "No language server for this file". With a terminal host too old for language servers the chip reads _Language features need a newer terminal host_ and offers **Restart terminal host** (listing the terminals it would end) or **Restart later**.
+- **Settings → Appearance → Languages** lists every language server (on your `PATH`, managed by Atlas or missing, with version and path) and installs, updates, uninstalls, restarts it and opens its log. Per language: a custom server `command` and `args`, `initialization_options`, `settings`, or off, in `settings.json` under `lsp` or per project in `.atlas/settings.json`.
+- **A VS Code-grade editor core.** Status bar (position, selections, indentation, line ending, encoding, language, language server, problems; click to change), breadcrumbs of the symbols around the caret, multiple cursors (⌥-click, ⌘D, ⌘⇧L, ⌥⌘↑/↓), column selection, move and copy line, delete line, line and block comments, indent and outdent, folding, go to line (⌃G), expand and shrink selection, sticky scroll, bracket pair colors, indent guides, rulers, whitespace rendering, an optional minimap, and a find and replace panel with regex, whole word, case, in selection, match counter and replacement preview. New `editor.*` preferences for all of it.
+- **`.editorconfig` and file-shape awareness.** `indent_style`, `indent_size`, `tab_width`, `end_of_line`, `trim_trailing_whitespace` and `insert_final_newline` are honored; without one, the file's own indentation and line endings are detected and kept (CRLF files stay CRLF). Saving trims trailing whitespace and ends the file with a newline unless told otherwise.
+- **Changes made outside the editor are followed.** A file edited on disk reloads (keeping the caret) when you have no unsaved edits; with unsaved edits Atlas asks to load from disk or keep your version, and autosave never overwrites the other change silently. Deleted files are reported. **Revert file** in the toolbar and the command palette.
+- **Large files open.** Text files up to 32 MB open instead of being refused; past `editor.large_file_threshold_bytes` (2 MB), or with a very long line (minified bundles), the editor turns off the heavy extras and says so.
+
+### Changed
+
+- **The editor always fills its pane.** The scroll area was as wide as the longest line, so short files left dead space and long ones scrolled the whole editor; it is now exactly the pane, scrolls horizontally only when a line needs it, keeps the line numbers in place and no longer moves the window behind it.
+- **⌘/ ⌘[ ⌘] ⌘L ⌘⇧\ edit the text while the cursor is in an editor** (comment, outdent, indent, select line, jump to bracket); the shell commands they normally run (Help, Back, Forward, Logs, Split down) stay in the command palette and the menus.
+- **One `.editorconfig` implementation** for the editor and Format, with the full rules (`root = true`, section precedence, braces, ranges).
+- **An idle terminal host exits on its own.** With no running terminal and no connected app or CLI for 10 minutes (`ATLAS_HOSTD_IDLE_SECS` to change), `atlas hostd` stops and removes its socket and pid file, so an old one no longer survives updates for days; it also stops if its folder is deleted. A host with a running terminal never exits.
+
+### Fixed
+
+- **The release date in *What's new* was one day early.** A calendar date such as `2026-10-12` was read as UTC midnight and shown in local time, so it showed the 11th west of Greenwich. Dates are now shown as the calendar day they are.
+
 ## [1.2.1] — 2026-10-12
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

@@ -5,9 +5,15 @@
  * and a re-open of every live document when hostd reconnects (a new daemon has no document state).
  */
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { untrack } from "svelte";
 import type { ChangeSet, Text } from "@codemirror/state";
 import { hostCall } from "#lib/host.ts";
 import { ChangeBuffer, pathToUri, type TextEdit, type WorkspaceEdit } from "#lib/lsp/convert.ts";
+import { mergeLspOverrides } from "#lib/lsp/overrides.ts";
+import type { ProjectLsp } from "#lib/lsp/projectParse.ts";
+import { invalidateProjectSettings, isProjectSettingsPath, projectLsp } from "#lib/lsp/projectSettings.ts";
+import type { Catalog, LspOverride, Reason, ServerStatus } from "#lib/lsp/types.ts";
+import { prefs } from "#lib/stores/prefs.svelte.ts";
 
 const CHANGE_DEBOUNCE_MS = 40;
 const PULL_DEBOUNCE_MS = 400;
@@ -22,16 +28,17 @@ export interface LspDiagnostic {
 	data?: unknown;
 }
 
-export type ServerState = "downloading" | "starting" | "ready" | "crashed" | "missing";
-
-export interface ServerStatus {
-	name: string;
-	root: string;
-	language: string;
-	state: ServerState;
-	progress?: string | null;
-	message?: string | null;
-}
+export type {
+	Catalog,
+	CatalogEntry,
+	LspOverride,
+	OpenStatus,
+	Reason,
+	ReasonCode,
+	ServerSource,
+	ServerState,
+	ServerStatus,
+} from "#lib/lsp/types.ts";
 
 /** Subset of `ServerCapabilities` the editor gates features on. */
 export interface Capabilities {
@@ -53,6 +60,8 @@ interface OpenReply {
 	server: string | null;
 	status: string;
 	capabilities?: Capabilities | null;
+	reason?: Reason;
+	supported?: string[];
 }
 
 /** Reactive state the UI reads: server list and per-path diagnostics. */
@@ -72,7 +81,8 @@ let offs: Promise<UnlistenFn[]> | null = null;
 /** Registered by the workspace: applies a server-initiated WorkspaceEdit (open docs + disk). */
 export const setApplyEditHandler = (h: EditHandler) => (editHandler = h);
 
-function ensureListeners() {
+/** Start the app-wide hostd listener (idempotent): status pushes, diagnostics, reconnect re-open. */
+export function startLspEvents() {
 	offs ??= Promise.all([
 		listen<Record<string, unknown> & { ev: string }>("host://event", (e) => onEvent(e.payload)),
 		listen("host://reconnected", () => {
@@ -82,7 +92,7 @@ function ensureListeners() {
 }
 
 function onEvent(p: Record<string, unknown> & { ev: string }) {
-	if (p.ev === "lsp_status") lsp.servers = p.servers as ServerStatus[];
+	if (p.ev === "lsp_status") applyServers(p.servers as ServerStatus[]);
 	else if (p.ev === "lsp_diagnostics") {
 		const path = p.path as string;
 		const diags = p.diagnostics as LspDiagnostic[];
@@ -97,9 +107,26 @@ function onEvent(p: Record<string, unknown> & { ev: string }) {
 	}
 }
 
+/** Replace the server list; documents that were waiting on a server that is now ready re-open. */
+function applyServers(next: ServerStatus[]) {
+	const was = lsp.servers;
+	lsp.servers = next;
+	for (const d of Object.values(docs)) {
+		if (d.open || !d.replied) continue;
+		const before = was.find((s) => s.name === d.server && s.state === "ready");
+		const now = next.find((s) => s.name === d.server && s.state === "ready");
+		if (now && !before) void d.reopen();
+	}
+}
+
 /** Refresh the server list (the push keeps it current afterwards). */
 export async function refreshStatus() {
-	lsp.servers = (await hostCall<{ servers: ServerStatus[] }>("lsp_status")).servers;
+	applyServers((await hostCall<{ servers: ServerStatus[] }>("lsp_status")).servers);
+}
+
+/** Ask hostd again for every open document (after a toolchain was installed or a setting changed). */
+export function reopenAll() {
+	for (const d of Object.values(docs)) void d.reopen();
 }
 
 /** The server (if any) handling `path`: the one whose root contains it, deepest root first. */
@@ -109,12 +136,45 @@ export function serverFor(path: string): ServerStatus | undefined {
 		.sort((a, b) => b.root.length - a.root.length)[0];
 }
 
+/** Restart the server `name` for `root` (clears a crash; the status push follows). */
+export async function restartServer(name: string, root?: string) {
+	await hostCall("lsp_restart", { name, ...(root ? { root } : {}) });
+	await refreshStatus().catch(() => {});
+}
+
+/** Download and install the managed server `name`; progress arrives as `downloading` status pushes. */
+export async function installServer(name: string, reinstall = false) {
+	await hostCall("lsp_install", { name, reinstall });
+	await refreshStatus().catch(() => {});
+}
+
+/** Stop an install in progress (uninstalls the partial download). */
+export async function cancelInstall(name: string) {
+	await hostCall("lsp_uninstall", { name });
+	await refreshStatus().catch(() => {});
+}
+
+/** Installed servers, what was detected on this machine, and the supported language names. */
+export const catalog = () => hostCall<Catalog>("lsp_catalog");
+
+/** Log file of server `name`: its absolute path and the last `lines` lines. */
+export const serverLog = (name: string, lines = 200) =>
+	hostCall<{ path: string; text: string }>("lsp_log", { name, lines });
+
 export class LspDoc {
 	version = 1;
 	/** Capabilities of the server for this document; `null` until it reports them. */
 	caps = $state<Capabilities | null>(null);
 	server = $state<string | null>(null);
 	status = $state<string>("starting");
+	/** Why hostd could not serve the file (missing toolchain, custom command not found…). */
+	reason = $state<Reason | undefined>();
+	/** Human names of the supported languages, when hostd has no server for this one. */
+	supported = $state<string[] | undefined>();
+	/** hostd has answered `lsp_open` at least once (before that the state is "starting"). */
+	replied = $state(false);
+	/** `.atlas/settings.json` is unusable: one line for the status popover. */
+	projectWarning = $state<string | undefined>();
 	#buf = new ChangeBuffer();
 	#timer: number | undefined;
 	#open = false;
@@ -122,16 +182,44 @@ export class LspDoc {
 	#diagListener: DiagListener | null = null;
 	#pullTimer: number | undefined;
 	#text: () => string;
+	#project: () => Promise<ProjectLsp>;
+	#gate: () => boolean;
+	#stopWatch: (() => void) | undefined;
+	#root: string | undefined;
 
+	/**
+	 * `root` is the worktree root (for `.atlas/settings.json`; without it only user settings apply).
+	 * `gated` says whether language servers are off right now (setting, per-language override, or a
+	 * host without `lsp`): the document then stays dormant and sends nothing to hostd.
+	 */
 	constructor(
 		readonly path: string,
 		readonly languageId: string,
 		text: () => string,
+		root?: string,
+		gated: () => boolean = () => false,
 	) {
 		this.#text = text;
-		ensureListeners();
+		this.#gate = gated;
+		this.#root = root;
+		this.#project = () => (root ? projectLsp(root) : Promise.resolve({ lsp: {} }));
+		startLspEvents();
 		docs[path] = this;
 		void this.reopen();
+		// Re-ask hostd when what it would be told changes: the gate (setting, override, host cap) or the
+		// language's override itself (command, args, options). The first run only records the baseline.
+		let first = true;
+		this.#stopWatch = $effect.root(() => {
+			$effect(() => {
+				void this.#gate();
+				void JSON.stringify(prefs.value.lsp?.[languageId] ?? null);
+				if (first) {
+					first = false;
+					return;
+				}
+				untrack(() => void this.reopen());
+			});
+		});
 	}
 
 	onDiagnostics(version: number | null | undefined, diags: LspDiagnostic[]) {
@@ -153,16 +241,28 @@ export class LspDoc {
 	 */
 	async reopen() {
 		if (this.#closed) return;
+		if (this.#gate()) {
+			// Settings or the host say no language server: nothing to ask hostd. The status item explains.
+			if (this.#open) void hostCall("lsp_close", { path: this.path }).catch(() => {});
+			this.#open = false;
+			this.server = null;
+			this.status = "starting";
+			this.caps = null;
+			this.replied = false;
+			return;
+		}
 		this.#buf.clear();
 		clearTimeout(this.#timer);
 		const sentVersion = this.version;
 		const sentText = this.#text();
 		try {
+			const overrides = await this.#overrides();
 			const r = await hostCall<OpenReply>("lsp_open", {
 				path: this.path,
 				language_id: this.languageId,
 				text: sentText,
 				version: sentVersion,
+				...(overrides ? { overrides } : {}),
 			});
 			if (this.#closed) {
 				if (r.server) void hostCall("lsp_close", { path: this.path }).catch(() => {});
@@ -170,6 +270,9 @@ export class LspDoc {
 			}
 			this.server = r.server;
 			this.status = r.status;
+			this.reason = r.reason;
+			this.supported = r.supported;
+			this.replied = true;
 			this.#open = r.server !== null && (r.status === "ready" || r.status === "starting");
 			this.caps = r.capabilities ?? null;
 			if (this.#open && this.version !== sentVersion) {
@@ -181,6 +284,7 @@ export class LspDoc {
 						language_id: this.languageId,
 						text: cur,
 						version: this.version,
+						...(overrides ? { overrides } : {}),
 					}).catch(() => {});
 				}
 			}
@@ -188,9 +292,22 @@ export class LspDoc {
 			else this.pullSoon(0);
 		} catch (e) {
 			this.status = "missing";
+			this.reason = {
+				code: "crashed",
+				message: "Atlas could not reach the language server host.",
+				hint: "Reopen the file; if it keeps happening, restart the app.",
+			};
+			this.replied = true;
 			this.#open = false;
 			console.warn("lsp_open failed", e);
 		}
+	}
+
+	/** Overrides for this document's language: user settings, then the project file over them. */
+	async #overrides(): Promise<LspOverride | undefined> {
+		const project = await this.#project().catch((): ProjectLsp => ({ lsp: {} }));
+		this.projectWarning = project.warning;
+		return mergeLspOverrides(prefs.value.lsp, project.lsp, this.languageId);
 	}
 
 	/** Server capabilities are only known once it is ready; asks again after each status change. */
@@ -252,6 +369,12 @@ export class LspDoc {
 	}
 
 	async save() {
+		// Saving the project settings file changes what hostd should be told for every document of that
+		// worktree: drop the cached copy and re-open them so the new overrides apply at once.
+		if (this.#root && isProjectSettingsPath(this.#root, this.path)) {
+			invalidateProjectSettings(this.#root);
+			reopenAll();
+		}
 		await this.flush();
 		if (this.#open) await hostCall("lsp_save", { path: this.path, text: this.#text() }).catch(() => {});
 		this.pullSoon(0);
@@ -262,6 +385,7 @@ export class LspDoc {
 	}
 
 	close() {
+		this.#stopWatch?.();
 		this.#closed = true;
 		clearTimeout(this.#timer);
 		clearTimeout(this.#pullTimer);

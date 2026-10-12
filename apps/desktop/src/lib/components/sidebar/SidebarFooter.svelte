@@ -1,14 +1,19 @@
 <script lang="ts">
-	/** Sidebar footer: update pill, space dots, add/find project, settings. */
-	import { IconButton, Kbd } from "@codeatlasdev/ui";
-	import { Plus, Search, Settings, Sparkles } from "@lucide/svelte";
+	/** Sidebar footer: update pill, terminal-host chip, space dots, add/find project, settings. */
+	import { IconButton, Kbd, Spinner } from "@codeatlasdev/ui";
+	import { Plus, Search, Settings, Sparkles, TerminalSquare } from "@lucide/svelte";
 	import Tip from "#lib/components/Tip.svelte";
+	import { chipFor } from "#lib/hostStatus.ts";
 	import { shortcutFor } from "#lib/keymap.svelte.ts";
 	import SpaceDots from "#lib/shell/SpaceDots.svelte";
+	import { hostState, openHostPrompt } from "#lib/stores/hostStatus.svelte.ts";
 	import { updates } from "#lib/stores/updates.svelte.ts";
 	import { addProject } from "./projects.ts";
 
 	let { onDiscover }: { onDiscover: () => void } = $props();
+	let chip = $derived(chipFor(hostState));
+	/** Something to decide opens the restart prompt; the calm "version differs" chip opens Settings. */
+	const openChip = () => (chip?.tone === "warn" ? openHostPrompt() : updates.show("updates"));
 </script>
 
 <footer>
@@ -17,6 +22,22 @@
 			<Sparkles size={13} />
 			<span>Update to {updates.release?.version}</span>
 		</button>
+	{/if}
+	{#if chip}
+		<Tip label={chip.detail || chip.label} side="top">
+			{#snippet child(props)}
+				<button
+					{...props}
+					class="host {chip.tone}"
+					disabled={chip.tone === "busy"}
+					onclick={openChip}
+					aria-label={chip.label}
+				>
+					{#if chip.tone === "busy"}<Spinner size={12} />{:else}<TerminalSquare size={13} />{/if}
+					<span>{chip.label}</span>
+				</button>
+			{/snippet}
+		</Tip>
 	{/if}
 	<SpaceDots />
 	<button class="add" onclick={addProject}><Plus size={14} /> Add project…</button>
@@ -98,6 +119,42 @@
 			transform: translateY(6px);
 			opacity: 0;
 		}
+	}
+	.host {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		height: 26px;
+		padding: 0 10px;
+		border: 0;
+		border-radius: 7px;
+		font: inherit;
+		font-size: 11.5px;
+		font-weight: 500;
+		text-align: left;
+		cursor: pointer;
+		color: var(--ca-text-secondary);
+		background: var(--ca-vibrancy-fill);
+	}
+	.host span {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.host.warn {
+		color: var(--ca-semantic-warning);
+		background: color-mix(in oklab, var(--ca-semantic-warning) 12%, transparent);
+	}
+	.host.warn:hover {
+		background: color-mix(in oklab, var(--ca-semantic-warning) 20%, transparent);
+	}
+	.host.info:hover {
+		color: var(--ca-text-primary);
+	}
+	.host.busy {
+		cursor: default;
 	}
 	.add {
 		display: flex;

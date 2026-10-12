@@ -5,7 +5,7 @@
 	import { themes } from "#lib/stores/theme.svelte.ts";
 	import type { Prefs } from "#lib/prefs.ts";
 	import { ANSI_VARS } from "#lib/ansi.ts";
-	import { hostCall } from "#lib/host.ts";
+	import { restartHost } from "#lib/stores/hostStatus.svelte.ts";
 	import { confirmDialog } from "#lib/stores/ask.svelte.ts";
 	import Group from "./Group.svelte";
 	import NumInput from "./NumInput.svelte";
@@ -18,15 +18,13 @@
 	const save = (patch: Partial<Prefs["terminal"]>) => savePref("terminal", { ...t, ...patch });
 
 	/** Ends every terminal: the app reconnects and starts the current host. */
-	async function restartHost() {
+	async function restart() {
 		const ok = await confirmDialog("Restart the terminal host?", {
 			description: "Running terminals and agents end. Tabs stay; use Restart on each to reopen them.",
 			confirmLabel: "Restart",
 			destructive: true,
 		});
-		if (!ok) return;
-		await hostCall("shutdown").catch(() => {});
-		gpu.hostTooOld = false;
+		if (ok) await restartHost();
 	}
 
 	let colors = $derived(themes.terminal);
@@ -52,7 +50,7 @@
 				<div class="notice">
 					<span>The running terminal host is from an older Atlas, so terminals use the classic renderer.</span
 					>
-					<Button size="sm" variant="outlined" onclick={restartHost}>Restart terminal host</Button>
+					<Button size="sm" variant="outlined" onclick={restart}>Restart terminal host</Button>
 				</div>
 			{/if}
 		{/snippet}

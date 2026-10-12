@@ -6,7 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { metrics } from "#lib/panel/metrics.svelte.ts";
-import { gpu } from "#lib/stores/gpu.svelte.ts";
+import { hostState, openHostPrompt } from "#lib/stores/hostStatus.svelte.ts";
 import { agents } from "#lib/stores/agents.svelte.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { updates } from "#lib/stores/updates.svelte.ts";
@@ -72,7 +72,7 @@ function snapshot(): TraySnapshot {
 			focusTab: needs[0]?.id ?? null,
 		},
 		terminals: { live: Object.values(ws.ptys).filter((p) => !p.exited && !(p.pty in ws.exited)).length },
-		host: { status: gpu.hostTooOld ? "outdated" : "current", version: updates.info?.cli.version ?? null },
+		host: { status: hostState.status, version: hostState.version },
 		update: updates.pill && updates.release ? { version: updates.release.version } : null,
 		dev: updates.dev,
 	};
@@ -87,6 +87,9 @@ function carryOut(a: TrayAction) {
 			break;
 		case "update":
 			updates.showWhatsNew();
+			break;
+		case "host":
+			openHostPrompt();
 			break;
 		case "project":
 			ws.view = "worktree";

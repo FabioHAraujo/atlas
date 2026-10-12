@@ -53,3 +53,101 @@ test("terminal font and padding: defaults, valid values, out-of-range fall back"
 	const bad = resolvePrefs({ terminal: { font_thicken: "yes", padding_x: -1, padding_y: 65 } }).terminal;
 	expect([bad.font_thicken, bad.padding_x, bad.padding_y]).toEqual([false, 10, 6]);
 });
+
+test("lsp map: defaults to empty, keeps valid entries", () => {
+	expect(resolvePrefs({}).lsp).toEqual({});
+	const p = resolvePrefs({
+		lsp: {
+			typescript: {
+				command: " /opt/tsls ",
+				args: ["--stdio", "--log"],
+				initialization_options: { a: 1 },
+				settings: { b: { c: true } },
+				disabled: false,
+			},
+			rust: { disabled: true },
+		},
+	});
+	expect(p.lsp).toEqual({
+		typescript: {
+			command: "/opt/tsls",
+			args: ["--stdio", "--log"],
+			initialization_options: { a: 1 },
+			settings: { b: { c: true } },
+			disabled: false,
+		},
+		rust: { disabled: true },
+	});
+});
+
+test("lsp map: bad shapes are dropped per field, empty entries disappear", () => {
+	for (const bad of [null, "x", 3, [], true]) expect(resolvePrefs({ lsp: bad }).lsp).toEqual({});
+	const p = resolvePrefs({
+		lsp: {
+			go: "gopls",
+			python: [1, 2],
+			c: null,
+			zig: { command: 5, args: "--stdio", initialization_options: [], settings: "x", disabled: "yes" },
+			lua: { command: "   ", args: ["ok", 1] },
+			java: { command: "jdtls", args: ["-data", "/tmp"], extra: 1 },
+		},
+	});
+	expect(p.lsp).toEqual({ java: { command: "jdtls", args: ["-data", "/tmp"] } });
+});
+
+test("editor prefs: defaults, valid values, ranges and enums", () => {
+	const d = resolvePrefs({}).editor;
+	expect(d).toEqual(DEFAULT_PREFS.editor);
+	expect([d.tab_size, d.insert_spaces, d.render_whitespace, d.large_file_threshold_bytes]).toEqual([
+		4,
+		true,
+		"none",
+		2_000_000,
+	]);
+	const ok = resolvePrefs({
+		editor: { tab_size: 2, word_wrap: true, render_whitespace: "all", large_file_threshold_bytes: 100_000 },
+	}).editor;
+	expect([ok.tab_size, ok.word_wrap, ok.render_whitespace, ok.large_file_threshold_bytes]).toEqual([
+		2,
+		true,
+		"all",
+		100_000,
+	]);
+	const bad = resolvePrefs({
+		editor: {
+			tab_size: 0,
+			render_whitespace: "boundary",
+			large_file_threshold_bytes: 99_999,
+			minimap: "yes",
+		},
+	}).editor;
+	expect([bad.tab_size, bad.render_whitespace, bad.large_file_threshold_bytes, bad.minimap]).toEqual([
+		4,
+		"none",
+		2_000_000,
+		false,
+	]);
+	expect(resolvePrefs({ editor: { tab_size: 17 } }).editor.tab_size).toBe(4);
+	expect(
+		resolvePrefs({ editor: { large_file_threshold_bytes: 100_000_001 } }).editor.large_file_threshold_bytes,
+	).toBe(2_000_000);
+	expect(resolvePrefs({ editor: "wide" }).editor).toEqual(DEFAULT_PREFS.editor);
+});
+
+test("editor.rulers: whole columns, sorted, deduplicated; the rest is dropped", () => {
+	expect(
+		resolvePrefs({ editor: { rulers: [100, 80, 80, 0, -1, 1.5, "90", 501, 500, null] } }).editor.rulers,
+	).toEqual([80, 100, 500]);
+	expect(resolvePrefs({ editor: { rulers: "80" } }).editor.rulers).toEqual([]);
+	expect(resolvePrefs({ editor: {} }).editor.rulers).toEqual([]);
+	expect(resolvePrefs({}).editor.rulers).toEqual([]);
+});
+
+test("resolving does not share mutable defaults between calls", () => {
+	const a = resolvePrefs({});
+	a.editor.rulers.push(80);
+	a.lsp.rust = { disabled: true };
+	expect(resolvePrefs({}).editor.rulers).toEqual([]);
+	expect(resolvePrefs({}).lsp).toEqual({});
+	expect(DEFAULT_PREFS.editor.rulers).toEqual([]);
+});

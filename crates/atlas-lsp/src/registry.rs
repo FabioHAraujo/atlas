@@ -176,6 +176,64 @@ pub fn for_language(language_id: &str) -> Option<&'static Server> {
     SERVERS.iter().find(|s| s.languages.contains(&language_id))
 }
 
+/// Display name of a server (`TypeScript / JavaScript`, `Rust`…), for settings and the status bar.
+pub fn server_label(s: &Server) -> &'static str {
+    match s.name {
+        "rust-analyzer" => "rust-analyzer",
+        "gopls" => "gopls",
+        "typescript-language-server" => "typescript-language-server",
+        "vscode-html-language-server" => "HTML language server",
+        "vscode-css-language-server" => "CSS language server",
+        "vscode-json-language-server" => "JSON language server",
+        "intelephense" => "Intelephense",
+        "basedpyright" => "basedpyright",
+        "yaml-language-server" => "YAML language server",
+        "bash-language-server" => "Bash language server",
+        other => other,
+    }
+}
+
+/// Human language names for the catalog (settings, "no server for X" messages), by LSP id.
+pub fn language_label(id: &str) -> &str {
+    match id {
+        "typescript" => "TypeScript",
+        "typescriptreact" => "TypeScript React",
+        "javascript" => "JavaScript",
+        "javascriptreact" => "JavaScript React",
+        "rust" => "Rust",
+        "go" => "Go",
+        "gomod" => "go.mod",
+        "gowork" => "go.work",
+        "gotmpl" => "Go templates",
+        "html" => "HTML",
+        "css" => "CSS",
+        "scss" => "SCSS",
+        "less" => "Less",
+        "json" => "JSON",
+        "jsonc" => "JSON with comments",
+        "php" => "PHP",
+        "python" => "Python",
+        "yaml" => "YAML",
+        "shellscript" | "bash" | "sh" | "shell" => "Shell",
+        other => other,
+    }
+}
+
+/// Languages that have a server, for "No language server for X; supported: …" messages.
+/// One entry per server language group, in registry order, without duplicates.
+pub fn supported_languages() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = vec![];
+    for s in SERVERS {
+        for l in s.languages {
+            let label = language_label(l);
+            if !out.contains(&label) {
+                out.push(label);
+            }
+        }
+    }
+    out
+}
+
 pub fn by_name(name: &str) -> Option<&'static Server> {
     SERVERS.iter().find(|s| s.name == name)
 }
@@ -223,6 +281,43 @@ pub fn find_root(server: &Server, file: &Path, fallback: Option<&Path>) -> PathB
             .map(Path::to_path_buf)
             .unwrap_or_else(|| start.to_path_buf())
     })
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    #[test]
+    fn supported_languages_are_human_unique_and_cover_the_core_set() {
+        let s = supported_languages();
+        for l in [
+            "TypeScript",
+            "JavaScript",
+            "Rust",
+            "Go",
+            "Python",
+            "JSON",
+            "YAML",
+            "Shell",
+        ] {
+            assert!(s.contains(&l), "{l} missing from {s:?}");
+        }
+        let mut dedup = s.clone();
+        dedup.sort_unstable();
+        dedup.dedup();
+        assert_eq!(dedup.len(), s.len(), "duplicates in {s:?}");
+    }
+
+    #[test]
+    fn every_server_has_a_label_and_every_language_a_server() {
+        for srv in SERVERS {
+            assert!(!server_label(srv).is_empty());
+            for l in srv.languages {
+                assert_eq!(for_language(l).map(|x| x.name), Some(srv.name));
+            }
+        }
+        assert_eq!(language_label("unknown-lang"), "unknown-lang");
+    }
 }
 
 #[cfg(test)]

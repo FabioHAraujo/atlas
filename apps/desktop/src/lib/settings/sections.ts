@@ -6,7 +6,7 @@
 export type SettingsSection =
 	"general" | "appearance" | "workspaces" | "agents" | "keyboard" | "ssh" | "help";
 
-export type AppearanceTab = "appearance" | "editor" | "interface" | "terminal";
+export type AppearanceTab = "appearance" | "editor" | "languages" | "interface" | "terminal";
 
 /** Where Settings opens: a section, plus a tab when the section has tabs. */
 export interface SettingsTarget {
@@ -27,6 +27,7 @@ export const SECTIONS: { id: SettingsSection; label: string }[] = [
 export const APPEARANCE_TABS: { id: AppearanceTab; label: string }[] = [
 	{ id: "appearance", label: "Appearance" },
 	{ id: "editor", label: "Editor" },
+	{ id: "languages", label: "Languages" },
 	{ id: "interface", label: "Interface" },
 	{ id: "terminal", label: "Terminal" },
 ];
@@ -54,6 +55,7 @@ const SECTION_IDS: Record<SettingsSection, true> = {
 const TAB_IDS: Record<AppearanceTab, true> = {
 	appearance: true,
 	editor: true,
+	languages: true,
 	interface: true,
 	terminal: true,
 };

@@ -9,6 +9,7 @@
 	import PageHead from "#lib/settings/PageHead.svelte";
 	import ThemeTab from "#lib/settings/ThemeTab.svelte";
 	import CodeTab from "#lib/settings/CodeTab.svelte";
+	import LanguagesTab from "#lib/settings/LanguagesTab.svelte";
 	import InterfaceTab from "#lib/settings/InterfaceTab.svelte";
 	import TerminalTab from "#lib/settings/TerminalTab.svelte";
 
@@ -42,6 +43,7 @@
 	</TabsList>
 	<TabsContent value="appearance"><div class="tab"><ThemeTab /></div></TabsContent>
 	<TabsContent value="editor"><div class="tab"><CodeTab /></div></TabsContent>
+	<TabsContent value="languages"><div class="tab"><LanguagesTab /></div></TabsContent>
 	<TabsContent value="interface"><div class="tab"><InterfaceTab /></div></TabsContent>
 	<TabsContent value="terminal"><div class="tab"><TerminalTab /></div></TabsContent>
 </Tabs>

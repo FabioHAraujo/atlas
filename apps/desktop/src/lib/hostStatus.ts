@@ -1,0 +1,155 @@
+/**
+ * Pure side of the terminal-host status (`host://status`, see `crates/atlas-desktop/src/host.rs`):
+ * defensive parsing of the payload, the sidebar chip, the restart prompt copy and the
+ * prompt rule. No Svelte, no Tauri: `stores/hostStatus.svelte.ts` holds the state.
+ */
+import { tilde } from "#lib/format.ts";
+
+export type HostStatus = "current" | "upgrading" | "upgraded" | "outdated" | "restarting";
+export type HostSkew = "none" | "upgradable" | "needsRestart";
+
+export interface HostPty {
+	id: string;
+	title: string;
+	cwd: string;
+	argv: string[];
+}
+
+export interface HostState {
+	status: HostStatus;
+	version: string | null;
+	proto: number | null;
+	caps: string[];
+	appVersion: string;
+	skew: HostSkew;
+	/** Running terminals only. */
+	ptys: HostPty[];
+	/** The sentence from `skew_reason`; empty when current. */
+	reason: string;
+	/** The user chose "Later" this session. */
+	deferred: boolean;
+	/** The user chose "Restart when idle". */
+	idleArmed: boolean;
+	missing: string[];
+}
+
+export const EMPTY_HOST: HostState = {
+	status: "current",
+	version: null,
+	proto: null,
+	caps: [],
+	appVersion: "",
+	skew: "none",
+	ptys: [],
+	reason: "",
+	deferred: false,
+	idleArmed: false,
+	missing: [],
+};
+
+const STATUSES: readonly string[] = ["current", "upgrading", "upgraded", "outdated", "restarting"];
+const SKEWS: readonly string[] = ["none", "upgradable", "needsRestart"];
+
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+
+/** An object's fields as `unknown`, `null` for anything else (arrays included). */
+function fields(v: unknown): Record<string, unknown> | null {
+	return v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v)) : null;
+}
+
+function parsePty(raw: unknown): HostPty | null {
+	const o = fields(raw);
+	if (!o || typeof o.id !== "string") return null;
+	return { id: o.id, title: str(o.title), cwd: str(o.cwd), argv: strs(o.argv) };
+}
+
+/** A payload from Rust (or anything else) as a `HostState`; `null` when it is not an object. */
+export function parseHostState(raw: unknown): HostState | null {
+	const o = fields(raw);
+	if (!o) return null;
+	const status = STATUSES.find((s) => s === o.status);
+	const skew = SKEWS.find((s) => s === o.skew);
+	return {
+		status: (status as HostStatus | undefined) ?? "current",
+		version: typeof o.version === "string" ? o.version : null,
+		proto: typeof o.proto === "number" ? o.proto : null,
+		caps: strs(o.caps),
+		appVersion: str(o.appVersion),
+		skew: (skew as HostSkew | undefined) ?? "none",
+		ptys: (Array.isArray(o.ptys) ? o.ptys : []).map(parsePty).filter((p) => p !== null),
+		reason: str(o.reason),
+		deferred: o.deferred === true,
+		idleArmed: o.idleArmed === true,
+		missing: strs(o.missing),
+	};
+}
+
+export type ChipTone = "warn" | "info" | "busy";
+
+export interface Chip {
+	tone: ChipTone;
+	label: string;
+	detail: string;
+}
+
+/**
+ * The sidebar chip: amber when the user has to act (features are off until the restart), calm
+ * and neutral when only the version differs, a quiet "updating" while a handoff or restart
+ * runs. `null` for a current host.
+ */
+export function chipFor(s: HostState): Chip | null {
+	if (s.status === "upgrading" || s.status === "restarting") {
+		return {
+			tone: "busy",
+			label: s.status === "upgrading" ? "Updating terminal host…" : "Restarting terminal host…",
+			detail: s.status === "upgrading" ? "Terminals stay attached" : "",
+		};
+	}
+	if (s.status === "outdated") {
+		return {
+			tone: "warn",
+			label: s.idleArmed ? "Terminal host restarts when idle" : "Terminal host needs a restart",
+			detail: s.reason,
+		};
+	}
+	if (s.skew === "needsRestart") {
+		return { tone: "info", label: `Terminal host ${s.version ?? "older"}`, detail: s.reason };
+	}
+	return null;
+}
+
+export interface PromptCopy {
+	title: string;
+	/** Why the host should restart. */
+	body: string;
+	/** `<title|command> — <~/cwd>`, one per running terminal. */
+	items: string[];
+	consequence: string;
+}
+
+export function promptCopy(s: HostState): PromptCopy {
+	return {
+		title: "Restart the terminal host?",
+		body: s.reason || "The terminal host is older than this version of Atlas.",
+		items: s.ptys.map(
+			(p) => `${p.title.trim() || p.argv.join(" ").trim() || "shell"} — ${tilde(p.cwd) || "~"}`,
+		),
+		consequence: "Restarting ends these terminals.",
+	};
+}
+
+/**
+ * Whether a `host://prompt` may open the dialog. Rust emits the event once per daemon pid, so
+ * this only drops what no longer applies by the time it arrives: the user postponed it, armed
+ * "when idle", or the terminals are gone. The chip and the settings row stay visible regardless.
+ */
+export function shouldPrompt(s: HostState): boolean {
+	return s.status === "outdated" && !s.deferred && !s.idleArmed && s.ptys.length > 0;
+}
+
+/** Settings row summary: "3 running terminals" / "No running terminals". */
+export function terminalsLine(n: number): string {
+	if (n === 0) return "No running terminals";
+	return n === 1 ? "1 running terminal" : `${n} running terminals`;
+}

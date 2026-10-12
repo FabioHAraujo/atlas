@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Switch } from "@codeatlasdev/ui";
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
+	import { updates } from "#lib/stores/updates.svelte.ts";
+	import EditorRows from "./EditorRows.svelte";
 	import FontRows from "./FontRows.svelte";
 	import Group from "./Group.svelte";
 	import NumInput from "./NumInput.svelte";
@@ -46,7 +48,12 @@ if (answer !== 42) throw new Error("not yet");</pre>
 	</FontRows>
 </Group>
 
-<Group title="Language servers">
+<EditorRows />
+
+<Group
+	title="Language servers"
+	description="Which servers are installed, custom commands and options are in the Languages tab."
+>
 	<Row
 		id="lsp-enable"
 		label="Language servers"
@@ -80,9 +87,29 @@ if (answer !== 42) throw new Error("not yet");</pre>
 			onchange={(v) => savePref("inlay_hints", { enabled: v })}
 		/>
 	</Row>
+	<Row
+		id="lsp-manage"
+		label="Manage language servers"
+		description="Install, update or replace the server of each language."
+	>
+		<button class="link" onclick={() => updates.show("appearance/languages")}>Open Languages</button>
+	</Row>
 </Group>
 
 <style>
+	.link {
+		border: 0;
+		background: none;
+		padding: 0;
+		font: inherit;
+		font-size: 12px;
+		color: var(--ca-text-secondary);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.link:hover {
+		color: var(--ca-text-primary);
+	}
 	.sample {
 		margin: 0;
 		padding: 10px 12px;

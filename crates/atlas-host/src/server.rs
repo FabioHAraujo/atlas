@@ -71,6 +71,18 @@ impl Hub {
         self.lock.as_raw_fd()
     }
 
+    /// (running ptys, connected clients) for the idle-exit check. A raw-attach connection is
+    /// not a subscriber but implies a running pty, so it is covered by the first number.
+    fn activity(&self) -> (usize, usize) {
+        let live = self
+            .sessions
+            .lock()
+            .values()
+            .filter(|s| s.exited().is_none())
+            .count();
+        (live, self.subscribers.lock().len())
+    }
+
     pub(crate) fn sessions_snapshot(&self) -> Vec<Arc<Session>> {
         self.sessions.lock().values().cloned().collect()
     }
@@ -257,6 +269,9 @@ pub async fn serve_with(dir: &Path, opts: ServeOpts) -> Result<()> {
         t.confirm()?;
     }
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let limit = crate::idle::limit_from_env();
+    let mut ticker = tokio::time::interval(crate::idle::tick(limit));
+    let mut idle_since: Option<Instant> = None;
     loop {
         tokio::select! {
             acc = listener.accept() => {
@@ -267,6 +282,22 @@ pub async fn serve_with(dir: &Path, opts: ServeOpts) -> Result<()> {
             }
             _ = hub.stop.notified() => break,
             _ = term.recv() => break,
+            _ = ticker.tick() => {
+                let (live, clients) = hub.activity();
+                if live > 0 || clients > 0 {
+                    idle_since = None;
+                } else {
+                    let since = *idle_since.get_or_insert_with(Instant::now);
+                    if crate::idle::idle_expired(live, clients, since.elapsed(), limit) {
+                        eprintln!("atlas hostd: idle for {}s, no terminals and no clients: exiting", limit.as_secs());
+                        break;
+                    }
+                }
+                if crate::idle::dir_gone(dir) {
+                    eprintln!("atlas hostd: {} is gone: exiting", dir.display());
+                    break;
+                }
+            }
             _ = hub.handed_off.notified() => {
                 // The successor owns the ptys now: leave them running. The pid lock and
                 // socket path are released by exiting (the successor re-binds them). Exit
@@ -515,6 +546,11 @@ async fn handle(hub: &Hub, cmd: HostCmd, conn_id: u64) -> Result<Value, String> 
         | HostCmd::LspRequest { .. }
         | HostCmd::LspCancel { .. }
         | HostCmd::LspStatus {}
+        | HostCmd::LspCatalog {}
+        | HostCmd::LspInstall { .. }
+        | HostCmd::LspUninstall { .. }
+        | HostCmd::LspRestart { .. }
+        | HostCmd::LspLog { .. }
         | HostCmd::LspApplyEditResult { .. }) => crate::lsp::handle(hub, lsp, conn_id)
             .await
             .unwrap_or_else(|| Err("not an lsp command".into())),

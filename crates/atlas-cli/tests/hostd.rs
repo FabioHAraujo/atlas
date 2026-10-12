@@ -524,3 +524,300 @@ async fn successor_dying_before_confirming_gives_the_ptys_back() {
     }
     assert!(out.contains("before"), "{out:?}");
 }
+
+/// Start `atlas hostd --dir <dir>` with extra env, without waiting for it.
+fn spawn_with(dir: &Path, env: &[(&str, &str)]) -> Daemon {
+    let mut cmd = Command::new(BIN);
+    cmd.args(["hostd", "--dir"])
+        .arg(dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    Daemon(cmd.spawn().unwrap())
+}
+
+async fn wait_for(what: &str, mut ok: impl FnMut() -> bool) {
+    for _ in 0..200 {
+        if ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
+#[tokio::test]
+async fn idle_hostd_with_no_terminal_and_no_client_exits_and_cleans_up() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let mut d = spawn_with(dir, &[("ATLAS_HOSTD_IDLE_SECS", "1")]);
+    wait_for("the socket", || paths::socket(dir).exists()).await;
+    // Connect once, then hang up: a client resets the clock, and its absence restarts it.
+    drop(HostClient::connect_dir(dir, "test").await.unwrap());
+    let t0 = std::time::Instant::now();
+    wait_for("idle exit", || matches!(d.0.try_wait(), Ok(Some(_)))).await;
+    assert!(t0.elapsed() < Duration::from_secs(10), "{:?}", t0.elapsed());
+    assert!(d.0.try_wait().unwrap().unwrap().success());
+    assert!(!paths::socket(dir).exists(), "socket removed");
+    assert!(!paths::pid(dir).exists(), "pid file removed");
+}
+
+#[tokio::test]
+async fn hostd_with_a_connected_client_or_a_live_pty_does_not_idle_exit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let mut d = spawn_with(dir, &[("ATLAS_HOSTD_IDLE_SECS", "1")]);
+    wait_for("the socket", || paths::socket(dir).exists()).await;
+    let c = HostClient::connect_dir(dir, "test").await.unwrap();
+    // Connected client: well past the limit, still up.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert!(
+        d.0.try_wait().unwrap().is_none(),
+        "exited with a client connected"
+    );
+
+    // A running pty keeps it alive after the client leaves.
+    let pty = c
+        .call(
+            "pty_create",
+            json!({"cwd": dir, "argv": ["sh", "-c", "sleep 30"], "cols": 80, "rows": 24}),
+        )
+        .await
+        .unwrap()["pty"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    drop(c);
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert!(d.0.try_wait().unwrap().is_none(), "exited with a live pty");
+
+    // Once the pty is gone the clock runs and it exits.
+    let c = HostClient::connect_dir(dir, "test").await.unwrap();
+    c.call("pty_kill", json!({"pty": pty})).await.unwrap();
+    drop(c);
+    wait_for("idle exit after the pty ended", || {
+        matches!(d.0.try_wait(), Ok(Some(_)))
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn hostd_exits_when_its_dir_disappears() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("hostd-dir");
+    // A long idle limit, so only the missing dir can end it; a pty keeps it "busy".
+    let mut d = spawn_with(&dir, &[("ATLAS_HOSTD_IDLE_SECS", "2")]);
+    wait_for("the socket", || paths::socket(&dir).exists()).await;
+    let c = HostClient::connect_dir(&dir, "test").await.unwrap();
+    c.call(
+        "pty_create",
+        json!({"cwd": tmp.path(), "argv": ["sh", "-c", "sleep 30"], "cols": 80, "rows": 24}),
+    )
+    .await
+    .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    wait_for("exit after the dir was removed", || {
+        matches!(d.0.try_wait(), Ok(Some(_)))
+    })
+    .await;
+}
+
+fn hostd_cmd(dir: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(BIN)
+        .arg("hostd")
+        .args(args)
+        .arg("--dir")
+        .arg(dir)
+        .env_remove("ATLAS_UPDATE_PROGRESS")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn check_and_reconcile_on_a_current_daemon_are_no_ops() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let (_d, c) = start(dir).await;
+    let pid = c.call("info", json!({})).await.unwrap()["pid"].clone();
+
+    let o = hostd_cmd(dir, &["--check"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(String::from_utf8_lossy(&o.stdout).contains("is current"));
+
+    let o = hostd_cmd(dir, &["--reconcile"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(String::from_utf8_lossy(&o.stdout).contains("is current"));
+    let after = c.call("info", json!({})).await.unwrap();
+    assert_eq!(
+        after["pid"], pid,
+        "reconcile must not touch a current daemon"
+    );
+}
+
+#[tokio::test]
+async fn check_reports_not_running_with_exit_1_and_reconcile_with_exit_0() {
+    let tmp = tempfile::tempdir().unwrap();
+    let o = hostd_cmd(tmp.path(), &["--check"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("not running"));
+    let o = hostd_cmd(tmp.path(), &["--reconcile"]);
+    assert_eq!(o.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("not running"));
+}
+
+/// A stand-in for an old daemon (proto 1, no caps, no `upgrade`): answers hello, `info`,
+/// `pty_list` and `shutdown`, and removes its socket when told to stop, like the real one.
+/// `ptys` running terminals are reported.
+fn fake_old_hostd(dir: &Path, ptys: usize) -> tokio::task::JoinHandle<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let sock = paths::socket(dir);
+    paths::ensure_token(dir).unwrap();
+    std::fs::write(paths::pid(dir), "1").unwrap();
+    let l = tokio::net::UnixListener::bind(&sock).unwrap();
+    tokio::spawn(async move {
+        while let Ok((s, _)) = l.accept().await {
+            let sock = sock.clone();
+            tokio::spawn(async move {
+                let (r, mut w) = s.into_split();
+                let mut lines = BufReader::new(r).lines();
+                let _ = lines.next_line().await; // hello
+                let info = json!({"version": "0.6.2", "proto": 1, "pid": 1,
+                    "uptime_s": 144000, "ptys": ptys});
+                let hello = json!({"ok": true, "data": info});
+                let _ = w.write_all(format!("{hello}\n").as_bytes()).await;
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let v: Value = serde_json::from_str(&line).unwrap();
+                    let data = match v["cmd"].as_str() {
+                        Some("info") => info.clone(),
+                        Some("pty_list") => json!({"ptys": (0..ptys).map(|i| json!({
+                            "pty": format!("p{i}"), "cwd": format!("/w/{i}"),
+                            "argv": ["zsh"], "exited": null})).collect::<Vec<_>>()}),
+                        _ => {
+                            let r = json!({"id": v["id"], "ok": true, "data": {}});
+                            let _ = w.write_all(format!("{r}\n").as_bytes()).await;
+                            let _ = std::fs::remove_file(&sock);
+                            return;
+                        }
+                    };
+                    let r = json!({"id": v["id"], "ok": true, "data": data});
+                    let _ = w.write_all(format!("{r}\n").as_bytes()).await;
+                }
+            });
+        }
+    })
+}
+
+/// Pid of the real daemon that took the dir over; killed when the test ends.
+async fn real_daemon_pid(dir: &Path) -> Pid {
+    for _ in 0..200 {
+        if let Ok(c) = HostClient::connect_dir(dir, "test").await
+            && let Ok(i) = c.call("info", json!({})).await
+            && i["version"] == env!("CARGO_PKG_VERSION")
+        {
+            return Pid(i["pid"].as_u64().unwrap() as u32);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("no current daemon came up");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn check_reports_a_stale_daemon_with_its_terminals_and_exits_3() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let _fake = fake_old_hostd(dir, 2);
+    let o = hostd_cmd(dir, &["--check"]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert_eq!(o.status.code(), Some(3), "{out}");
+    assert!(
+        out.contains("Terminal host 0.6.2 (pid 1, up 40h, 2 terminals) is older than Atlas"),
+        "{out}"
+    );
+    assert!(
+        out.contains("language features and fast terminal rendering are off until it restarts"),
+        "{out}"
+    );
+    assert!(
+        out.contains("/w/0  zsh") && out.contains("/w/1  zsh"),
+        "{out}"
+    );
+    assert!(
+        out.contains("--reconcile") && out.contains("--restart"),
+        "{out}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reconcile_restarts_a_stale_daemon_with_no_terminal_without_asking() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let _fake = fake_old_hostd(dir, 0);
+    let o = hostd_cmd(dir, &["--reconcile"]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{out} {}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(out.contains("restarted"), "{out}");
+    let _real = real_daemon_pid(dir).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reconcile_never_ends_running_terminals_without_consent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let _fake = fake_old_hostd(dir, 2);
+    // No TTY here: the prompt cannot be answered, so the daemon is kept and the user told how.
+    let o = hostd_cmd(dir, &["--reconcile"]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert_eq!(o.status.code(), Some(0), "{out}");
+    assert!(
+        out.contains("Kept as is") && out.contains("atlas hostd --restart"),
+        "{out}"
+    );
+    let c = HostClient::connect_dir(dir, "test").await.unwrap();
+    assert_eq!(c.call("info", json!({})).await.unwrap()["version"], "0.6.2");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn restart_replaces_a_stale_daemon_after_explicit_consent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let _fake = fake_old_hostd(dir, 2);
+    let o = hostd_cmd(dir, &["--restart"]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{out} {}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(
+        out.contains("restarted") && out.contains("2 terminals ended"),
+        "{out}"
+    );
+    let _real = real_daemon_pid(dir).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reconcile_emits_the_progress_protocol_lines() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let _fake = fake_old_hostd(dir, 3);
+    let o = Command::new(BIN)
+        .args(["hostd", "--reconcile", "--dir"])
+        .arg(dir)
+        .env("ATLAS_UPDATE_PROGRESS", "1")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(out.contains("@@atlas phase terminal-host"), "{out}");
+    assert!(out.contains("@@atlas host needs-restart 3"), "{out}");
+}

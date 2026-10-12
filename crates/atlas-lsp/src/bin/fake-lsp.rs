@@ -8,13 +8,155 @@
 //!   (then records it), `test/state` → what the server observed so far, `test/pid`,
 //!   `test/applyEdit` → asks the client to apply an edit and reports the answer,
 //!   `test/crash` → exits(1) immediately.
+//! - `FAKE_SEMANTIC=1`: a word-level "language" so the whole editor round trip can be tested
+//!   without a real server: `fn <name>` declares a symbol; diagnostics flag every `TODO`;
+//!   `completion` offers the declared names matching the prefix; `definition` jumps to the
+//!   `fn` declaration; `references`/`rename` cover every whole-word occurrence; `hover`
+//!   answers `fn <name>`; `documentSymbol` lists the `fn`s. Text is kept in sync from
+//!   `didChange` (incremental or full).
 //! - Every spawn increments a counter file when `FAKE_COUNT_FILE` is set, so tests can
 //!   count restarts.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 
+use atlas_lsp::text;
 use serde_json::{Value, json};
+
+mod semantic {
+    //! Word-level "language" used when `FAKE_SEMANTIC` is set.
+    use super::{Value, json};
+
+    fn is_word(c: char) -> bool {
+        c.is_alphanumeric() || c == '_'
+    }
+
+    /// `(line, start_char, end_char, word)` for every identifier-like word, UTF-16 columns.
+    pub fn words(text: &str) -> Vec<(u64, u64, u64, String)> {
+        let mut out = vec![];
+        for (ln, line) in text.lines().enumerate() {
+            let mut col = 0u64;
+            let mut cur = String::new();
+            let mut start = 0u64;
+            for c in line.chars() {
+                if is_word(c) {
+                    if cur.is_empty() {
+                        start = col;
+                    }
+                    cur.push(c);
+                } else if !cur.is_empty() {
+                    out.push((ln as u64, start, col, std::mem::take(&mut cur)));
+                }
+                col += c.len_utf16() as u64;
+            }
+            if !cur.is_empty() {
+                out.push((ln as u64, start, col, cur));
+            }
+        }
+        out
+    }
+
+    fn range(l: u64, a: u64, b: u64) -> Value {
+        json!({"start": {"line": l, "character": a}, "end": {"line": l, "character": b}})
+    }
+
+    /// The word under `(line, character)`.
+    pub fn word_at(text: &str, line: u64, character: u64) -> Option<(u64, u64, u64, String)> {
+        words(text)
+            .into_iter()
+            .find(|(l, a, b, _)| *l == line && *a <= character && character <= *b)
+    }
+
+    /// Declared names: the word after each `fn`.
+    pub fn decls(text: &str) -> Vec<(u64, u64, u64, String)> {
+        let w = words(text);
+        w.windows(2)
+            .filter(|p| p[0].3 == "fn" && p[0].0 == p[1].0)
+            .map(|p| p[1].clone())
+            .collect()
+    }
+
+    pub fn diagnostics(text: &str) -> Value {
+        Value::Array(
+            words(text)
+                .into_iter()
+                .filter(|w| w.3 == "TODO")
+                .map(|(l, a, b, _)| {
+                    json!({"range": range(l, a, b), "message": "TODO left in code", "severity": 2, "source": "fake", "code": "todo"})
+                })
+                .collect(),
+        )
+    }
+
+    pub fn completion(text: &str, line: u64, character: u64) -> Value {
+        let prefix = word_at(text, line, character)
+            .map(|(_, a, _, w)| w.chars().take((character - a) as usize).collect::<String>())
+            .unwrap_or_default();
+        let items: Vec<Value> = decls(text)
+            .into_iter()
+            .map(|d| d.3)
+            .filter(|n| n.starts_with(&prefix))
+            .map(|n| json!({"label": n, "kind": 3, "detail": "fn"}))
+            .collect();
+        json!({"isIncomplete": false, "items": items})
+    }
+
+    pub fn definition(uri: &str, text: &str, line: u64, character: u64) -> Value {
+        let Some((_, _, _, name)) = word_at(text, line, character) else {
+            return Value::Null;
+        };
+        decls(text)
+            .into_iter()
+            .find(|d| d.3 == name)
+            .map(|(l, a, b, _)| json!([{"uri": uri, "range": range(l, a, b)}]))
+            .unwrap_or(Value::Null)
+    }
+
+    pub fn references(uri: &str, text: &str, line: u64, character: u64) -> Value {
+        let Some((_, _, _, name)) = word_at(text, line, character) else {
+            return Value::Null;
+        };
+        Value::Array(
+            words(text)
+                .into_iter()
+                .filter(|w| w.3 == name)
+                .map(|(l, a, b, _)| json!({"uri": uri, "range": range(l, a, b)}))
+                .collect(),
+        )
+    }
+
+    pub fn rename(uri: &str, text: &str, line: u64, character: u64, new: &str) -> Value {
+        let Some((_, _, _, name)) = word_at(text, line, character) else {
+            return Value::Null;
+        };
+        let edits: Vec<Value> = words(text)
+            .into_iter()
+            .filter(|w| w.3 == name)
+            .map(|(l, a, b, _)| json!({"range": range(l, a, b), "newText": new}))
+            .collect();
+        json!({"changes": {uri: edits}})
+    }
+
+    pub fn hover(text: &str, line: u64, character: u64) -> Value {
+        match word_at(text, line, character) {
+            Some((_, _, _, w)) if decls(text).iter().any(|d| d.3 == w) => {
+                json!({"contents": {"kind": "markdown", "value": format!("```\nfn {w}\n```")}})
+            }
+            _ => Value::Null,
+        }
+    }
+
+    pub fn symbols(uri: &str, text: &str) -> Value {
+        Value::Array(
+            decls(text)
+                .into_iter()
+                .map(|(l, a, b, n)| {
+                    json!({"name": n, "kind": 12, "location": {"uri": uri, "range": range(l, a, b)}})
+                })
+                .collect(),
+        )
+    }
+}
 
 fn read_msg(r: &mut impl BufRead) -> Option<Value> {
     let mut len = 0usize;
@@ -54,6 +196,7 @@ fn main() {
     if std::env::var("FAKE_EXIT_ON_START").is_ok() {
         std::process::exit(3);
     }
+    let semantic = std::env::var("FAKE_SEMANTIC").is_ok();
     let sync = match std::env::var("FAKE_SYNC").as_deref() {
         Ok("full") => 1,
         Ok("none") => 0,
@@ -77,7 +220,11 @@ fn main() {
                 "capabilities": {
                     "textDocumentSync": {"openClose": true, "change": sync, "save": {"includeText": true}},
                     "hoverProvider": true,
-                    "renameProvider": {"prepareProvider": true}
+                    "renameProvider": {"prepareProvider": true},
+                    "completionProvider": semantic.then(|| json!({"triggerCharacters": ["."]})),
+                    "definitionProvider": semantic,
+                    "referencesProvider": semantic,
+                    "documentSymbolProvider": semantic
                 },
                 "serverInfo": {"name": "fake-lsp"}
             }})),
@@ -88,7 +235,7 @@ fn main() {
                 let uri = td["uri"].as_str().unwrap_or("").to_string();
                 versions.insert(uri.clone(), td["version"].as_i64().unwrap_or(0));
                 texts.insert(uri.clone(), td["text"].as_str().unwrap_or("").into());
-                diag(&uri, &versions, changes, &texts);
+                diag_for(semantic, &uri, &versions, changes, &texts);
             }
             ("textDocument/didChange", _) => {
                 let uri = params["textDocument"]["uri"]
@@ -101,7 +248,12 @@ fn main() {
                 );
                 changes += 1;
                 change_log.push(params["contentChanges"].clone());
-                diag(&uri, &versions, changes, &texts);
+                if let Some(t) = texts.get_mut(&uri) {
+                    for c in params["contentChanges"].as_array().into_iter().flatten() {
+                        text::apply(t, c);
+                    }
+                }
+                diag_for(semantic, &uri, &versions, changes, &texts);
             }
             ("textDocument/didClose", _) => {
                 let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
@@ -121,6 +273,31 @@ fn main() {
                 "texts": texts,
             }})),
             ("test/crash", _) => std::process::exit(1),
+            (
+                "textDocument/completion"
+                | "textDocument/definition"
+                | "textDocument/references"
+                | "textDocument/rename"
+                | "textDocument/hover"
+                | "textDocument/documentSymbol",
+                Some(id),
+            ) if semantic => {
+                let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+                let t = texts.get(uri).map(String::as_str).unwrap_or("");
+                let l = params["position"]["line"].as_u64().unwrap_or(0);
+                let c = params["position"]["character"].as_u64().unwrap_or(0);
+                let result = match method {
+                    "textDocument/completion" => semantic::completion(t, l, c),
+                    "textDocument/definition" => semantic::definition(uri, t, l, c),
+                    "textDocument/references" => semantic::references(uri, t, l, c),
+                    "textDocument/rename" => {
+                        semantic::rename(uri, t, l, c, params["newName"].as_str().unwrap_or(""))
+                    }
+                    "textDocument/hover" => semantic::hover(t, l, c),
+                    _ => semantic::symbols(uri, t),
+                };
+                send(&json!({"jsonrpc":"2.0","id":id,"result":result}));
+            }
             ("test/applyEdit", Some(id)) => {
                 next_server_id += 1;
                 edit_waiters.insert(next_server_id, id.as_i64().unwrap_or(0));
@@ -151,6 +328,25 @@ fn main() {
             _ => {}
         }
     }
+}
+
+fn diag_for(
+    semantic: bool,
+    uri: &str,
+    versions: &HashMap<String, i64>,
+    changes: u64,
+    texts: &HashMap<String, String>,
+) {
+    if !semantic {
+        return diag(uri, versions, changes, texts);
+    }
+    send(
+        &json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{
+            "uri": uri,
+            "version": versions.get(uri),
+            "diagnostics": semantic::diagnostics(texts.get(uri).map_or("", String::as_str)),
+        }}),
+    );
 }
 
 fn diag(uri: &str, versions: &HashMap<String, i64>, changes: u64, texts: &HashMap<String, String>) {

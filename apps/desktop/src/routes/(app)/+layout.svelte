@@ -38,6 +38,7 @@
 	import { onKeydown, onKeydownCapture, onKeyup } from "#lib/shell/windowKeys.ts";
 	import { agents } from "#lib/stores/agents.svelte.ts";
 	import { docks } from "#lib/stores/docks.svelte.ts";
+	import { hostPrompt } from "#lib/stores/hostStatus.svelte.ts";
 	import { pr } from "#lib/stores/pr.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
 	import { updates } from "#lib/stores/updates.svelte.ts";
@@ -113,6 +114,7 @@
 <LspPicker />
 <LazyOpen when={updates.open} load={() => import("#lib/components/Settings.svelte")} />
 <LazyOpen when={updates.whatsNewOpen} load={() => import("#lib/components/WhatsNew.svelte")} />
+<LazyOpen when={hostPrompt.open} load={() => import("#lib/components/HostPrompt.svelte")} />
 <UpdatedCard />
 <GhosttyOffer />
 <DevLine />

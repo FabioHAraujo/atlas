@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::AtlasCommand;
 use super::release::{REPO, download_verified};
+use super::update_core;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Hit GitHub at most every 6h (cached result is reused in between).
@@ -332,17 +333,30 @@ pub(crate) async fn run_update(check_only: bool, channel: Option<String>) -> Res
         return Ok(UpdateOutcome::Unchanged);
     }
 
+    // Held until this function returns; the kernel frees it if we die. The spawned
+    // `atlas desktop --sync` must not wait on us, hence the env marker on that child.
+    let _lock = update_core::UpdateLock::acquire()?;
+
     println!("\x1b[1;34m◆\x1b[0m Downloading v{latest}...");
+    update_core::phase(update_core::Phase::Download);
 
     let platform = current_platform();
     let tarball = format!("atlas-{latest}-{platform}.tar.gz");
     let tmp_dir = tempfile::Builder::new().prefix("atlas-update-").tempdir()?;
 
-    let tarball_path = download_verified(&format!("v{latest}"), &tarball, tmp_dir.path())
-        .with_context(|| {
-            format!("Download failed. Releases: https://github.com/{REPO}/releases")
-        })?;
+    let tarball_path = download_verified(
+        &format!("v{latest}"),
+        &tarball,
+        tmp_dir.path(),
+        update_core::bytes,
+    )
+    .with_context(|| format!("Download failed. Releases: https://github.com/{REPO}/releases"))?;
 
+    // `download_verified` checks the sha256 before returning.
+    update_core::phase(update_core::Phase::Verify);
+    println!("\x1b[1;32m✓\x1b[0m Checksum verified");
+
+    update_core::phase(update_core::Phase::InstallCli);
     println!("\x1b[1;34m◆\x1b[0m Installing...");
 
     let binary = extract_tarball(&std::fs::read(&tarball_path)?)?;
@@ -356,8 +370,12 @@ pub(crate) async fn run_update(check_only: bool, channel: Option<String>) -> Res
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(tmp_bin.path(), std::fs::Permissions::from_mode(0o755))?;
     }
-    self_replace::self_replace(tmp_bin.path())
-        .context("Failed to replace binary. Try: sudo atlas update")?;
+    let exe = env::current_exe().context("cannot locate the running atlas binary")?;
+    let backup = update_core::CliBackup::save(&exe)?;
+    if let Err(e) = self_replace::self_replace(tmp_bin.path()) {
+        backup.discard();
+        return Err(e).context("Failed to replace binary. Try: sudo atlas update");
+    }
 
     // Clear cache
     save_cache(&load_cache().checked(None));
@@ -371,12 +389,56 @@ pub(crate) async fn run_update(check_only: bool, channel: Option<String>) -> Res
     println!("\x1b[1;34m◆\x1b[0m Refreshing skills...");
     refresh_with_new_binary();
 
+    // The app must follow the CLI. When it cannot, the previous CLI is put back so the two
+    // never sit on different versions unnoticed, and the error says what happened.
+    backup.finish(sync_desktop_with_new_binary(&exe), CURRENT_VERSION, &latest)?;
+
+    // Last step: the terminal host outlives updates, so it is usually older than the CLI and
+    // app by now. The new binary upgrades it live, restarts it when it is empty, or says
+    // exactly what is stale; nothing here ends a running terminal without being asked.
+    reconcile_host_with_new_binary(&exe);
+
     Ok(UpdateOutcome::Installed)
 }
 
+/// `atlas hostd --reconcile` of the new binary. A failure is reported, not fatal: the CLI and
+/// the app are already on the new version, and rolling them back would not fix the host.
+fn reconcile_host_with_new_binary(exe: &std::path::Path) {
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(["hostd", "--reconcile"]);
+    match cmd.status() {
+        Ok(st) if st.success() => {}
+        Ok(st) => {
+            update_core::host_event("failed", 0);
+            eprintln!(
+                "\x1b[33m◆\x1b[0m Terminal host check failed ({st}); run `atlas hostd --check`"
+            );
+        }
+        Err(e) => {
+            update_core::host_event("failed", 0);
+            eprintln!(
+                "\x1b[33m◆\x1b[0m Terminal host check failed: {e}; run `atlas hostd --check`"
+            );
+        }
+    }
+}
+
+/// `atlas desktop --sync` of the new binary; unlike the integrations refresh it is fatal.
+fn sync_desktop_with_new_binary(exe: &std::path::Path) -> Result<()> {
+    let st = std::process::Command::new(exe)
+        .args(["desktop", "--sync"])
+        .env(update_core::HOLDS_LOCK_ENV, "1")
+        .status()
+        .context("cannot run the new atlas")?;
+    if st.success() {
+        Ok(())
+    } else {
+        bail!("`atlas desktop --sync` failed ({st})")
+    }
+}
+
 /// Run the freshly installed binary to refresh the skills and, when already set up,
-/// the OMP / Claude Code / Codex integrations (hooks, MCP entry), all embedded in that binary,
-/// and bring an installed Atlas Desktop to the same version.
+/// the OMP / Claude Code / Codex integrations (hooks, MCP entry), all embedded in that binary.
 /// Failures are non-fatal.
 fn refresh_with_new_binary() {
     let Ok(exe) = env::current_exe() else {
@@ -388,8 +450,6 @@ fn refresh_with_new_binary() {
         &["setup", "omp", "--refresh"][..],
         &["setup", "claude-code", "--refresh"][..],
         &["setup", "codex", "--refresh"][..],
-        // An installed Atlas Desktop follows the CLI version (no-op when absent or linked).
-        &["desktop", "--sync"][..],
     ] {
         run_self_with(&exe, args);
     }

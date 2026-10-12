@@ -4,18 +4,18 @@ import { indentUnit } from "@codemirror/language";
 import type { EditorView } from "@codemirror/view";
 import { host, b64bytes } from "#lib/host.ts";
 import { formatDocument } from "#lib/lsp/actions.ts";
+import { explainUnserved } from "#lib/lsp/hints.svelte.ts";
 import { editorFiles } from "#lib/symbols.ts";
 import { fileType } from "#lib/viewers/fileType.ts";
-import { canFormat, editorConfigFor, formatText } from "#lib/viewers/format.ts";
+import { editorConfigDirs, resolveEditorConfig, type EditorConfigProps } from "#lib/editor/editorconfig.ts";
+import { canFormat, formatText } from "#lib/viewers/format.ts";
 
-/** `.editorconfig` files from the worktree root down to the file's directory (root first, closest last). */
-async function editorConfigs(root: string, path: string): Promise<{ dir: string; text: string }[]> {
-	const parts = path.split("/").slice(0, -1);
-	const dirs = ["", ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))];
+/** `.editorconfig` files from the file's folder up to the worktree root. */
+async function editorConfigs(root: string, abs: string): Promise<{ dir: string; text: string }[]> {
 	const found = await Promise.all(
-		dirs.map(async (dir) => {
+		editorConfigDirs(abs, root).map(async (dir) => {
 			try {
-				const r = await host.fsRead(`${root}/${dir ? dir + "/" : ""}.editorconfig`, 64 * 1024);
+				const r = await host.fsRead(`${dir}/.editorconfig`, 64 * 1024);
 				return { dir, text: new TextDecoder().decode(b64bytes(r.data)) };
 			} catch {
 				return null;
@@ -25,22 +25,36 @@ async function editorConfigs(root: string, path: string): Promise<{ dir: string;
 	return found.filter((f): f is { dir: string; text: string } => f !== null);
 }
 
+/** The indentation string a `.editorconfig` asks for (`\t` or N spaces); `null` when it says nothing. */
+function editorConfigIndent(ec: EditorConfigProps): string | null {
+	if (ec.indent_style === "tab") return "\t";
+	if (ec.indent_style === "space" || typeof ec.indent_size === "number") {
+		return " ".repeat(typeof ec.indent_size === "number" ? ec.indent_size : 2);
+	}
+	return null;
+}
+
 /** Server first; the built-in formatter when there is no server or it has no formatter. Returns whether anything formatted. */
 export async function formatActive(view: EditorView): Promise<boolean> {
-	if (await formatDocument(view, true)) return true;
+	if (await formatDocument(view)) return true;
 	const file = editorFiles.get(view);
 	const lang = file ? fileType(file.path).lang : null;
 	if (!file || !canFormat(lang)) {
-		toast.info("No formatter for this file");
+		// With an unserved language session the hint explains why; otherwise nothing can format it.
+		if (explainUnserved(view, "format"))
+			toast.info(
+				"This file type has no formatter: no language server provides one and Atlas has no built-in one.",
+			);
 		return false;
 	}
-	const ec = editorConfigFor(await editorConfigs(file.root, file.path), file.path);
+	const abs = `${file.root}/${file.path}`;
+	const ec = resolveEditorConfig(abs, await editorConfigs(file.root, abs));
 	const unit = view.state.facet(indentUnit);
 	const text = view.state.doc.toString();
 	try {
 		const out = await formatText(text, lang, {
-			indent: ec.indent ?? (unit.startsWith("\t") ? "\t" : unit),
-			finalNewline: ec.finalNewline ?? true,
+			indent: editorConfigIndent(ec) ?? (unit.startsWith("\t") ? "\t" : unit),
+			finalNewline: ec.insert_final_newline ?? true,
 		});
 		if (out === null) return false;
 		// The buffer may have changed while Prettier loaded: never overwrite newer edits.

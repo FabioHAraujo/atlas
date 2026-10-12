@@ -1,6 +1,6 @@
 //! `atlas desktop`: open Atlas Desktop, installing the release that matches this CLI
 //! when it is missing. The app ships as a release asset next to the CLI tarball
-//! (`Atlas-<version>-<platform>.app.tar.gz`), downloaded with `gh` like `atlas update`.
+//! (`Atlas-<version>-<platform>.app.tar.gz`), downloaded and checksum-verified like `atlas update`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,6 +11,7 @@ use clap::Args;
 use super::AtlasCommand;
 use super::release::{REPO, download_verified};
 use super::self_update::{current_platform, current_version};
+use super::update_core;
 
 const APP: &str = "Atlas.app";
 
@@ -177,6 +178,18 @@ fn status(installed: Option<&Path>) -> Result<()> {
 
 /// After `atlas update`: keep an installed (not linked) app in lockstep with the CLI.
 async fn sync(installed: Option<&Path>) -> Result<()> {
+    // The update that spawned this already holds the lock; a standalone `--sync` takes it.
+    let _lock = if std::env::var_os(update_core::HOLDS_LOCK_ENV).is_some() {
+        None
+    } else {
+        Some(update_core::UpdateLock::acquire()?)
+    };
+    sync_app(installed)
+}
+
+/// Bring the installed app to this CLI's version. Fails (instead of printing and moving on)
+/// so `atlas update` can roll the CLI back and the app never ends up on another version.
+pub(crate) fn sync_app(installed: Option<&Path>) -> Result<()> {
     let Some(app) = installed else { return Ok(()) };
     if is_symlink(app) {
         return Ok(());
@@ -185,6 +198,7 @@ async fn sync(installed: Option<&Path>) -> Result<()> {
     if app_version(app).as_deref() == Some(want) {
         return Ok(());
     }
+    update_core::phase(update_core::Phase::UpdateApp);
     println!("\x1b[1;34m◆\x1b[0m Updating Atlas Desktop to v{want}...");
     let (_dir, src) = download(want)?;
     install(&src, app)?;
@@ -206,7 +220,12 @@ fn download(version: &str) -> Result<(tempfile::TempDir, PathBuf)> {
         .prefix(&format!("atlas-desktop-{version}-"))
         .tempdir()?;
     println!("\x1b[1;34m◆\x1b[0m Downloading {asset}...");
-    let tarball = download_verified(&format!("v{version}"), &asset, dir.path())?;
+    let tarball = download_verified(
+        &format!("v{version}"),
+        &asset,
+        dir.path(),
+        update_core::bytes,
+    )?;
     Ok((dir, tarball))
 }
 

@@ -11,7 +11,8 @@ import { detectPackageManager, goMod, manifestFor, npmManifest, pepDep, runScrip
 import { detectLicense, ignoreSections, parseCodeowners, parseEditorconfig, parseProcfile } from "./misc.ts";
 import { extendsCandidates, resolveTsconfig } from "./tsconfig.ts";
 import { readNotebook } from "./notebook.ts";
-import { editorConfigFor, formatJson, formatText, globMatches } from "../format.ts";
+import { formatJson, formatText } from "../format.ts";
+import { matchesGlob, resolveEditorConfig } from "#lib/editor/editorconfig.ts";
 
 test("env: export prefix, quotes, inline comments, empty values", () => {
 	const d = parseEnv(`# db\nexport A=1\nB="two words" # note\nC='raw $x'\nD=\nE=a b c  # trailing\n`);
@@ -399,22 +400,20 @@ test("format: JSON honours tab/space and final newline; editorconfig resolution"
 	);
 	expect(formatJson('{"a":1}', { indent: "\t", finalNewline: false })).toBe('{\n\t"a": 1\n}');
 	expect(() => formatJson("{", { indent: "  ", finalNewline: true })).toThrow();
-	expect(globMatches("*.{ts,js}", "src/a.ts")).toBe(true);
-	expect(globMatches("*.md", "a.ts")).toBe(false);
-	expect(globMatches("src/**/*.ts", "src/x/y.ts")).toBe(true);
-	const ec = editorConfigFor(
-		[
-			{
-				dir: "",
-				text: "[*]\nindent_style = space\nindent_size = 4\ninsert_final_newline = true\n[*.json]\nindent_size = 2\n",
-			},
-		],
-		"a/b.json",
-	);
-	expect(ec).toEqual({ indent: "  ", finalNewline: true });
-	expect(editorConfigFor([{ dir: "", text: "[Makefile]\nindent_style = tab\n" }], "Makefile").indent).toBe(
-		"\t",
-	);
+	expect(matchesGlob("*.{ts,js}", "src/a.ts")).toBe(true);
+	expect(matchesGlob("*.md", "a.ts")).toBe(false);
+	expect(matchesGlob("src/**/*.ts", "src/x/y.ts")).toBe(true);
+	const ec = resolveEditorConfig("/w/a/b.json", [
+		{
+			dir: "/w",
+			text: "[*]\nindent_style = space\nindent_size = 4\ninsert_final_newline = true\n[*.json]\nindent_size = 2\n",
+		},
+	]);
+	expect(ec).toMatchObject({ indent_style: "space", indent_size: 2, insert_final_newline: true });
+	expect(
+		resolveEditorConfig("/w/Makefile", [{ dir: "/w", text: "[Makefile]\nindent_style = tab\n" }])
+			.indent_style,
+	).toBe("tab");
 	expect(await formatText("a:   1\n", "yaml", { indent: "  ", finalNewline: true })).toBe("a: 1\n");
 	expect(await formatText("x", "log", { indent: "  ", finalNewline: true })).toBeNull();
 });

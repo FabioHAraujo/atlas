@@ -21,7 +21,7 @@ import { offerGhostty, startThemeCommands } from "#lib/shell/themeCommands.svelt
 import { shell } from "#lib/shell/shell.svelte.ts";
 import { agents } from "#lib/stores/agents.svelte.ts";
 import { browserPrefs } from "#lib/stores/browser.svelte.ts";
-import { initHostStatus } from "#lib/stores/gpu.svelte.ts";
+import { initHostStatus } from "#lib/stores/hostStatus.svelte.ts";
 import { loadPrefs } from "#lib/stores/prefs.svelte.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { quick } from "#lib/stores/quick.svelte.ts";

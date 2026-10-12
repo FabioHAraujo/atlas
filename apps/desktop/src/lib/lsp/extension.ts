@@ -7,11 +7,12 @@ import { envOf, lspEnv, type LspEnv } from "#lib/lsp/context.ts";
 import { lspGutter } from "#lib/lsp/diagnostics.ts";
 import { lspFeatureTheme, lspHighlight, lspHover, lspInlayHints, lspSignature } from "#lib/lsp/features.ts";
 import { codeActionsAt, formatDocument, goToDefinition, runCodeAction } from "#lib/lsp/actions.ts";
+import { explainUnserved } from "#lib/lsp/hints.svelte.ts";
 import { showPicker } from "#lib/lsp/picker.svelte.ts";
 
 export async function codeActionMenu(view: EditorView) {
 	const env = envOf(view);
-	if (!env?.doc.open) return toast.info("No language server for this file");
+	if (!env || !explainUnserved(view, "code-actions")) return;
 	const sel = view.state.selection.main;
 	const actions = await codeActionsAt(view, sel.from, sel.to);
 	if (actions.length === 0) return toast.info("No code actions here");
@@ -62,5 +63,5 @@ export function lspExtension({ env }: LspExtensionOptions): Extension {
 export async function formatBeforeSave(view: EditorView): Promise<void> {
 	const env = envOf(view);
 	if (!env?.formatOnSave() || !env.doc.open) return;
-	await formatDocument(view, true).catch(() => false);
+	await formatDocument(view).catch(() => false);
 }

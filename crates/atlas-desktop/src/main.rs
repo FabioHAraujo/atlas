@@ -90,6 +90,7 @@ macro_rules! handlers {
             updates::system_info,
             updates::latest_release,
             updates::releases_between,
+            updates::update_size,
             updates::update_all,
             updates::reinstall_app,
             updates::unlink,
@@ -99,6 +100,10 @@ macro_rules! handlers {
             host::host_call,
             host::host_pty_list,
             host::host_status,
+            host::host_take_prompt,
+            host::host_restart,
+            host::host_postpone,
+            host::host_restart_when_idle,
             workspace::workspace_load,
             workspace::workspace_save,
             worktree::worktree_create,
@@ -348,6 +353,10 @@ fn main() {
             // Dock icon click with the window hidden.
             if let tauri::RunEvent::Reopen { .. } = ev {
                 show_main(app);
+            }
+            // Quitting with "restart when idle" armed and no terminal left: end the old host now.
+            if matches!(ev, tauri::RunEvent::Exit) {
+                host::on_exit(app);
             }
         });
 }

@@ -247,53 +247,130 @@ fn receive_blocking(sock: &Path) -> Result<Takeover> {
     })
 }
 
-/// What the desktop should do about the daemon it just connected to.
+/// What the user said about a daemon that cannot be replaced without ending terminals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Choice {
+    /// Nothing yet: ask.
+    #[default]
+    Ask,
+    /// "Restart when idle": replace it the moment no terminal is running.
+    WhenIdle,
+    /// "Later": do not ask again this session (the status stays visible).
+    Later,
+}
+
+/// What to do about the daemon an app or `atlas update` just connected to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Plan {
+pub enum Decision {
     /// Same version and every capability the app needs.
     Current,
-    /// Older daemon that can hand its terminals over: `upgrade`.
+    /// Older daemon that can hand its terminals over: `upgrade` (nothing is lost).
     Upgrade,
-    /// Older daemon that cannot hand over (proto 1) but has nothing running: restart it.
-    RestartEmpty,
-    /// Older daemon that cannot hand over and has live terminals: keep it, tell the user.
-    Outdated,
+    /// Older daemon that cannot hand over and has no running terminal: restart it, silently.
+    RestartNow,
+    /// Cannot hand over, terminals are running, features are missing and the user has not
+    /// chosen: ask (list the terminals, never kill them without consent).
+    Prompt,
+    /// The user chose "restart when idle": keep it until the last terminal exits.
+    WaitIdle,
+    /// The user chose "later": keep it, report it, do not ask again this session.
+    Deferred,
+    /// Cannot hand over and terminals are running, but nothing the app needs is missing
+    /// (only the version differs): leave the terminals alone, report the skew.
+    Passive,
 }
 
 /// Capabilities the app's features rely on.
-const NEEDED: &[&str] = &["pty_attach_raw"];
+pub const NEEDED: &[&str] = &["pty_attach_raw", "lsp"];
 
-/// Decide from `info` (and, for a proto 1 daemon that does not report `live_ptys`,
-/// the live count the caller derived from `pty_list`).
-pub fn plan(info: &Value, live_from_list: usize, bundled: &str) -> Plan {
-    let caps: Vec<&str> = info["caps"]
+/// Capabilities in `info` (empty for a proto 1 daemon, which reports none).
+pub fn caps_of(info: &Value) -> Vec<&str> {
+    info["caps"]
         .as_array()
         .map(|a| a.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default();
-    let missing = NEEDED.iter().any(|c| !caps.contains(c));
-    if !missing && info["version"].as_str() == Some(bundled) {
-        return Plan::Current;
-    }
-    if caps.contains(&"upgrade") {
-        return Plan::Upgrade;
-    }
-    let live = info["live_ptys"]
+        .unwrap_or_default()
+}
+
+/// Needed capabilities the daemon lacks.
+pub fn missing_caps(info: &Value) -> Vec<&'static str> {
+    let caps = caps_of(info);
+    NEEDED
+        .iter()
+        .copied()
+        .filter(|c| !caps.contains(c))
+        .collect()
+}
+
+/// Running terminals reported by `info` (`live_from_list` for a proto 1 daemon, which has no
+/// `live_ptys`: the caller counts the unexited ones from `pty_list`).
+pub fn live_ptys(info: &Value, live_from_list: usize) -> usize {
+    info["live_ptys"]
         .as_u64()
-        .map_or(live_from_list, |n| n as usize);
-    if live == 0 {
-        Plan::RestartEmpty
-    } else if missing {
-        Plan::Outdated
-    } else {
+        .map_or(live_from_list, |n| n as usize)
+}
+
+/// Decide from `info`, the live terminal count, the version bundled with the caller and the
+/// user's [`Choice`]. Pure: the caller acts on it.
+///
+/// After a failed `upgrade` call again with `"upgrade"` removed from the caps: the daemon is
+/// then treated like one that cannot hand over.
+pub fn decide(info: &Value, live_from_list: usize, bundled: &str, choice: Choice) -> Decision {
+    let missing = !missing_caps(info).is_empty();
+    if !missing && info["version"].as_str() == Some(bundled) {
+        return Decision::Current;
+    }
+    if caps_of(info).contains(&"upgrade") {
+        return Decision::Upgrade;
+    }
+    if live_ptys(info, live_from_list) == 0 {
+        return Decision::RestartNow;
+    }
+    if !missing {
         // Same capabilities, only the version differs, and it cannot be upgraded live:
         // nothing the user would notice is missing, so leave their terminals alone.
-        Plan::Current
+        return Decision::Passive;
     }
+    match choice {
+        Choice::Ask => Decision::Prompt,
+        Choice::WhenIdle => Decision::WaitIdle,
+        Choice::Later => Decision::Deferred,
+    }
+}
+
+/// The sentence shown wherever a daemon that is not current is reported; `None` when it is.
+pub fn skew_reason(info: &Value, bundled: &str, app: &str) -> Option<String> {
+    let version = info["version"].as_str().unwrap_or("unknown");
+    let missing = missing_caps(info);
+    if missing.is_empty() && version == bundled {
+        return None;
+    }
+    let mut s = format!("Terminal host {version} is older than {app}");
+    if !missing.is_empty() {
+        let lost = [
+            ("lsp", "language features"),
+            ("pty_attach_raw", "fast terminal rendering"),
+        ];
+        let off: Vec<&str> = lost
+            .iter()
+            .filter(|(c, _)| missing.contains(c))
+            .map(|(_, d)| *d)
+            .collect();
+        // Both feature names are plural ("language features", "fast terminal rendering" reads
+        // as one thing but is listed with its sibling): "are" in every case.
+        s.push_str(&format!(
+            "; {} are off until it restarts",
+            off.join(" and ")
+        ));
+    }
+    s.push('.');
+    Some(s)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const FULL: &[&str] = &["pty_attach_raw", "upgrade", "lsp"];
 
     fn info(version: &str, caps: &[&str], live: Option<u64>) -> Value {
         let mut v = json!({"version": version, "caps": caps});
@@ -304,34 +381,104 @@ mod tests {
     }
 
     #[test]
-    fn plan_matrix() {
-        let raw = ["pty_attach_raw", "upgrade"];
+    fn current_needs_same_version_and_every_needed_cap() {
+        let d = |i: Value| decide(&i, 0, "1.2.0", Choice::Ask);
+        assert_eq!(d(info("1.2.0", FULL, Some(3))), Decision::Current);
+        // Same version missing a needed cap (no `lsp`) is not current.
         assert_eq!(
-            plan(&info("1.2.0", &raw, Some(3)), 0, "1.2.0"),
-            Plan::Current
+            d(info("1.2.0", &["pty_attach_raw", "upgrade"], Some(3))),
+            Decision::Upgrade
         );
-        // Same-version daemon missing a needed cap is not current.
+    }
+
+    #[test]
+    fn upgradeable_daemons_hand_over_with_or_without_terminals() {
+        for live in [0, 3] {
+            assert_eq!(
+                decide(&info("1.1.0", FULL, Some(live)), 0, "1.2.0", Choice::Ask),
+                Decision::Upgrade
+            );
+        }
+    }
+
+    /// proto 1: no caps, no `live_ptys`; the `pty_list` count decides.
+    #[test]
+    fn proto1_restarts_when_empty_and_asks_when_not() {
+        let old = json!({"version": "0.6.2"});
+        assert_eq!(decide(&old, 0, "1.2.1", Choice::Ask), Decision::RestartNow);
+        // Restarting an empty host needs no consent, whatever was chosen before.
         assert_eq!(
-            plan(&info("1.2.0", &["upgrade"], Some(3)), 0, "1.2.0"),
-            Plan::Upgrade
+            decide(&old, 0, "1.2.1", Choice::Later),
+            Decision::RestartNow
         );
-        // Newer app, upgradeable daemon: hand over, with or without terminals.
+        assert_eq!(decide(&old, 2, "1.2.1", Choice::Ask), Decision::Prompt);
         assert_eq!(
-            plan(&info("1.1.0", &raw, Some(3)), 0, "1.2.0"),
-            Plan::Upgrade
+            decide(&old, 2, "1.2.1", Choice::WhenIdle),
+            Decision::WaitIdle
+        );
+        assert_eq!(decide(&old, 2, "1.2.1", Choice::Later), Decision::Deferred);
+    }
+
+    #[test]
+    fn a_failed_handoff_falls_back_to_the_proto1_path() {
+        let mut i = info("1.1.0", FULL, Some(2));
+        i["caps"] = json!(["pty_attach_raw", "lsp"]); // `upgrade` removed by the caller
+        // Nothing needed is missing, only the version differs: report, do not kill.
+        assert_eq!(decide(&i, 0, "1.2.0", Choice::Ask), Decision::Passive);
+        i["live_ptys"] = json!(0);
+        assert_eq!(decide(&i, 0, "1.2.0", Choice::Ask), Decision::RestartNow);
+        i["caps"] = json!(["pty_attach_raw"]);
+        i["live_ptys"] = json!(2);
+        assert_eq!(decide(&i, 0, "1.2.0", Choice::Ask), Decision::Prompt);
+    }
+
+    #[test]
+    fn only_missing_features_prompt() {
+        let same_caps = info("1.1.0", &["pty_attach_raw", "lsp"], Some(2));
+        assert_eq!(
+            decide(&same_caps, 2, "1.2.0", Choice::Ask),
+            Decision::Passive
         );
         assert_eq!(
-            plan(&info("1.1.0", &raw, Some(0)), 0, "1.2.0"),
-            Plan::Upgrade
+            decide(&same_caps, 2, "1.2.0", Choice::Later),
+            Decision::Passive
         );
-        // proto 1 (no caps, no live_ptys): the list decides.
-        let old = json!({"version": "0.5.13"});
-        assert_eq!(plan(&old, 0, "1.2.0"), Plan::RestartEmpty);
-        assert_eq!(plan(&old, 2, "1.2.0"), Plan::Outdated);
-        // A daemon with the caps but no `upgrade` and a different version stays put.
+    }
+
+    #[test]
+    fn live_count_prefers_the_daemon_over_the_list() {
+        assert_eq!(live_ptys(&json!({"live_ptys": 4}), 9), 4);
+        assert_eq!(live_ptys(&json!({}), 9), 9);
+    }
+
+    #[test]
+    fn reason_names_the_versions_and_what_is_off() {
+        let r = skew_reason(&json!({"version": "0.6.2"}), "1.2.1", "Atlas 1.2.1").unwrap();
         assert_eq!(
-            plan(&info("1.1.0", &["pty_attach_raw"], Some(2)), 2, "1.2.0"),
-            Plan::Current
+            r,
+            "Terminal host 0.6.2 is older than Atlas 1.2.1; language features and fast terminal rendering are off until it restarts."
+        );
+        let r = skew_reason(
+            &info("1.1.0", &["pty_attach_raw", "lsp"], None),
+            "1.2.0",
+            "Atlas 1.2.0",
+        )
+        .unwrap();
+        assert_eq!(r, "Terminal host 1.1.0 is older than Atlas 1.2.0.");
+        // Only `lsp` missing: one plural noun, still "are".
+        let r = skew_reason(
+            &info("1.1.0", &["pty_attach_raw", "upgrade"], None),
+            "1.2.0",
+            "Atlas 1.2.0",
+        )
+        .unwrap();
+        assert_eq!(
+            r,
+            "Terminal host 1.1.0 is older than Atlas 1.2.0; language features are off until it restarts."
+        );
+        assert_eq!(
+            skew_reason(&info("1.2.0", FULL, None), "1.2.0", "Atlas 1.2.0"),
+            None
         );
     }
 }

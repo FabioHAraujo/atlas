@@ -19,4 +19,4 @@ pub mod rpc;
 pub mod server;
 pub mod text;
 
-pub use manager::{Config, Manager, OpenReply, Push, ServerStatus, State};
+pub use manager::{CatalogEntry, Config, Manager, OpenReply, Overrides, Push, ServerStatus, State};

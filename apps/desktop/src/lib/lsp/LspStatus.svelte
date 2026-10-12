@@ -1,55 +1,62 @@
 <script lang="ts">
-	import { CircleAlert, TriangleAlert, LoaderCircle } from "@lucide/svelte";
-	import { lsp, refreshStatus, serverFor, type LspDoc } from "#lib/lsp/client.svelte.ts";
-	import { showPicker } from "#lib/lsp/picker.svelte.ts";
-	import type { PaletteItem } from "#lib/components/Palette.svelte";
+	import { CircleAlert, TriangleAlert, LoaderCircle, Languages } from "@lucide/svelte";
+	import { Popover } from "@codeatlasdev/ui";
+	import type { LspDoc } from "#lib/lsp/client.svelte.ts";
+	import { hint, dismissHint, runHintAction } from "#lib/lsp/hints.svelte.ts";
+	import LspPopover from "#lib/lsp/LspPopover.svelte";
+	import { uiStateOf } from "#lib/lsp/uiState.svelte.ts";
 
-	let { doc, errors, warnings }: { doc: LspDoc; errors: number; warnings: number } = $props();
+	let { doc, errors = 0, warnings = 0 }: { doc: LspDoc; errors?: number; warnings?: number } = $props();
 
-	let srv = $derived(serverFor(doc.path));
-	let state = $derived(srv?.state ?? (doc.status === "missing" ? "missing" : "starting"));
-	let busy = $derived(state === "downloading" || state === "starting");
-	let name = $derived(srv?.name ?? doc.server ?? "");
-	let detail = $derived(srv?.progress || srv?.message || "");
-
-	async function showAll() {
-		await refreshStatus().catch(() => {});
-		const items: PaletteItem[] = lsp.servers.map((s, i) => ({
-			id: `${i}`,
-			group: "Language servers",
-			label: `${s.name} · ${s.state}`,
-			description: [s.language, s.root, s.progress || s.message].filter(Boolean).join(" · "),
-			run: () => {},
-		}));
-		showPicker("Language servers", items);
-	}
+	let ui = $derived(uiStateOf(doc));
+	let mine = $derived(hint.current?.path === doc.path ? hint.current : null);
 </script>
 
-{#if name || state === "missing"}
-	<button
-		class="lsp"
-		class:bad={state === "crashed" || state === "missing"}
-		title={detail ? `${name}: ${detail}` : `${name || "language server"}: ${state}`}
-		onclick={showAll}
-	>
-		{#if busy}<LoaderCircle size={12} class="spin" />{/if}
-		<span class="dot {state}"></span>
-		<span>{name || "no server"}</span>
-		{#if detail && busy}<span class="detail">{detail}</span>{/if}
-	</button>
-{/if}
-{#if errors > 0}
-	<span class="count err" title="{errors} error{errors === 1 ? '' : 's'}"
-		><CircleAlert size={12} />{errors}</span
-	>
-{/if}
-{#if warnings > 0}
-	<span class="count warn" title="{warnings} warning{warnings === 1 ? '' : 's'}"
-		><TriangleAlert size={12} />{warnings}</span
-	>
-{/if}
+<span class="wrap">
+	{#if mine}
+		<span class="hint" role="status">
+			<span class="msg">{mine.message}</span>
+			{#if mine.action}
+				<button class="act" onclick={runHintAction}>{mine.action.label}</button>
+			{/if}
+			<button class="x" aria-label="Dismiss" onclick={dismissHint}>×</button>
+		</span>
+	{/if}
+	<Popover side="top" align="end" sideOffset={6}>
+		{#snippet triggerChild(props)}
+			<button
+				{...props}
+				class="lsp"
+				aria-label="Language server: {ui.label}"
+				title={ui.summary}
+				data-kind={ui.kind}
+			>
+				{#if ui.tone === "busy"}<LoaderCircle size={12} class="spin" />{:else}<Languages size={12} />{/if}
+				<span class="dot {ui.tone}"></span>
+				<span class="label">{ui.label}</span>
+			</button>
+		{/snippet}
+		<LspPopover {doc} {ui} />
+	</Popover>
+	{#if errors > 0}
+		<span class="count err" title="{errors} error{errors === 1 ? '' : 's'}"
+			><CircleAlert size={12} />{errors}</span
+		>
+	{/if}
+	{#if warnings > 0}
+		<span class="count warn" title="{warnings} warning{warnings === 1 ? '' : 's'}"
+			><TriangleAlert size={12} />{warnings}</span
+		>
+	{/if}
+</span>
 
 <style>
+	.wrap {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		min-width: 0;
+	}
 	.lsp {
 		display: inline-flex;
 		align-items: center;
@@ -60,33 +67,63 @@
 		background: none;
 		font-size: 11px;
 		color: var(--ca-text-secondary);
-		max-width: 260px;
+		max-width: 280px;
+		cursor: pointer;
 	}
-	.lsp:hover {
+	.lsp:hover,
+	.lsp[data-state="open"] {
 		background: var(--ca-action-hover);
 	}
-	.detail {
+	.label {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		color: var(--ca-text-disabled);
 	}
 	.dot {
+		flex: none;
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
 		background: var(--ca-text-disabled);
 	}
-	.dot.ready {
+	.dot.ok {
 		background: var(--atlas-state-success, var(--ca-semantic-success));
 	}
-	.dot.crashed,
-	.dot.missing {
+	.dot.error {
 		background: var(--atlas-state-error, var(--ca-semantic-error));
 	}
-	.dot.downloading,
-	.dot.starting {
+	.dot.warn,
+	.dot.busy {
 		background: var(--atlas-state-warning, var(--ca-semantic-warning));
+	}
+	.hint {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		max-width: 520px;
+		padding: 2px 6px;
+		border-radius: 5px;
+		font-size: 11px;
+		background: var(--ca-action-hover);
+		color: var(--ca-text-primary);
+	}
+	.msg {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.act,
+	.x {
+		flex: none;
+		border: 0;
+		background: none;
+		font: inherit;
+		cursor: pointer;
+		color: var(--ca-text-secondary);
+	}
+	.act {
+		color: var(--ca-text-primary);
+		text-decoration: underline;
 	}
 	.count {
 		display: inline-flex;

@@ -39,7 +39,11 @@ export interface TraySnapshot {
 	projects: TrayProject[];
 	agents: { working: number; needsYou: number; focusTab: string | null };
 	terminals: { live: number };
-	host: { status: "current" | "upgraded" | "outdated" | null; version: string | null };
+	/** `outdated`: the terminal host needs a restart that the user has not agreed to yet. */
+	host: {
+		status: "current" | "upgrading" | "upgraded" | "outdated" | "restarting" | null;
+		version: string | null;
+	};
 	/** Newer release than the installed app/CLI, if any. */
 	update: { version: string } | null;
 	/** Dev build (cargo tauri dev or `atlas link`): updates are paused. */
@@ -63,7 +67,9 @@ export type TrayAction =
 	| { kind: "logs"; id: string; service: string }
 	| { kind: "agents"; tab: string | null }
 	| { kind: "terminal" }
-	| { kind: "update" };
+	| { kind: "update" }
+	/** Open the "Restart the terminal host?" prompt. */
+	| { kind: "host" };
 
 export interface Overall {
 	tone: Tone;
@@ -165,10 +171,10 @@ export function recommend(s: TraySnapshot, now: number): Recommendation | null {
 		return {
 			id: "host",
 			icon: "host",
-			title: "Terminal host is outdated",
-			detail: "Restart it when no terminal is busy",
-			cta: "Open settings",
-			action: { kind: "settings" },
+			title: "Terminal host needs a restart",
+			detail: "Language features are off until it restarts",
+			cta: "Review",
+			action: { kind: "host" },
 		};
 	}
 	return null;

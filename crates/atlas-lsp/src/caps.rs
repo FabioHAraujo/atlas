@@ -252,6 +252,52 @@ pub fn configuration(server: &str, section: Option<&str>) -> Value {
     }
 }
 
+/// [`configuration`] with the user's `settings` merged over the defaults. The user's object is
+/// keyed like the server's config tree (`{"rust-analyzer": {"check": {...}}}` or, for servers
+/// whose root section is implicit, the tree itself); `section` digs into it the same way.
+pub fn configuration_with(server: &str, section: Option<&str>, user: Option<&Value>) -> Value {
+    let base = configuration(server, section);
+    let Some(user) = user else { return base };
+    let sect = section.unwrap_or("");
+    // The user may nest under the server's own section name or give the bare tree.
+    let tree = user.get(sect).filter(|_| !sect.is_empty()).or_else(|| {
+        let key = sect.split('.').next().unwrap_or("");
+        let nested = user.get(key)?;
+        let rest = sect.strip_prefix(key)?.trim_start_matches('.');
+        if rest.is_empty() {
+            Some(nested)
+        } else {
+            dig_ref(nested, rest)
+        }
+    });
+    let user_part = tree.cloned().or_else(|| {
+        // Bare tree for the default (empty-section) question.
+        sect.is_empty().then(|| user.clone())
+    });
+    match user_part {
+        Some(u) => merge(base, u),
+        None => base,
+    }
+}
+
+fn dig_ref<'a>(v: &'a Value, dotted: &str) -> Option<&'a Value> {
+    dotted.split('.').try_fold(v, |cur, k| cur.get(k))
+}
+
+/// Deep merge: objects merge key by key, anything else is replaced by `over`.
+pub fn merge(base: Value, over: Value) -> Value {
+    match (base, over) {
+        (Value::Object(mut b), Value::Object(o)) => {
+            for (k, v) in o {
+                let cur = b.remove(&k).unwrap_or(Value::Null);
+                b.insert(k, merge(cur, v));
+            }
+            Value::Object(b)
+        }
+        (_, o) => o,
+    }
+}
+
 fn dig(v: &Value, dotted: &str) -> Option<Value> {
     dotted.split('.').try_fold(v, |cur, k| cur.get(k)).cloned()
 }
@@ -287,6 +333,57 @@ mod tests {
             Value::Null
         );
         assert_eq!(configuration("unknown", Some("x")), Value::Null);
+    }
+
+    #[test]
+    fn user_settings_merge_over_defaults_by_section() {
+        let user = json!({"rust-analyzer": {"check": {"command": "check"}, "extra": 1}});
+        // Whole-section question: deep merge keeps untouched defaults.
+        let all = configuration_with("rust-analyzer", Some("rust-analyzer"), Some(&user));
+        assert_eq!(all["check"]["command"], "check");
+        assert_eq!(all["checkOnSave"], true);
+        assert_eq!(all["extra"], 1);
+        // Dotted section digs into the user tree.
+        assert_eq!(
+            configuration_with(
+                "rust-analyzer",
+                Some("rust-analyzer.check.command"),
+                Some(&user)
+            ),
+            "check"
+        );
+        // Unrelated section is untouched.
+        assert_eq!(
+            configuration_with(
+                "rust-analyzer",
+                Some("rust-analyzer.cargo.buildScripts"),
+                Some(&user)
+            ),
+            json!({"enable": true})
+        );
+        // No user settings: identical to the default.
+        assert_eq!(
+            configuration_with("gopls", None, None),
+            configuration("gopls", None)
+        );
+        // A bare tree answers the empty-section question (gopls, bash).
+        let bare = json!({"staticcheck": false});
+        let g = configuration_with("gopls", None, Some(&bare));
+        assert_eq!(g["staticcheck"], false);
+        assert_eq!(g["usePlaceholders"], true);
+    }
+
+    #[test]
+    fn merge_replaces_non_objects_and_recurses_objects() {
+        assert_eq!(
+            merge(json!({"a": {"b": 1, "c": 2}}), json!({"a": {"b": 9}})),
+            json!({"a": {"b": 9, "c": 2}})
+        );
+        assert_eq!(
+            merge(json!({"a": [1]}), json!({"a": [2, 3]})),
+            json!({"a": [2, 3]})
+        );
+        assert_eq!(merge(json!(1), json!({"x": 1})), json!({"x": 1}));
     }
 
     #[test]

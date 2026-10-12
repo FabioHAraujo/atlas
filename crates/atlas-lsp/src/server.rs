@@ -57,6 +57,9 @@ pub struct Shared {
     pub root: String,
     pub progress: Mutex<HashMap<String, (String, String)>>,
     pub message: Mutex<Option<String>>,
+    /// The user's `settings` for this server (merged over Atlas's defaults when answering
+    /// `workspace/configuration`).
+    pub settings: Option<Value>,
     pub events: tokio::sync::mpsc::Sender<(u64, Event)>,
     /// Generation of this process, so the manager ignores events from a replaced one.
     pub gen_id: u64,
@@ -155,7 +158,13 @@ impl Handler for ServerHandler {
                     Ok(Value::Array(
                         items
                             .iter()
-                            .map(|i| caps::configuration(sh.name, i["section"].as_str()))
+                            .map(|i| {
+                                caps::configuration_with(
+                                    sh.name,
+                                    i["section"].as_str(),
+                                    sh.settings.as_ref(),
+                                )
+                            })
                             .collect(),
                     ))
                 }
@@ -257,6 +266,7 @@ pub async fn start(
     shared: Arc<Shared>,
     log: &Path,
     init_timeout: Duration,
+    initialization_options: Value,
 ) -> Result<Live> {
     let root = PathBuf::from(&shared.root);
     let mut child = spawn_process(launch, &root, log)?;
@@ -275,7 +285,7 @@ pub async fn start(
         .and_then(|n| n.to_str())
         .unwrap_or("root")
         .to_string();
-    let params = caps::initialize_params(&shared.root, &name, caps::init_options(shared.name));
+    let params = caps::initialize_params(&shared.root, &name, initialization_options);
     let child = Arc::new(tokio::sync::Mutex::new(child));
     let res = tokio::time::timeout(init_timeout, peer.request("initialize", params)).await;
     let init = match res {
@@ -294,7 +304,7 @@ pub async fn start(
     // still get our defaults, and ones that pull get a refresh hint.
     peer.notify(
         "workspace/didChangeConfiguration",
-        json!({"settings": caps::configuration(shared.name, None)}),
+        json!({"settings": caps::configuration_with(shared.name, None, shared.settings.as_ref())}),
     )
     .await;
     Ok(Live {

@@ -19,7 +19,14 @@
 //!   crashed; first open of a language may download its server); `lsp_change`, `lsp_close`,
 //!   `lsp_save`, `lsp_request {path, method, params, rid?}` (raw LSP result; `$/capabilities`
 //!   gives the server's capabilities), `lsp_cancel {id: rid}`, `lsp_status` → `{servers}`,
-//!   `lsp_apply_edit_result {id, applied}`. Pushes to every connection: `lsp_diagnostics
+//!   `lsp_apply_edit_result {id, applied}`. `lsp_open` also takes `overrides` (the user's
+//!   `lsp.<language>` settings: `command`, `args`, `initialization_options`, `settings`,
+//!   `disabled`) and replies with `reason` (why `missing`/`crashed`: `{code, message, hint?,
+//!   command?}`) and, for `disabled`, `supported` (languages that have a server).
+//!   `lsp_catalog` (servers + what is installed), `lsp_install {name}`, `lsp_uninstall
+//!   {name}`, `lsp_restart {name, root?}` and `lsp_log {name, lines?}` serve Settings →
+//!   Languages and the status bar. Each status entry carries `label`, `version`, `source`
+//!   (`path|managed|custom`), `log` and, once dead, `tail` (last stderr lines). Pushes to every connection: `lsp_diagnostics
 //!   {path, version, diagnostics}`, `lsp_status {servers}` (full list on every change) and
 //!   `lsp_apply_edit {id, edit}`. Positions are UTF-16 and paths absolute. Language servers
 //!   are NOT handed over by `upgrade`: they die with the old daemon, so clients re-send
@@ -104,6 +111,9 @@ fn default_exec_timeout() -> u64 {
 }
 fn default_lines() -> u32 {
     200
+}
+fn default_log_lines() -> usize {
+    80
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -218,6 +228,9 @@ pub enum HostCmd {
         text: String,
         #[serde(default)]
         version: i64,
+        /// The user's per-language customization (`lsp.<language>` settings).
+        #[serde(default)]
+        overrides: Option<Value>,
     },
     /// LSP `contentChanges` (incremental, UTF-16 positions), applied in order.
     LspChange {
@@ -247,6 +260,31 @@ pub enum HostCmd {
         id: String,
     },
     LspStatus {},
+    /// Every known server with what is installed on this machine (never installs).
+    LspCatalog {},
+    /// Install or reinstall a managed server now (progress arrives as `lsp_status` pushes).
+    LspInstall {
+        name: String,
+        /// Remove Atlas's managed copy first (Settings → Languages → Update).
+        #[serde(default)]
+        reinstall: bool,
+    },
+    /// Remove Atlas's managed copy of a server (PATH binaries are never touched).
+    LspUninstall {
+        name: String,
+    },
+    /// Restart a server (all roots, or only `root`); open documents are replayed.
+    LspRestart {
+        name: String,
+        #[serde(default)]
+        root: Option<String>,
+    },
+    /// Tail of a server's stderr log: `{path, text}`.
+    LspLog {
+        name: String,
+        #[serde(default = "default_log_lines")]
+        lines: usize,
+    },
     /// The client's answer to a pushed `lsp_apply_edit`.
     LspApplyEditResult {
         id: String,

@@ -2,6 +2,21 @@
 
 All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions follow [SemVer](https://semver.org); the CLI and the desktop app always ship together with the same version.
 
+## [1.1.1] — 2026-10-12
+
+### Changed
+
+- **Native trackpad swipes.** Two-finger swipes over the sidebar (spaces) and over a tab group (tabs) are tracked by macOS itself, the same way Safari swipes between pages: the view follows your fingers, rubber-bands at the ends, gives a light haptic tick at the commit point, and one swipe moves exactly one space or tab. Momentum never chains into a second switch. Tab swipes now also work on tab strips that scroll. They follow System Settings → Trackpad → *Swipe between pages*; when that is off, the previous recognizer is used.
+- **Instant space switching.** The spaces next to the current one stay ready in the background, so a switch shows them instead of building them, and the slide springs from where your fingers let go. Clicks and shortcuts use the same animation.
+- **Error screens.** A crash in one tab or panel now shows an error card in that spot only (Retry, Close tab, Copy details, Report issue, and the stack under Details) while the rest of the app keeps working. A crash of the whole window shows a proper error page with Reload app instead of a bare "500". Errors outside rendering show a toast with Details, and repeats are grouped.
+
+### Fixed
+
+- Opening an SVG file crashed the app with a "500" page (an update loop in the SVG preview). Spaces with an SVG tab open crashed when you switched to them.
+- Update checks and *What's new* failed with `403` once GitHub's unauthenticated API limit (60 requests per hour per network) was used up. Atlas now reads the latest version from the release page and the notes from `CHANGELOG.md`, with no API calls and no limit.
+- `atlas … | head` crashed with "failed printing to stdout: Broken pipe"; short commands now end quietly.
+- The installer works when the GitHub API is rate-limited.
+
 ## [1.1.0] — 2026-10-12
 
 Atlas 1.1 is the first open-source release: the code is public under MIT OR Apache-2.0, with a public repository, CI on pull requests and a docs site at https://atlas.codeatlas.com.br/docs. Atlas Desktop gets a new shell (a space per project, sidebars that peek in from the window edge, trackpad swipes), a project panel with live charts, viewers for images, PDF, media and Markdown, a Ghostty-style terminal keyboard, and updates you can read before you install them. `atlas.yaml`, the CLI, the TUI and the MCP tools stay compatible with 1.0.

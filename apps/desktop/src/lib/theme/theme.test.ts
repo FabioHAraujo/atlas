@@ -2,12 +2,18 @@
 import { describe, expect, test } from "bun:test";
 import atlas from "../themes/atlas.json";
 import dracula from "../themes/dracula.json";
-import pro from "../themes/dracula-pro.json";
 import one from "../themes/one.json";
 import { ansi16, cssVars, syntaxTokens, terminalColors } from "../theme.ts";
 import { contrast, ensureContrast, fromOklch, toOklch } from "./color.ts";
 import { complete } from "./derive.ts";
-import { DEFAULT_SELECTION, migrateSelection, parseFamily, validateStyle } from "./schema.ts";
+import {
+	DEFAULT_SELECTION,
+	migrateSelection,
+	parseFamily,
+	resolveTerminalTheme,
+	resolveTheme,
+	validateStyle,
+} from "./schema.ts";
 import {
 	ANSI_KEYS,
 	EDITOR_TOKENS,
@@ -19,7 +25,7 @@ import {
 	synVar,
 } from "./tokens.ts";
 
-const families = { atlas, one, dracula, pro };
+const families = { atlas, one, dracula };
 const bundled = Object.values(families).flatMap((f) => parseFamily(f).themes);
 const by = (name) => bundled.find((t) => t.name === name);
 
@@ -256,7 +262,7 @@ describe("Dracula spec", () => {
 	});
 
 	test("body text and labels reach WCAG AA on the editor and chrome surfaces", () => {
-		for (const t of [by("Dracula"), by("Alucard"), by("Dracula Pro")]) {
+		for (const t of [by("Dracula"), by("Alucard")]) {
 			const s = complete(t.style, t.appearance);
 			for (const surface of ["editor.background", "background", "surface.background"])
 				for (const k of ["text", "text.muted", "text.accent", "created", "warning", "info", "error"])
@@ -267,49 +273,6 @@ describe("Dracula spec", () => {
 						true,
 					]);
 		}
-	});
-});
-
-describe("Dracula Pro (from the user's Ghostty config)", () => {
-	const p = by("Dracula Pro").style;
-	test("terminal values are exactly the config's", () => {
-		const t = terminalColors(p);
-		expect(t).toMatchObject({
-			bg: "#22212c",
-			fg: "#f8f8f2",
-			cursor: "#f8f8f2",
-			cursorText: "#22212c",
-			selectionBg: "#454158",
-			selectionFg: "#f8f8f2",
-		});
-		expect(t.ansi16).toEqual([
-			"#22212c",
-			"#ff9580",
-			"#8aff80",
-			"#ffff80",
-			"#9580ff",
-			"#ff80bf",
-			"#80ffea",
-			"#f8f8f2",
-			"#504c67",
-			"#ffaa99",
-			"#a2ff99",
-			"#ffff99",
-			"#aa99ff",
-			"#ff99cc",
-			"#99ffee",
-			"#ffffff",
-		]);
-	});
-
-	test("syntax applies the classic mapping to the Pro hues; comments stay AA", () => {
-		const t = syntaxTokens(p);
-		expect(t.keyword.color).toBe("#ff80bf");
-		expect(t.function.color).toBe("#8aff80");
-		expect(t.string.color).toBe("#ffff80");
-		expect(t.number.color).toBe("#9580ff");
-		expect(t.type.color).toBe("#80ffea");
-		expect(contrast(t.comment.color, "#22212c")).toBeGreaterThanOrEqual(4.5);
 	});
 });
 
@@ -344,13 +307,33 @@ describe("default-selection migration", () => {
 			mode: "system",
 			light: "Atlas Light",
 			dark: "Atlas Dark",
-			terminal: "Dracula Pro",
+			terminal: "My Terminal Theme",
 		});
 		expect(m.explicit).toBe(true);
-		expect(m.selection).toMatchObject({ dark: "Atlas Dark", terminal: "Dracula Pro" });
+		expect(m.selection).toMatchObject({ dark: "Atlas Dark", terminal: "My Terminal Theme" });
 	});
 
 	test("synVar maps dotted roles to dashed vars", () => {
 		expect(synVar("variable.parameter")).toBe("--cm-syn-variable-parameter");
+	});
+});
+
+describe("a stored theme that no longer exists", () => {
+	const themes = bundled;
+	const sel = (o) => migrateSelection({ v: 2, ...o }).selection;
+
+	test("a missing app theme resolves to the default of that appearance, silently", () => {
+		expect(resolveTheme(themes, sel({ mode: "dark", dark: "Some Paid Theme" }), true).name).toBe("Dracula");
+		expect(resolveTheme(themes, sel({ mode: "light", light: "Some Paid Theme" }), false).name).toBe(
+			"Alucard",
+		);
+		expect(resolveTheme(themes, sel({ mode: "system", dark: "Gone" }), true).name).toBe("Dracula");
+	});
+
+	test("a missing terminal theme means the app theme", () => {
+		const app = by("Dracula");
+		expect(resolveTerminalTheme(themes, "Some Paid Theme", app)).toBe(app);
+		expect(resolveTerminalTheme(themes, "app", app)).toBe(app);
+		expect(resolveTerminalTheme(themes, "One Dark", app).name).toBe("One Dark");
 	});
 });

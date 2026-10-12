@@ -4,6 +4,21 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new); release channels (stable/beta) come once Atlas is stable.
 
+## [1.2.1] — 2026-10-12
+
+### Fixed
+
+- **No more theme flash or empty window at launch.** The window now opens hidden and appears when the first real frame (your theme, the sidebar, the restored tab) is ready, instead of an empty translucent window, then a default-theme skeleton, then your theme. Atlas remembers the applied theme in `~/.atlas/desktop/theme-cache.json` and applies it before the page paints; your own themes are read straight from disk instead of waiting for the terminal host. The "Enable omp integration" banner no longer pushes the workbench down when it shows up.
+- **Faster startup.** The first screen no longer loads the editor, language-server, diff, chat, charts, Settings and dialog code (initial JavaScript −42 % raw, −47 % gzip); each loads the first time you use it. Projects and the workspace load in parallel, and views waiting for the terminal host continue the moment it connects instead of on the next 100 ms tick.
+- **Dracula Pro is no longer bundled.** Atlas 1.2.0 shipped a theme built from a paid palette; it is removed. Dracula and Alucard (MIT, by [Zeno Rocha](https://github.com/zenorocha) and [Luxonauta](https://github.com/luxonauta)) stay as the defaults. If you bought [Dracula Pro](https://draculatheme.com/pro), import your own licensed copy from Settings → Appearance → Import theme (a `.zip`, `.vsix` or folder; every theme inside is listed and saved only on your Mac). A stored theme that no longer exists falls back to Dracula/Alucard silently, and the terminal to the app theme.
+- Hovering or arrowing through the theme picker no longer changes the app theme; a theme is applied only when you click it or press Enter. The same goes for the `Theme:` commands in ⌘K.
+- Imported Ghostty themes are named after their source (`Ghostty: <theme>` or `Ghostty: my config`).
+
+### Added
+
+- **Import theme packages.** Settings → Appearance → Import theme accepts a zip, `.vsix` or folder, finds every theme inside (VS Code, iTerm2, Ghostty, Alacritty, Base16, Atlas/Zed), merges the variants that exist in several formats (VS Code syntax plus the terminal palette) and lets you pick which to import. Archives are unpacked to a temporary folder on your Mac and nothing is uploaded.
+- **Dracula credit.** The theme picker credits Dracula by Zeno Rocha and Luxonauta and links to Dracula Pro.
+
 ## [1.2.0] — 2026-10-12
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
@@ -16,7 +31,7 @@ Atlas is in **alpha**: expect bugs and breaking changes. Please [report what bre
 - **Missing projects.** Projects whose folder is gone show as *Not found* with Locate…, Check again and Remove; Refresh and Remove all in the sidebar; Relink when a moved copy is found.
 - **Find projects** scans your code folders plus Spotlight, streams results with branch, remote and service count, adds several at once, and can list folders that could use Atlas with an Init button.
 - **Dracula is the default theme**, with its official light variant **Alucard** for light mode. Colors, the ANSI table, the UI palette and the syntax scope mapping follow the [Dracula specification](https://draculatheme.com/spec) exactly; one theme now styles the whole app: editor, terminal, diffs, logs, Markdown, language-server popups, git colors and scrollbars. You keep your own choice: only people still on the old default move over.
-- **Dracula Pro** (dark) built from the palette in your own Ghostty config, plus **Use your Ghostty theme**: Atlas reads `~/.config/ghostty/config` (including `theme =`, `config-file =` and the Ghostty app's bundled themes) and imports its colors, font and cursor settings.
+- **Use your Ghostty theme**: Atlas reads `~/.config/ghostty/config` (including `theme =`, `config-file =` and the Ghostty app's bundled themes) and imports its colors, font and cursor settings into a theme of your own, stored only on your Mac. Dracula is by [Zeno Rocha](https://github.com/zenorocha) and [Luxonauta](https://github.com/luxonauta) and the Dracula team ([draculatheme.com](https://draculatheme.com), MIT); if you love it, get [Dracula Pro](https://draculatheme.com/pro).
 - **A theme system you can fully customize.** Any partial theme is completed automatically (surfaces, borders, accents and syntax derived from a few colors, with readable contrast). Import Ghostty configs, iTerm2 `.itermcolors`, VS Code themes and Base16 schemes, export as JSON or a Ghostty config, and drop files into `~/.atlas/themes/` (reloaded live). The terminal can use its own theme, font family (any installed font, including variable fonts such as Fira Code), thicken, cursor colors, selection colors and padding.
 - **Theme picker** in Settings → Appearance with a live preview of every theme (hover to try it, click to keep it), and ⌘K commands: `Theme: <name>`, `Theme: Next/Previous`, `Terminal theme: …`.
 

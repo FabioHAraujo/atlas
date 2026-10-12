@@ -9,7 +9,7 @@ description: "Install Atlas from a release, update it, or build it from source."
 
 | | |
 |---|---|
-| OS | macOS 13+ on Apple silicon for the prebuilt CLI and Atlas Desktop. Other platforms: [build from source](#build-from-source). |
+| OS | macOS 13+ on Apple silicon for the prebuilt CLI and Atlas Desktop (the [download page](https://atlas.codeatlas.com.br/download/) has the .dmg and checksums). Intel Macs, Windows and Linux builds are coming soon; meanwhile [build from source](#build-from-source). |
 | `docker` | Optional. Needed only when your `atlas.yaml` has an `infra:` block (OrbStack and Docker Desktop both work). |
 | `git`, `gh` | Optional. Atlas Desktop uses `git` for worktrees and the `gh` CLI for pull requests and checks. |
 

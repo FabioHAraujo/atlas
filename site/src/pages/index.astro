@@ -210,7 +210,7 @@ import { SITE } from "../data/site";
 				<div class="ctas">
 					<DownloadLinks />
 				</div>
-				<p class="fine">Open source, MIT or Apache-2.0. Prebuilt for macOS on Apple silicon; on Linux, <a class="ln" href="/docs/installation/#build-from-source">build from source</a>.</p>
+				<p class="fine">Open source, MIT or Apache-2.0. Available for macOS now; Windows and Linux are coming soon (<a class="ln" href="/download/">all downloads</a>). On Linux today, <a class="ln" href="/docs/installation/#build-from-source">build from source</a>.</p>
 				<div class="notes">
 					<p class="notes-h">Get release notes by email</p>
 					<Waitlist client:visible variant="close" />
@@ -232,7 +232,6 @@ import { SITE } from "../data/site";
 <style>
 	/* One idea per screen. svh/dvh so the iOS URL bar never moves the layout. The visual gets the height left under the headline. */
 	.screen { min-height: 100vh; min-height: 100svh; padding: clamp(4.2rem, 9svh, 6rem) 0 clamp(1.4rem, 4svh, 3rem); display: grid; align-content: center; }
-	.screen > .wrap, .screen > .bleed { width: min(var(--max), 100% - 2.5rem); }
 	section :global(.rise) { max-width: 22ch; font-size: clamp(2rem, min(5vw, 8.2svh), 4.6rem); }
 	.phead { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: clamp(1.2rem, 4vw, 4rem); align-items: end; }
 	.pcopy { display: grid; gap: 0.8rem; padding-bottom: 0.4rem; }
@@ -252,7 +251,7 @@ import { SITE } from "../data/site";
 
 	/* terminal: window runs off the right edge, numbers carry the story */
 	.term { overflow: clip; }
-	.term .bleed { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.5fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: center; margin-top: clamp(1rem, 3svh, 2.4rem); padding-left: max(1.25rem, calc((100vw - var(--max)) / 2)); width: 100%; }
+	.term .bleed { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.5fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: center; margin-top: clamp(1rem, 3svh, 2.4rem); padding-left: max(var(--gutter), var(--rail-w), calc((100% - var(--max)) / 2)); width: 100%; }
 	.term .text { width: auto; margin: 0; display: grid; gap: clamp(0.8rem, 2svh, 1.4rem); align-content: start; }
 	.term .winwrap { margin-right: -6vw; }
 	.nums { display: grid; gap: 1rem; margin: 0; }
@@ -364,7 +363,7 @@ import { SITE } from "../data/site";
 		.file :global(textarea) { height: 17rem; }
 		.file :global(.out) { max-height: none; }
 		.term .bleed { grid-template-columns: 1fr; padding-left: 0; width: 100%; gap: 1.4rem; margin-top: 1.4rem; }
-		.term .text { padding-inline: 0; width: min(var(--max), 100% - 2rem); margin-inline: auto; }
+		.term .text { padding-inline: 0; width: min(var(--max), 100% - 2 * var(--gutter)); margin-inline: auto; }
 		.term .winwrap { margin: 0 1rem; }
 		.nums dt { font-size: clamp(3rem, 15vw, 4.4rem); }
 		.nums dd { font-size: 1rem; }

@@ -279,3 +279,16 @@ export function resolveTheme<T extends { name: string; appearance: Appearance }>
 		themes.find((t) => t.appearance === appearance)
 	);
 }
+
+/**
+ * The terminal's theme: `app` or a name that no longer exists (a removed or never-installed theme,
+ * e.g. a paid one a shared settings file names) both mean "same as the app theme", silently.
+ */
+export function resolveTerminalTheme<T extends { name: string }>(
+	themes: T[],
+	terminal: string,
+	app: T | undefined,
+): T | undefined {
+	if (terminal === "app") return app;
+	return themes.find((t) => t.name === terminal) ?? app;
+}

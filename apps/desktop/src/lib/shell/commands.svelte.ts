@@ -26,7 +26,6 @@ import { previewHtml } from "#lib/stores/preview.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
 import { worktrees } from "#lib/stores/worktrees.svelte.ts";
 import { lspCommands } from "#lib/lsp/commands.ts";
-import { loadSymbols } from "#lib/lsp/symbols.svelte.ts";
 import { saveAllEditors } from "#lib/symbols.ts";
 
 const hasWt = () => !!ws.selected;
@@ -106,7 +105,7 @@ function paletteCommands(): Command[] {
 			label: "Go to symbol…",
 			run: () => {
 				const v = activeEditor();
-				if (v) void loadSymbols(v);
+				if (v) void import("#lib/lsp/symbolsLoad.ts").then((m) => m.loadSymbols(v));
 				palettes.symbols = true;
 			},
 			when: () => !!activeEditor(),

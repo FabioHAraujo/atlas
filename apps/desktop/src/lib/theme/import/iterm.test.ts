@@ -26,11 +26,11 @@ describe("parseItermColors", () => {
 <key>Ansi 0 Color</key>${color(0, 0, 0)}
 <key>Ansi 1 Color</key>${color(1, 0, 0)}
 <key>Ansi 15 Color</key>${color(1, 1, 1)}
-<key>Background Color</key>${color(0.1333, 0.1294, 0.1725)}
-<key>Foreground Color</key>${color(0.9725, 0.9725, 0.949)}
+<key>Background Color</key>${color(0.0627, 0.0941, 0.1255)}
+<key>Foreground Color</key>${color(0.8784, 0.9412, 1.0)}
 <key>Cursor Color</key>${color(1, 0.5, 0)}
 <key>Cursor Text Color</key>${color(0, 0, 1)}
-<key>Selection Color</key>${color(0.2706, 0.2549, 0.3451)}
+<key>Selection Color</key>${color(0.1882, 0.251, 0.3137)}
 <key>Selected Text Color</key>${color(1, 1, 1)}
 <key>Badge Color</key>${color(1, 0, 0)}
 <key>Some Flag</key><true/>
@@ -41,11 +41,11 @@ describe("parseItermColors", () => {
 		expect(r.style["terminal.ansi.black"]).toBe("#000000");
 		expect(r.style["terminal.ansi.red"]).toBe("#ff0000");
 		expect(r.style["terminal.ansi.bright_white"]).toBe("#ffffff");
-		expect(r.style["terminal.background"]).toBe("#22212c");
-		expect(r.style["terminal.foreground"]).toBe("#f8f8f2");
+		expect(r.style["terminal.background"]).toBe("#101820");
+		expect(r.style["terminal.foreground"]).toBe("#e0f0ff");
 		expect(r.style["terminal.cursor"]).toBe("#ff8000");
 		expect(r.style["terminal.cursor_text"]).toBe("#0000ff");
-		expect(r.style["terminal.selection.background"]).toBe("#454158");
+		expect(r.style["terminal.selection.background"]).toBe("#304050");
 		expect(r.style["terminal.selection.foreground"]).toBe("#ffffff");
 		expect(r.warnings).toEqual(["invalid color for Ansi 2 Color"]);
 	});

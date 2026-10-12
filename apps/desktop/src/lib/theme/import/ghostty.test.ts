@@ -5,31 +5,31 @@ import { exportGhostty } from "./export.ts";
 import { parseGhosttyConfig } from "./ghostty.ts";
 
 const PALETTE = [
-	"#22212C",
-	"#FF9580",
-	"#8AFF80",
-	"#FFFF80",
-	"#9580FF",
-	"#FF80BF",
-	"#80FFEA",
+	"#101820",
+	"#ff6b6b",
+	"#6bff95",
+	"#f0e060",
+	"#6b9bff",
+	"#ff6bd5",
+	"#6be5ff",
 	"#F8F8F2",
-	"#504C67",
-	"#FFAA99",
-	"#A2FF99",
-	"#FFFF99",
-	"#AA99FF",
-	"#FF99CC",
-	"#99FFEE",
+	"#405060",
+	"#ff8a8a",
+	"#8affb0",
+	"#fff080",
+	"#8ab4ff",
+	"#ff8ae0",
+	"#8aefff",
 	"#FFFFFF",
 ];
 
 const REAL_CONFIG = `# my ghostty
 ${PALETTE.map((c, i) => `palette = ${i}=${c}`).join("\n")}
-background = #22212C
+background = #101820
 foreground = #F8F8F2
 cursor-color = #F8F8F2
-cursor-text = #22212C
-selection-background = #454158
+cursor-text = #101820
+selection-background = #304050
 selection-foreground = #F8F8F2
 
 font-family = Fira Code
@@ -73,15 +73,15 @@ const fsCtx = (files: Record<string, string>, extra = {}) => ({
 describe("parseGhosttyConfig: real config", () => {
 	test("maps every key exactly", async () => {
 		const r = await parseGhosttyConfig(REAL_CONFIG, fsCtx({}));
-		expect(r.name).toBe("Ghostty import");
+		expect(r.name).toBe("Ghostty: my config");
 		expect(r.appearance).toBe("dark");
 		expect(r.warnings).toEqual([]);
 		ANSI.forEach((n, i) => expect(r.style[`terminal.ansi.${n}`]).toBe(PALETTE[i].toLowerCase()));
-		expect(r.style["terminal.background"]).toBe("#22212c");
+		expect(r.style["terminal.background"]).toBe("#101820");
 		expect(r.style["terminal.foreground"]).toBe("#f8f8f2");
 		expect(r.style["terminal.cursor"]).toBe("#f8f8f2");
-		expect(r.style["terminal.cursor_text"]).toBe("#22212c");
-		expect(r.style["terminal.selection.background"]).toBe("#454158");
+		expect(r.style["terminal.cursor_text"]).toBe("#101820");
+		expect(r.style["terminal.selection.background"]).toBe("#304050");
 		expect(r.style["terminal.selection.foreground"]).toBe("#f8f8f2");
 		expect(r.font).toEqual({ family: "Fira Code", size: 14, thicken: true });
 		expect(r.terminal).toEqual({ cursor_shape: "block", blinking: false, padding_x: 8, padding_y: 4 });
@@ -168,7 +168,7 @@ describe("themes", () => {
 
 	test("resolves in themeDirs order; config overrides theme", async () => {
 		const r = await parseGhosttyConfig("theme = Dracula\nforeground = #ffffff\n", fsCtx(files));
-		expect(r.name).toBe("Dracula");
+		expect(r.name).toBe("Ghostty: Dracula");
 		expect(r.style["terminal.background"]).toBe("#282a36");
 		expect(r.style["terminal.foreground"]).toBe("#ffffff");
 		expect(r.style["terminal.ansi.red"]).toBe("#ff5555");
@@ -184,22 +184,22 @@ describe("themes", () => {
 		expect(solar.style["terminal.background"]).toBe("#fdf6e3");
 		expect(solar.appearance).toBe("light");
 		const abs = await parseGhosttyConfig("theme = /abs/MyTheme\n", fsCtx(files));
-		expect(abs.name).toBe("MyTheme");
+		expect(abs.name).toBe("Ghostty: MyTheme");
 		expect(abs.style["terminal.ansi.green"]).toBe("#00ff00");
 	});
 
 	test("light:/dark: picks by appearance, default dark", async () => {
 		const cfg = "theme = light:Solar,dark:Dracula\n";
 		const dark = await parseGhosttyConfig(cfg, fsCtx(files));
-		expect(dark.name).toBe("Dracula");
+		expect(dark.name).toBe("Ghostty: Dracula");
 		const light = await parseGhosttyConfig(cfg, fsCtx(files, { appearance: "light" }));
-		expect(light.name).toBe("Solar");
+		expect(light.name).toBe("Ghostty: Solar");
 	});
 
 	test("missing theme warns once but still imports config keys", async () => {
 		const r = await parseGhosttyConfig("theme = Nope\nbackground = #222222\n", fsCtx(files));
 		expect(r.warnings).toEqual(["theme not found: Nope"]);
-		expect(r.name).toBe("Ghostty import");
+		expect(r.name).toBe("Ghostty: my config");
 		expect(r.style["terminal.background"]).toBe("#222222");
 	});
 });

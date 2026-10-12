@@ -8,6 +8,8 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-theme",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
     "dialog:default",
     "shell:allow-open",
     "window-state:default",

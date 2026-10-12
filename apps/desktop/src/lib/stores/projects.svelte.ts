@@ -208,11 +208,23 @@ class Store {
 	async init() {
 		if (this.#started) return;
 		this.#started = true;
-		this.#unlistenChanged = await listen("projects://changed", () => this.refresh());
-		this.#unlistenError = await listen<string>("projects://error", (e) => toast.error(e.payload));
-		await this.refresh();
-		this.loaded = true;
-		if (!this.selected && this.sorted.length) this.selected = this.sorted[0].id;
+		// Listeners and the list are independent IPCs: one round of waiting, not three. The UI only
+		// needs the list; attaching to each runner (`resync` replays its logs) continues behind it.
+		const listeners = Promise.all([
+			listen("projects://changed", () => this.refresh()),
+			listen<string>("projects://error", (e) => toast.error(e.payload)),
+		]).then(([changed, error]) => {
+			this.#unlistenChanged = changed;
+			this.#unlistenError = error;
+		});
+		const listed = () => {
+			this.loaded = true;
+			if (!this.selected && this.sorted.length) this.selected = this.sorted[0].id;
+		};
+		await this.refresh(listed);
+		// A failed list was already toasted; the UI still leaves its loading state.
+		if (!this.loaded) listed();
+		await listeners;
 	}
 
 	/** Drop every listener so a re-mount (HMR) starts clean. */
@@ -226,9 +238,11 @@ class Store {
 		this.#started = false;
 	}
 
-	async refresh() {
+	/** `onListed` runs as soon as the project list is in, before the runners are attached. */
+	async refresh(onListed?: () => void) {
 		try {
 			this.projects = await api.list();
+			onListed?.();
 		} catch (e) {
 			toast.error(errText(e));
 			return;

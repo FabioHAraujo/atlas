@@ -1,17 +1,15 @@
 /** LSP commands of the focused editor, registered in the app keymap (rebindable, in the palette). */
 import type { Command } from "#lib/keymap.svelte.ts";
 import { activeEditor } from "#lib/shell/editors.ts";
-import { codeActionMenu } from "#lib/lsp/extension.ts";
-import { formatActive } from "#lib/viewers/formatAction.ts";
-import {
-	findReferences,
-	goToDefinition,
-	goToImplementation,
-	goToTypeDefinition,
-	renameSymbol,
-} from "#lib/lsp/actions.ts";
-import { envOf } from "#lib/lsp/context.ts";
+import { ops } from "#lib/symbols.ts";
 import type { EditorView } from "@codemirror/view";
+
+/**
+ * The actions pull in the whole editor stack (CodeMirror, language grammars, prettier), which the
+ * shell must not load at startup: they are fetched when a command first runs, by which time an
+ * editor (and its chunk) exists anyway.
+ */
+const actions = () => import("#lib/lsp/actions.ts");
 
 /**
  * The focused editor, when a language server serves it and the keyboard focus is inside it: F2/F12
@@ -19,7 +17,7 @@ import type { EditorView } from "@codemirror/view";
  */
 const lspView = () => {
 	const v = activeEditor();
-	return v && envOf(v)?.doc.open && v.dom.contains(document.activeElement) ? v : undefined;
+	return v && ops.lspEnv(v)?.doc.open && v.dom.contains(document.activeElement) ? v : undefined;
 };
 
 /** Any focused file editor, served by a language server or not (Format falls back to the built-in formatter). */
@@ -39,19 +37,25 @@ const cmd = (id: string, label: string, fn: (v: EditorView) => unknown): Command
 });
 
 export const lspCommands = (): Command[] => [
-	cmd("editor::GoToDefinition", "Go to definition", goToDefinition),
-	cmd("editor::GoToTypeDefinition", "Go to type definition", goToTypeDefinition),
-	cmd("editor::GoToImplementation", "Go to implementation", goToImplementation),
-	cmd("editor::FindAllReferences", "Find all references", findReferences),
-	cmd("editor::Rename", "Rename symbol", renameSymbol),
+	cmd("editor::GoToDefinition", "Go to definition", async (v) => (await actions()).goToDefinition(v)),
+	cmd("editor::GoToTypeDefinition", "Go to type definition", async (v) =>
+		(await actions()).goToTypeDefinition(v),
+	),
+	cmd("editor::GoToImplementation", "Go to implementation", async (v) =>
+		(await actions()).goToImplementation(v),
+	),
+	cmd("editor::FindAllReferences", "Find all references", async (v) => (await actions()).findReferences(v)),
+	cmd("editor::Rename", "Rename symbol", async (v) => (await actions()).renameSymbol(v)),
 	{
 		id: "editor::Format",
 		label: "Format document",
 		run: () => {
 			const v = focusedEditor();
-			if (v) void formatActive(v);
+			if (v) void import("#lib/viewers/formatAction.ts").then((m) => m.formatActive(v));
 		},
 		when: () => !!focusedEditor(),
 	},
-	cmd("editor::ToggleCodeActions", "Code actions", codeActionMenu),
+	cmd("editor::ToggleCodeActions", "Code actions", async (v) =>
+		(await import("#lib/lsp/extension.ts")).codeActionMenu(v),
+	),
 ];

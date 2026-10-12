@@ -5,6 +5,7 @@ import { parseGhosttyConfig, type GhosttyContext } from "./ghostty.ts";
 import { parseItermColors } from "./iterm.ts";
 import { parseJsonc, parseVscodeTheme } from "./vscode.ts";
 
+export { parseAlacritty } from "./alacritty.ts";
 export type ThemeFormat = "ghostty" | "iterm" | "vscode" | "base16" | "zed" | "atlas";
 
 export type ImportOutcome =

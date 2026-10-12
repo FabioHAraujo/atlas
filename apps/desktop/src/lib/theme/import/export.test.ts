@@ -9,12 +9,12 @@ const theme = {
 	name: "Mine",
 	appearance: "dark",
 	style: {
-		"terminal.background": "#22212c",
+		"terminal.background": "#101820",
 		"terminal.foreground": "#f8f8f2",
 		"terminal.cursor": "#f8f8f2",
-		"terminal.cursor_text": "#22212c",
-		"terminal.selection.background": "#454158cc",
-		"terminal.ansi.black": "#22212c",
+		"terminal.cursor_text": "#101820",
+		"terminal.selection.background": "#304050cc",
+		"terminal.ansi.black": "#101820",
 		"terminal.ansi.bright_white": "#ffffff",
 	},
 	font: { family: "Fira Code", size: 14, thicken: true },
@@ -45,10 +45,10 @@ describe("exportGhostty", () => {
 		const text = exportGhostty(theme, { cursor_shape: "hollow", blinking: true, padding_x: 8, padding_y: 4 });
 		const lines = text.trim().split("\n");
 		expect(lines[0]).toBe("# Mine (exported from Atlas)");
-		expect(lines).toContain("palette = 0=#22212c");
+		expect(lines).toContain("palette = 0=#101820");
 		expect(lines).toContain("palette = 15=#ffffff");
 		expect(lines).not.toContain("palette = 1=undefined");
-		expect(lines).toContain("selection-background = #454158");
+		expect(lines).toContain("selection-background = #304050");
 		expect(lines).toContain("font-family = Fira Code");
 		expect(lines).toContain("font-size = 14");
 		expect(lines).toContain("font-thicken = true");
@@ -61,7 +61,7 @@ describe("exportGhostty", () => {
 	test("round-trips through the Ghostty parser", async () => {
 		const ctx = { home: "/h", themeDirs: [], readFile: async () => null };
 		const r = await parseGhosttyConfig(exportGhostty(theme, { cursor_shape: "bar" }), ctx);
-		expect(r.style["terminal.background"]).toBe("#22212c");
+		expect(r.style["terminal.background"]).toBe("#101820");
 		expect(r.style["terminal.ansi.bright_white"]).toBe("#ffffff");
 		expect(r.font).toEqual(theme.font);
 		expect(r.terminal).toEqual({ cursor_shape: "bar" });

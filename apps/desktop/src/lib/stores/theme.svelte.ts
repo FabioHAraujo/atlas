@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { bootMark } from "#lib/boot.ts";
 import { homeDir } from "@tauri-apps/api/path";
 import { listen } from "@tauri-apps/api/event";
 import { colorScheme } from "@codeatlasdev/ui";
@@ -7,6 +9,7 @@ import {
 	cssVars,
 	migrateSelection,
 	parseFamily,
+	resolveTerminalTheme,
 	resolveTheme,
 	terminalColors,
 	xtermTheme,
@@ -14,6 +17,7 @@ import {
 	type Theme,
 	type ThemeSelection,
 } from "#lib/theme.ts";
+import { writeThemeCache } from "#lib/theme/cache.ts";
 import { complete } from "#lib/theme/derive.ts";
 import { exportAtlasJson, exportGhostty } from "#lib/theme/import/export.ts";
 import { parseGhosttyConfig } from "#lib/theme/import/ghostty.ts";
@@ -37,6 +41,16 @@ function bundledThemes(): Theme[] {
 	);
 }
 
+/**
+ * A user theme file as `themes_user_read` returns it: its text, or why it could not be read.
+ * Read locally in Rust, so theme loading never waits for the terminal host to connect.
+ */
+interface UserFile {
+	file: string;
+	text?: string;
+	error?: string;
+}
+
 interface FileIssues {
 	file: string;
 	issues: Issue[];
@@ -49,9 +63,9 @@ class Themes {
 	/** `true` once the user chose something (or a legacy non-default value was found). */
 	explicit = $state(false);
 	issues = $state<FileIssues[]>([]);
+	/** The user's selection and theme files are in: `current` is the real theme, not a fallback. */
+	ready = $state(false);
 	ghostty = $state({ available: false, offered: false });
-	/** Transient theme name shown by `preview()`; never persisted. */
-	private previewName = $state<string | null>(null);
 	/** Bumped when the OS appearance may have changed, so `current` re-resolves in system mode. */
 	private systemTick = $state(0);
 	private applied: string[] = [];
@@ -65,11 +79,11 @@ class Themes {
 	}
 
 	/** The active theme with every token defined (derived where the file left gaps). */
-	current = $derived.by(() => this.resolve(this.previewName));
+	current = $derived.by(() => this.resolve(null));
 
 	currentTerminal = $derived.by(() => {
-		if (this.previewName || this.selection.terminal === "app") return this.current;
-		return this.resolve(this.selection.terminal) ?? this.current;
+		const t = resolveTerminalTheme(this.list, this.selection.terminal, this.current);
+		return t && t === this.current ? t : t && { ...t, style: complete(t.style, t.appearance) };
 	});
 
 	names = $derived({
@@ -81,50 +95,57 @@ class Themes {
 	terminal = $derived(this.currentTerminal ? terminalColors(this.currentTerminal.style) : null);
 	xterm = $derived(this.currentTerminal ? xtermTheme(this.currentTerminal.style) : {});
 
+	/**
+	 * Settings and user theme files are read in parallel straight from disk (no terminal-host
+	 * round trip), so the real theme resolves in one IPC hop; hostd-dependent work (watching the
+	 * theme dir, the Ghostty probe) follows once the theme is applied.
+	 */
 	async init() {
-		this.home = await homeDir();
-		const stored = (await api.settings()).theme;
-		const m = migrateSelection(stored);
+		bootMark("theme:init");
+		const [settings, files, home] = await Promise.all([
+			api.settings(),
+			invoke<UserFile[]>("themes_user_read"),
+			homeDir(),
+		]);
+		this.home = home;
+		const m = migrateSelection(settings.theme);
 		this.selection = m.selection;
 		this.explicit = m.explicit;
-		await this.reload();
-		this.apply();
+		this.load(files);
+		this.ready = true;
+		bootMark("theme:ready");
 		matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
 			this.systemTick++;
 			this.apply();
 		});
 		await this.watch();
-		await this.probeGhostty();
+		await this.probeGhostty(settings.ghosttyThemeOffer);
 	}
 
 	/** `~/.atlas/themes` is the user dir; the pre-1.2 `~/.atlas/desktop/themes` is still read. */
 	private get userDir() {
 		return `${this.home}/.atlas/themes`;
 	}
-	private get legacyDir() {
-		return `${this.home}/.atlas/desktop/themes`;
-	}
 
 	/** Re-read every user theme file. Bad files are reported in `issues` and skipped. */
 	async reload() {
+		this.load(await invoke<UserFile[]>("themes_user_read"));
+	}
+
+	private load(files: UserFile[]) {
 		const user: Theme[] = [];
 		const issues: FileIssues[] = [];
-		for (const dir of [this.legacyDir, this.userDir]) {
-			const entries = await host.fsList(dir).catch(() => []);
-			for (const e of entries) {
-				if (e.kind !== "file" || !e.name.endsWith(".json")) continue;
-				const file = `${dir}/${e.name}`;
-				try {
-					const r = await host.fsRead(file, 2_000_000);
-					const parsed = parseFamily(JSON.parse(b64decode(r.data)));
-					if (parsed.issues.length) issues.push({ file, issues: parsed.issues });
-					user.push(...parsed.themes.map((t) => ({ ...t, source: "user" as const, file })));
-				} catch (err) {
-					issues.push({
-						file,
-						issues: [{ path: "$", level: "error", message: `not valid JSON: ${(err as Error).message}` }],
-					});
-				}
+		for (const { file, text, error } of files) {
+			try {
+				if (error !== undefined) throw new Error(error);
+				const parsed = parseFamily(JSON.parse(text ?? ""));
+				if (parsed.issues.length) issues.push({ file, issues: parsed.issues });
+				user.push(...parsed.themes.map((t) => ({ ...t, source: "user" as const, file })));
+			} catch (err) {
+				issues.push({
+					file,
+					issues: [{ path: "$", level: "error", message: `not valid JSON: ${(err as Error).message}` }],
+				});
 			}
 		}
 		const names = new Set(user.map((t) => t.name));
@@ -148,15 +169,8 @@ class Themes {
 	async setTheme(patch: Partial<Omit<ThemeSelection, "v">>) {
 		this.selection = { ...this.selection, ...patch };
 		this.explicit = true;
-		this.previewName = null;
 		this.apply();
 		await api.settingsPatch({ theme: this.selection });
-	}
-
-	/** Show `name` live (hover/arrow keys in the picker) without saving; `null` goes back. */
-	preview(name: string | null) {
-		this.previewName = name;
-		this.apply();
 	}
 
 	/** Next/previous theme of the active appearance, wrapping. */
@@ -223,12 +237,12 @@ class Themes {
 		return `${this.home}/.config/ghostty/config`;
 	}
 
-	private async probeGhostty() {
+	private async probeGhostty(offer: unknown) {
 		const available = await host.fsStat(this.ghosttyConfig).then(
 			(s) => s.kind === "file",
 			() => false,
 		);
-		const dismissed = !!(await api.settings()).ghosttyThemeOffer;
+		const dismissed = !!offer;
 		this.ghostty = { available, offered: available && !dismissed };
 	}
 
@@ -269,13 +283,19 @@ class Themes {
 		this.applied = [];
 		if (!t) return;
 		// The kit owns the `.dark` class and the layout pins the native window theme to its preference.
-		const mode = this.previewName ? t.appearance : this.selection.mode;
-		if (colorScheme.preference !== mode) colorScheme.setPreference(mode);
-		for (const [k, v] of Object.entries(cssVars(t.style))) {
+		if (colorScheme.preference !== this.selection.mode) colorScheme.setPreference(this.selection.mode);
+		const vars = cssVars(t.style);
+		for (const [k, v] of Object.entries(vars)) {
 			root.style.setProperty(k, v);
 			this.applied.push(k);
 		}
 		root.dataset.atlasTheme = t.name;
+		writeThemeCache({
+			name: t.name,
+			scheme: this.selection.mode,
+			dark: t.appearance === "dark",
+			vars,
+		});
 	}
 }
 

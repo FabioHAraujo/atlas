@@ -11,7 +11,6 @@
 		selected,
 		tabindex,
 		onpick,
-		onpreview,
 		oncopy,
 		onsave,
 		onremove,
@@ -21,7 +20,6 @@
 		selected: boolean;
 		tabindex: 0 | -1;
 		onpick: () => void;
-		onpreview: (on: boolean) => void;
 		oncopy: (format: "json" | "ghostty") => void;
 		onsave: (format: "json" | "ghostty") => void;
 		onremove: () => void;
@@ -33,6 +31,8 @@
 	let m = $derived(previewModel(theme));
 	let isDefault = $derived(theme.source === "bundled" && Object.hasOwn(DEFAULTS, theme.name));
 	let Icon = $derived(theme.appearance === "dark" ? Moon : Sun);
+	/** Dracula and Alucard credit their author on the card (data-driven by the family file). */
+	let byline = $derived(theme.source === "bundled" && theme.family === "Dracula");
 </script>
 
 <div class="card" class:selected>
@@ -42,16 +42,12 @@
 		class="hit"
 		role="radio"
 		aria-checked={selected}
-		aria-label="{theme.name}, {theme.appearance}{isDefault ? ', default' : ''}{theme.source === 'user'
-			? ', yours'
-			: ''}"
+		aria-label="{theme.name}, {theme.appearance}{byline ? ', by Zeno Rocha and Luxonauta' : ''}{isDefault
+			? ', default'
+			: ''}{theme.source === 'user' ? ', yours' : ''}"
 		{tabindex}
 		data-theme-card={theme.name}
 		onclick={onpick}
-		onpointerenter={() => onpreview(true)}
-		onpointerleave={() => onpreview(false)}
-		onfocus={() => onpreview(true)}
-		onblur={() => onpreview(false)}
 		onkeydown={(e) => {
 			if (e.key === "Enter" || e.key === " ") {
 				e.preventDefault();
@@ -67,16 +63,12 @@
 			{#if theme.source === "user"}<span class="badge yours">Yours</span>{/if}
 			{#if selected}<Check size={13} class="tick" aria-hidden="true" />{/if}
 		</div>
+		{#if byline}<span class="by">by Zeno Rocha &amp; Luxonauta</span>{/if}
 	</div>
 	<div class="more">
 		<DropdownMenu align="end">
 			{#snippet triggerChild(props)}
-				<button
-					{...props}
-					class="menu-btn"
-					aria-label="{theme.name} options"
-					onfocus={() => onpreview(false)}
-				>
+				<button {...props} class="menu-btn" aria-label="{theme.name} options">
 					<Ellipsis size={14} />
 				</button>
 			{/snippet}
@@ -139,6 +131,11 @@
 		white-space: nowrap;
 		font-weight: 550;
 		color: var(--ca-text-primary);
+	}
+	.by {
+		padding: 0 4px;
+		font-size: 10.5px;
+		color: var(--ca-text-secondary);
 	}
 	.badge {
 		flex-shrink: 0;

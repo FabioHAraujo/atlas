@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { untrack } from "svelte";
 import { api, errText } from "#lib/api.ts";
+import { bootMark } from "#lib/boot.ts";
 import { reconcile } from "#lib/browserSync.ts";
 import { host } from "#lib/host.ts";
 import { errors, startErrorHandler } from "#lib/errors/errors.svelte.ts";
@@ -127,13 +128,20 @@ function syncEffects() {
 
 export function startSession(): () => void {
 	const fail = (e: unknown) => toast.error(errText(e));
-	store.init().catch(fail);
+	bootMark("session:start");
+	store.init().then(() => bootMark("projects:loaded"), fail);
 	updates.init().catch(fail);
-	ws.init().catch(fail);
+	ws.init().then(() => bootMark("workspace:loaded"), fail);
 	agents.init().catch(fail);
 	quick.init().catch(fail);
 	browserPrefs.init().catch(() => {});
-	const stopHostStatus = initHostStatus().catch(() => () => {});
+	const stopHostStatus = initHostStatus().then(
+		(f) => {
+			bootMark("host:status");
+			return f;
+		},
+		() => () => {},
+	);
 	// A webview reload leaves native browser views from the last page behind, at the old
 	// rects. Park them at once; the reconcile effect closes the orphans once the
 	// workspace has loaded, and each live tab's BrowserTab re-adopts and re-places its own.

@@ -21,6 +21,18 @@ bump="${bump:-patch}"
 die() { echo "✗ $*" >&2; exit 1; }
 run() { echo "+ $*"; [[ $dry == 1 ]] || "$@"; }
 
+# Belt and braces: /download and /changelog read the latest release at the edge (site/functions), so they are never stale on
+# their own, but a deploy also refreshes the build-time fallback and the docs. Never fails the release: it is already published.
+deploy_site() {
+  if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+    echo "⚠ site deploy skipped: CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set (the site still shows $1 within ~1 minute; run 'bun run site:deploy' to refresh the static fallback)"
+    return 0
+  fi
+  echo "▶ deploying the site"
+  if [[ $dry == 1 ]]; then echo "+ bun run site:deploy"; return 0; fi
+  bun run site:deploy || echo "⚠ site deploy failed; $1 is published and the site picks it up from GitHub within ~1 minute. Retry: bun run site:deploy" >&2
+}
+
 crates=(crates/*/Cargo.toml)
 current="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/atlas-cli/Cargo.toml | head -1)"
 IFS=. read -r ma mi pa <<<"${current%%-*}"
@@ -39,6 +51,7 @@ head_tag="$(git describe --exact-match --tags --match 'v[0-9]*' HEAD 2>/dev/null
 if [[ -n "$head_tag" ]] && ! gh release view "$head_tag" --repo codeatlasdev/atlas >/dev/null 2>&1; then
   echo "▶ resuming publish of $head_tag (tag exists, release missing)"
   run scripts/act-release.sh "$head_tag" --publish
+  deploy_site "$head_tag"
   exit 0
 fi
 
@@ -74,3 +87,4 @@ run git tag -a "$tag" -m "Atlas $tag"
 run git push --atomic origin main "$tag"
 
 run scripts/act-release.sh "$tag" --publish
+deploy_site "$tag"

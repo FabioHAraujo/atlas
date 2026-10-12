@@ -88,8 +88,8 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Color theme",
 		"theme-import",
 		"Import theme",
-		"Bring a theme from Ghostty, iTerm, VS Code or Base16.",
-		"ghostty iterm itermcolors vscode base16 yaml dracula alucard import zed",
+		"Bring a theme from Ghostty, iTerm, VS Code, Alacritty or Base16, or a zip or folder of themes.",
+		"ghostty iterm itermcolors vscode vsix base16 alacritty yaml toml zip package folder dracula pro zeno alucard import zed",
 	),
 	appearance(
 		"appearance",

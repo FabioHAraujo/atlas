@@ -39,7 +39,7 @@
 Atlas is a **developer platform** that doesn't need a platform team. The thing big companies build with a dozen tools and a quarter of work (a paved road from `git clone` to a running, observable stack) is one file in your repo and one binary on your machine.
 
 - **Stack orchestration.** `atlas.yaml` describes infra, services, dependency order, health checks, restarts and actions. `atlas dev` boots it and keeps it honest.
-- **A desktop workspace.** Atlas Desktop is a native macOS app: a project per space, a git worktree per task, a GPU terminal, diff review, PRs and an embedded browser.
+- **A desktop workspace.** Atlas Desktop is a native app (macOS today, Windows and Linux coming soon): a project per space, a git worktree per task, a GPU terminal, diff review, PRs and an embedded browser.
 - **Agents in the loop.** omp, Claude Code and Codex run in parallel worktrees, with live "working / needs you / done" status.
 - **MCP for your agents.** `atlas mcp` lets an agent read status and logs, restart a service and wait until it is healthy while you keep coding.
 
@@ -64,7 +64,7 @@ atlas update    # checks every 6h; `atlas dev` offers to update before starting 
 atlas desktop   # installs and opens Atlas Desktop (macOS, Apple silicon)
 ```
 
-Prebuilt releases target macOS on Apple silicon. The CLI, TUI, runner and MCP server build and pass their tests on Linux in CI (no prebuilt Linux binaries yet); Atlas Desktop is macOS only; Windows is not supported (yet). Details in the [FAQ](docs/faq.md).
+Atlas is for everyone; it ships platform by platform. Available now: macOS on Apple silicon. Coming soon: Intel Macs, Windows and Linux (see the [download page](https://atlas.codeatlas.com.br/download/)). The CLI, TUI, runner and MCP server already build and pass their tests on Linux in CI (no prebuilt Linux binaries yet); Atlas Desktop is macOS only for now; Windows is not supported (yet). Details in the [FAQ](docs/faq.md).
 
 ## 60-second quickstart
 
@@ -142,6 +142,7 @@ Other modes:
 - 🪟 **one window for many coding agents in parallel.** a project per space, a git worktree per task (with its own port offset, so each worktree runs its own stack), persistent terminals that survive quitting the app.
 - 🔍 **review without leaving.** diff review with notes sent back to the agent, PRs and checks via `gh`, an embedded browser with Design Mode, worktrees on SSH hosts.
 - 🎛️ **yours to shape.** Zed-style docks, command palette, rebindable keys and Zed themes.
+- 🎨 **themes.** Dracula and Alucard by [Zeno Rocha](https://github.com/zenorocha) and [Luxonauta](https://github.com/luxonauta) (MIT) are the defaults; import Ghostty, iTerm, VS Code, Alacritty or Base16 themes, or your own [Dracula Pro](https://draculatheme.com/pro) purchase from a zip.
 
 ### GPU terminal
 
@@ -211,7 +212,7 @@ Honest table. ✅ = built in · 🟡 = partial / via something else · ❌ = no.
 | Replica scaling | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
 | Windows | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
 
-**no cap:** process-compose is the closest all-rounder and still wins on replicas and Windows. Tilt owns the k8s world. Atlas is built for one very specific vibe, a bun/TS monorepo on a Mac with Docker infra, mobile targets and AI agents in the loop, and goes deep there.
+**no cap:** process-compose is the closest all-rounder and still wins on replicas and Windows. Tilt owns the k8s world. Atlas goes deepest on a bun/TS monorepo with Docker infra, mobile targets and AI agents in the loop, and is growing from there.
 
 ## docs
 

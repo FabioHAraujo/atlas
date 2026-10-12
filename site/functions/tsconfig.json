@@ -6,8 +6,17 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "lib": ["ES2023"],
-    "types": ["@cloudflare/workers-types"]
+    "lib": [
+      "ES2023"
+    ],
+    "types": [
+      "@cloudflare/workers-types"
+    ]
   },
-  "include": ["./**/*"]
+  "include": [
+    "./**/*"
+  ],
+  "exclude": [
+    "./**/*.test.ts"
+  ]
 }

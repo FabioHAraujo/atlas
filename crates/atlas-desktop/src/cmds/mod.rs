@@ -13,6 +13,7 @@ mod services;
 mod setup;
 mod stack;
 mod system;
+mod theme_pack;
 
 use std::path::PathBuf;
 
@@ -26,6 +27,7 @@ pub use projects::*;
 pub use setup::*;
 pub use stack::*;
 pub use system::*;
+pub use theme_pack::*;
 
 pub(crate) use stack::atlas_bin;
 

@@ -19,6 +19,7 @@ export {
 	THEME_VERSION,
 	migrateSelection,
 	parseFamily,
+	resolveTerminalTheme,
 	resolveTheme,
 	validateStyle,
 } from "#lib/theme/schema.ts";

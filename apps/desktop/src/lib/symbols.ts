@@ -1,10 +1,39 @@
 /**
- * Symbol outline of an open editor (⌘⇧O), read from the CodeMirror (Lezer) syntax
- * tree: declarations/definitions/items and Markdown headings, with their names.
+ * The live editors (by `worktreeId:path`), their save and go-to-line. Pure bookkeeping: the shell
+ * imports this at startup, so it must not pull CodeMirror in. The CodeMirror-backed operations
+ * (`outline.ts`) install themselves into `ops` when the first editor's chunk loads, which is
+ * always before any editor can be asked for them.
  */
-import { EditorView } from "codemirror";
-import { syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
+import type { LspEnv } from "#lib/lsp/context.ts";
+
+/** An outline entry: name, node kind without the grammar suffix (`Function`, `Class`, `H2`…), offset, line. */
+export interface OutlineSymbol {
+	name: string;
+	kind: string;
+	from: number;
+	line: number;
+}
+
+/** CodeMirror-backed operations, set by `outline.ts`. */
+export const ops: {
+	outline: (state: EditorState) => OutlineSymbol[];
+	/** Put the caret at `pos` and scroll it to the middle of the view. */
+	reveal: (view: EditorView, pos: number) => void;
+	/** The CodeMirror view mounted in `.cm-editor` element `host`. */
+	viewOf: (host: HTMLElement) => EditorView | undefined;
+	/** The language-server env an editor was built with (absent: LSP off for this view). */
+	lspEnv: (view: EditorView) => LspEnv | null;
+	/** Edit menu actions on a CodeMirror view (⌘Z ⇧⌘Z ⌘A); whether the command handled it. */
+	edit: (view: EditorView, action: "undo" | "redo" | "selectAll") => boolean;
+} = {
+	outline: () => [],
+	reveal: () => {},
+	viewOf: () => undefined,
+	lspEnv: () => null,
+	edit: () => false,
+};
 
 /** Live editors by `worktreeId:path`, registered by Editor.svelte. */
 export const editors = new Map<string, EditorView>();
@@ -41,7 +70,7 @@ function gotoLine(view: EditorView, line: number, col?: number) {
 	const doc = view.state.doc;
 	const ln = doc.line(Math.min(Math.max(1, line), doc.lines));
 	const pos = ln.from + Math.min(Math.max(0, (col ?? 1) - 1), ln.length);
-	view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+	ops.reveal(view, pos);
 	view.focus();
 }
 
@@ -74,47 +103,4 @@ export function unregisterEditor(key: string, view: EditorView) {
 	if (editors.get(key) !== view) return;
 	editors.delete(key);
 	savers.delete(key);
-}
-
-interface OutlineSymbol {
-	name: string;
-	/** Node kind without the grammar suffix (`Function`, `Class`, `Struct`, `H2`…). */
-	kind: string;
-	from: number;
-	line: number;
-}
-
-/** Grammar node names that carry a symbol (JS/TS, Rust, Python, Markdown). */
-const DECL = /^(.+?)(Declaration|Definition|Item)$|^ATXHeading(\d)$/;
-/** Declarations that are not symbols (`Field`: struct members; `Ambient`: wrapper of the real declaration). */
-const SKIP = /^(Import|Export|Use|ExternCrate|Variable|Lexical|Macro|Attribute|Field|Ambient)/;
-/** Child nodes holding the declared name. */
-const NAME =
-	/^(VariableDefinition|PropertyDefinition|TypeDefinition|BoundIdentifier|TypeIdentifier|VariableName|Identifier|PropertyName)$/;
-
-export function outline(state: EditorState): OutlineSymbol[] {
-	const out: OutlineSymbol[] = [];
-	const doc = state.doc;
-	syntaxTree(state).iterate({
-		enter(n) {
-			const m = DECL.exec(n.name);
-			if (!m || (m[1] && SKIP.test(m[1]))) return;
-			let name: string | undefined;
-			if (m[3])
-				name = doc
-					.sliceString(n.from, n.to)
-					.replace(/^#+\s*/, "")
-					.trim();
-			else {
-				for (let c = n.node.firstChild; c; c = c.nextSibling)
-					if (NAME.test(c.name)) {
-						name = doc.sliceString(c.from, c.to);
-						break;
-					}
-			}
-			if (name)
-				out.push({ name, kind: m[3] ? `H${m[3]}` : m[1], from: n.from, line: doc.lineAt(n.from).number });
-		},
-	});
-	return out;
 }

@@ -5,6 +5,8 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Lenis from "lenis";
 
 gsap.registerPlugin(ScrollTrigger);
+// The mobile URL bar showing/hiding resizes the viewport; refreshing on it makes triggers jump. Native scroll is kept (no normalizeScroll).
+ScrollTrigger.config({ ignoreMobileResize: true });
 
 export const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** Phones and tablets: native scroll only (no Lenis, no pinning, no scrubbed transforms). Mirrors the `touch` class set in Base.astro. */

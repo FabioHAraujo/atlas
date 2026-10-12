@@ -10,37 +10,41 @@ const calm = reduced();
 // Hero runs regardless of Lenis; it only needs gsap.
 const stopHero = playHero();
 
-// Nav gets a ground after the hero; the rail appears once the file section is reached.
+// Nav gets a ground after the hero. Plain scroll checks, not ScrollTrigger ranges: a range with a computed end drops its
+// class once lazy media grows the page.
 const hero = document.querySelector<HTMLElement>(".hero");
 if (hero) {
-	ScrollTrigger.create({
-		trigger: hero,
-		start: "bottom 60px",
-		end: "max",
-		onToggle: (self) => doc.classList.toggle("nav-solid", self.isActive),
-	});
-	ScrollTrigger.create({
-		trigger: "#yaml",
-		start: "top 60%",
-		endTrigger: "#join",
-		end: "bottom 40%",
-		onToggle: (self) => doc.classList.toggle("rail-on", self.isActive),
-	});
+	const solid = () => doc.classList.toggle("nav-solid", hero.getBoundingClientRect().bottom <= 60);
+	solid();
+	addEventListener("scroll", solid, { passive: true });
+	addEventListener("resize", solid, { passive: true });
 }
 
-// Rail: lamp follows the section in view. Paper sections flip the rail ink.
+// Rail: visible from the first chapter to the end of the FAQ; the chapter under the viewport's middle is current, and the
+// hairline beside the icons fills with the progress through that range.
 const links = $$<HTMLAnchorElement>("[data-rail]");
-$$<HTMLElement>("[data-sec]").forEach((sec) => {
-	ScrollTrigger.create({
-		trigger: sec,
-		start: "top 50%",
-		end: "bottom 50%",
-		onToggle: (self) => {
-			if (!self.isActive) return;
-			links.forEach((a) => a.setAttribute("aria-current", String(a.dataset.rail === sec.dataset.sec)));
-		},
-	});
-});
+const chapters = $$<HTMLElement>("[data-sec]").filter((s) => links.some((a) => a.dataset.rail === s.dataset.sec));
+let railCur = "";
+const rail = () => {
+	const first = chapters[0];
+	const last = chapters[chapters.length - 1];
+	if (!first || !last) return;
+	const mid = innerHeight / 2;
+	const top = first.getBoundingClientRect().top;
+	const end = last.getBoundingClientRect().bottom;
+	doc.classList.toggle("rail-on", top < innerHeight * 0.4 && end > mid);
+	doc.style.setProperty("--rail-progress", Math.min(1, Math.max(0, (mid - top) / (end - top))).toFixed(3));
+	const cur = chapters.find((s) => {
+		const r = s.getBoundingClientRect();
+		return r.top <= mid && r.bottom > mid;
+	})?.dataset.sec ?? "";
+	if (cur === railCur) return;
+	railCur = cur;
+	links.forEach((a) => (cur && a.dataset.rail === cur ? a.setAttribute("aria-current", "true") : a.removeAttribute("aria-current")));
+};
+rail();
+addEventListener("scroll", rail, { passive: true });
+addEventListener("resize", rail, { passive: true });
 
 // Nav ink: follow the ground under the bar. Computed from the section at the top of the viewport on every scroll
 // frame, so jumps (rail links, anchors, back/forward) can never leave white text on paper.

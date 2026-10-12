@@ -22,6 +22,7 @@
 	import Tip from "#lib/components/Tip.svelte";
 	import { previewHtml } from "#lib/stores/preview.svelte.ts";
 	import { isHtml } from "#lib/stores/preview.ts";
+	import "#lib/outline.ts";
 	import { registerEditor, unregisterEditor } from "#lib/symbols.ts";
 	import { LspDoc } from "#lib/lsp/client.svelte.ts";
 	import { applyDiagnostics, countDiagnostics } from "#lib/lsp/diagnostics.ts";

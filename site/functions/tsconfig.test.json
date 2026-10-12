@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "bun"
+    ],
+    "lib": [
+      "ES2023",
+      "DOM"
+    ]
+  },
+  "include": [
+    "./_lib/changelog.ts",
+    "./_lib/changelog.test.ts",
+    "./_lib/page.ts",
+    "./_lib/release.ts"
+  ],
+  "exclude": []
+}

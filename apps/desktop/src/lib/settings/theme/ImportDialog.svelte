@@ -1,7 +1,8 @@
 <script lang="ts">
 	/**
-	 * Import a theme: pick a file (Ghostty config, .itermcolors, VS Code theme JSON, Base16 yaml, Atlas/Zed
-	 * family JSON), drop one on the dialog, or paste the text. Shows what was detected before anything is saved.
+	 * Import a theme: pick a file (Ghostty config, .itermcolors, VS Code theme JSON, Alacritty, Base16 yaml,
+	 * Atlas/Zed family JSON), drop one on the dialog, paste the text, or open a .zip / .vsix / folder that
+	 * holds several themes. Shows what was detected before anything is saved.
 	 */
 	import { Button, Checkbox, Dialog, Select, TextArea, TextField, toast } from "@codeatlasdev/ui";
 	import { TriangleAlert, Upload } from "@lucide/svelte";
@@ -13,6 +14,7 @@
 	import type { ImportResult } from "#lib/theme/import/color.ts";
 	import { detectFormat, importAny, type ThemeFormat } from "#lib/theme/import/detect.ts";
 	import ImportPreview from "./ImportPreview.svelte";
+	import PackageImport from "./PackageImport.svelte";
 
 	let { open = $bindable(false) }: { open: boolean } = $props();
 
@@ -40,6 +42,8 @@
 	let select = $state(true);
 	let busy = $state(false);
 	let dragging = $state(false);
+	/** A package (zip / vsix / folder) is loaded: its list replaces the single-file form. */
+	let packaged = $state(false);
 
 	/** Zed/Atlas families are copied verbatim; every other format is converted to an `ImportResult`. */
 	let copyOnly = $derived(format === "zed" || format === "atlas");
@@ -110,7 +114,12 @@
 		e.preventDefault();
 		dragging = false;
 		const file = e.dataTransfer?.files[0];
-		if (file) await load(file.name, await file.text());
+		if (!file || packaged) return;
+		if (/\.(zip|vsix)$/i.test(file.name)) {
+			error = "A dropped archive has no path to unpack: use Archive (.zip, .vsix)… to choose it.";
+			return;
+		}
+		await load(file.name, await file.text());
 	}
 
 	/** Copy a Zed/Atlas family file as is into `~/.atlas/themes`. */
@@ -143,7 +152,7 @@
 <Dialog
 	bind:open
 	title="Import a theme"
-	description="Ghostty config, iTerm colors, VS Code theme, Base16 scheme or an Atlas / Zed theme file."
+	description="Ghostty, iTerm, VS Code, Alacritty, Base16 or Atlas / Zed themes: one file, pasted text, or a zip, vsix or folder with many."
 	size="lg"
 >
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -157,20 +166,23 @@
 		ondragleave={() => (dragging = false)}
 		ondrop={drop}
 	>
-		<div class="pick">
-			<Button variant="outlined" onclick={choose}><Upload size={13} /> Choose file…</Button>
-			<span class="hint">or drop a file here, or paste its text below</span>
-		</div>
-		<TextArea
-			label="Theme text"
-			rows={5}
-			placeholder="palette = 0=#21222c&#10;background = #282a36"
-			bind:value={text}
-			oninput={() => {
-				fileName = "";
-			}}
-			onchange={analyze}
-		/>
+		<PackageImport bind:open bind:active={packaged} onerror={(m) => (error = m)} />
+		{#if !packaged}
+			<div class="pick">
+				<Button variant="outlined" onclick={choose}><Upload size={13} /> Choose file…</Button>
+				<span class="hint">or drop a file here, or paste its text below</span>
+			</div>
+			<TextArea
+				label="Theme text"
+				rows={5}
+				placeholder="palette = 0=#21222c&#10;background = #282a36"
+				bind:value={text}
+				oninput={() => {
+					fileName = "";
+				}}
+				onchange={analyze}
+			/>
+		{/if}
 
 		{#if error}
 			<p class="error" role="alert"><TriangleAlert size={13} /> {error}</p>
@@ -181,7 +193,7 @@
 			</p>
 		{/if}
 
-		{#if preview && result}
+		{#if !packaged && preview && result}
 			<div class="grid">
 				<div class="fields">
 					<TextField label="Name" bind:value={name} />
@@ -211,9 +223,11 @@
 
 	{#snippet actions()}
 		<Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-		<Button disabled={!ready || busy || (!copyOnly && !name.trim())} loading={busy} onclick={run}
-			>Import</Button
-		>
+		{#if !packaged}
+			<Button disabled={!ready || busy || (!copyOnly && !name.trim())} loading={busy} onclick={run}
+				>Import</Button
+			>
+		{/if}
 	{/snippet}
 </Dialog>
 

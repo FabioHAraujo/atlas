@@ -15,7 +15,7 @@ A dev-environment orchestrator: one `atlas.yaml` starts your infra and services 
 
 ## Does it run on Linux or Windows?
 
-Prebuilt releases are macOS on Apple silicon. The CLI, TUI, runner and MCP server build from source on Linux and their tests run on Ubuntu in CI, but there are no prebuilt Linux binaries and the runtime is mostly exercised on macOS. Windows is not supported. Atlas Desktop is macOS only (its terminal renders with Metal).
+Atlas is for everyone, and we are shipping it platform by platform. Available now: macOS on Apple silicon (the CLI, the TUI, the MCP server and Atlas Desktop). Coming soon: Intel Macs, Windows and Linux; you can ask to be notified on the [download page](https://atlas.codeatlas.com.br/download/). Today the CLI, TUI, runner and MCP server also build from source on Linux and their tests run on Ubuntu in CI, but there are no prebuilt Linux binaries and the runtime is mostly exercised on macOS. Windows is not supported yet. Atlas Desktop is macOS only for now (its terminal renders with Metal).
 
 ## Does Atlas send my data anywhere?
 
@@ -55,7 +55,7 @@ Within a major version, yes. New fields are additive; unknown fields are errors,
 
 ## Can I use my own terminal theme and shortcuts in the desktop app?
 
-Yes. Settings → Appearance previews every theme live (Dracula and Alucard by default), can import your Ghostty, iTerm, VS Code or Base16 theme, and gives the terminal its own theme. Themes use the Zed theme format (drop files in `~/.atlas/themes/`, reloaded as you save), and every shortcut is a named command you can rebind in Settings → Keyboard shortcuts or under `keymap` in `~/.atlas/desktop/settings.json`.
+Yes. Settings → Appearance shows every theme as a card (Dracula and Alucard by Zeno Rocha and Luxonauta by default), can import your Ghostty, iTerm, VS Code, Alacritty or Base16 theme (or a zip or folder of themes you own), and gives the terminal its own theme. Themes use the Zed theme format (drop files in `~/.atlas/themes/`, reloaded as you save), and every shortcut is a named command you can rebind in Settings → Keyboard shortcuts or under `keymap` in `~/.atlas/desktop/settings.json`.
 
 ## How do I contribute?
 

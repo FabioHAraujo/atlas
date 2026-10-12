@@ -5,15 +5,8 @@ import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
 import { EditorState } from "@codemirror/state";
-import {
-	outline,
-	registerEditor,
-	saveAllEditors,
-	saveEditor,
-	savers,
-	unregisterEditor,
-	editors,
-} from "./symbols.ts";
+import { outline } from "./outline.ts";
+import { registerEditor, saveAllEditors, saveEditor, savers, unregisterEditor, editors } from "./symbols.ts";
 
 const symbols = (doc: string, extension: unknown) =>
 	outline(EditorState.create({ doc, extensions: [extension] })).map((s) => [s.kind, s.name, s.line]);

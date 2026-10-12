@@ -20,15 +20,8 @@
 	import { host } from "#lib/host.ts";
 	import { quick } from "#lib/stores/quick.svelte.ts";
 	import { shortcutFor } from "#lib/keymap.svelte.ts";
-	import Panel from "#lib/panel/Panel.svelte";
-	import Editor from "#lib/components/Editor.svelte";
-	import DiffView from "#lib/components/DiffView.svelte";
-	import PrTab from "#lib/components/PrTab.svelte";
-	import BrowserTab from "#lib/components/BrowserTab.svelte";
-	import ChatTab from "#lib/components/ChatTab.svelte";
-	import Logs from "#lib/components/Logs.svelte";
+	import Lazy from "#lib/components/Lazy.svelte";
 	import { fileIcon } from "#lib/icons.ts";
-	import Config from "#lib/components/Config.svelte";
 	import { swipe } from "#lib/shell/swipe.ts";
 	import { tabSwipe } from "#lib/shell/gestures.ts";
 	import { useSpace } from "#lib/shell/spaceCtx.ts";
@@ -36,7 +29,6 @@
 	import CrashProbe from "#lib/errors/CrashProbe.svelte";
 	import NewTabMenu from "./NewTabMenu.svelte";
 	import PaneNotice from "./PaneNotice.svelte";
-	import TerminalPane from "./TerminalPane.svelte";
 
 	let { groupId }: { groupId: string } = $props();
 	const space = useSpace();
@@ -220,23 +212,48 @@
 						>
 							<CrashProbe id={t.id} />
 							{#if t.chat && t.pty && !t.rawView && !ws.ended(t)}
-								<ChatTab tab={t} focused={focused && t.id === g.activeTab} />
+								<Lazy
+									load={() => import("#lib/components/ChatTab.svelte")}
+									props={{ tab: t, focused: focused && t.id === g.activeTab }}
+								/>
 							{:else if t.kind === "terminal" && t.pty}
-								<TerminalPane {t} pty={t.pty} active={t.id === g.activeTab && space.live} {focused} />
+								<Lazy
+									load={() => import("./TerminalPane.svelte")}
+									props={{ t, pty: t.pty, active: t.id === g.activeTab && space.live, focused }}
+								/>
 							{:else if t.kind === "editor" && t.path}
-								<Editor worktreeId={t.worktreeId} path={t.path} focused={focused && t.id === g.activeTab} />
+								<Lazy
+									load={() => import("#lib/components/Editor.svelte")}
+									props={{
+										worktreeId: t.worktreeId,
+										path: t.path,
+										focused: focused && t.id === g.activeTab,
+									}}
+								/>
 							{:else if t.kind === "diff"}
-								<DiffView worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
+								<Lazy
+									load={() => import("#lib/components/DiffView.svelte")}
+									props={{ worktreeId: t.worktreeId, focused: focused && t.id === g.activeTab }}
+								/>
 							{:else if t.kind === "browser"}
-								<BrowserTab tab={t} visible={t.id === g.activeTab && space.live} />
+								<Lazy
+									load={() => import("#lib/components/BrowserTab.svelte")}
+									props={{ tab: t, visible: t.id === g.activeTab && space.live }}
+								/>
 							{:else if t.kind === "pr"}
-								<PrTab worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
+								<Lazy
+									load={() => import("#lib/components/PrTab.svelte")}
+									props={{ worktreeId: t.worktreeId, focused: focused && t.id === g.activeTab }}
+								/>
 							{:else if project && t.kind === "services"}
-								<Panel {project} />
+								<Lazy load={() => import("#lib/panel/Panel.svelte")} props={{ project }} />
 							{:else if project && t.kind === "logs"}
-								<Logs {project} worktreeId={t.worktreeId} />
+								<Lazy
+									load={() => import("#lib/components/Logs.svelte")}
+									props={{ project, worktreeId: t.worktreeId }}
+								/>
 							{:else if project && t.kind === "config"}
-								<Config {project} />
+								<Lazy load={() => import("#lib/components/Config.svelte")} props={{ project }} />
 							{:else}
 								<PaneNotice>Nothing to show</PaneNotice>
 							{/if}

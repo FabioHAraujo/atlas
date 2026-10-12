@@ -1,6 +1,8 @@
 <script lang="ts">
 	// Release-notes signup. Contract unchanged: POST /api/waitlist { email, website (honeypot), lang } -> { ok } | { ok:false, error }. Owned by Deploy.
-	let { variant = "hero" }: { variant?: "hero" | "paper" | "close" } = $props();
+	// `topic` tags the signup (a platform someone waits for, or "mobile-link" for the send-me-the-link form); `cta`, `title`, `done` and `id` customize the copy.
+	let { variant = "hero", topic = "", cta = "Get release notes", title = "You are on the list.", done = "One email per release. Nothing else.", id = "" }: { variant?: "hero" | "paper" | "close"; topic?: string; cta?: string; title?: string; done?: string; id?: string } = $props();
+	const uid = $derived(id || variant);
 	let email = $state("");
 	let website = $state("");
 	let status = $state<"idle" | "busy" | "ok" | "error">("idle");
@@ -15,7 +17,7 @@
 			const res = await fetch("/api/waitlist", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ email, website, lang: "en" }),
+				body: JSON.stringify({ email, website, lang: "en", topic }),
 			});
 			if (res.ok) {
 				status = "ok";
@@ -38,21 +40,21 @@
 
 <div class={`wl ${variant}`}>
 	{#if status === "ok"}
-		<p class="done" role="status"><i class="dot go"></i> <span><b>You are on the list.</b> One email per release. Nothing else.</span></p>
+		<p class="done" role="status"><i class="dot go"></i> <span><b>{title}</b> {done}</span></p>
 	{:else}
 		<form onsubmit={submit} novalidate>
-			<label class="sr-only" for={`wl-email-${variant}`}>Email</label>
-			<input id={`wl-email-${variant}`} type="email" name="email" inputmode="email" enterkeyhint="send" autocapitalize="none" autocorrect="off" spellcheck="false" required placeholder="you@company.com" autocomplete="email" bind:value={email} aria-describedby={`wl-msg-${variant}`} />
+			<label class="sr-only" for={`wl-email-${uid}`}>Email</label>
+			<input id={`wl-email-${uid}`} type="email" name="email" inputmode="email" enterkeyhint="send" autocapitalize="none" autocorrect="off" spellcheck="false" required placeholder="you@company.com" autocomplete="email" bind:value={email} aria-describedby={`wl-msg-${uid}`} />
 			<input class="hp" type="text" name="website" tabindex="-1" aria-hidden="true" autocomplete="off" bind:value={website} />
-			<button class="btn solid" disabled={status === "busy"}>{status === "busy" ? "Sending" : "Get release notes"}</button>
+			<button class="btn solid" disabled={status === "busy"}>{status === "busy" ? "Sending" : cta}</button>
 		</form>
-		<p id={`wl-msg-${variant}`} class="msg" role="alert">{message}</p>
+		<p id={`wl-msg-${uid}`} class="msg" role="alert">{message}</p>
 	{/if}
 </div>
 
 <style>
 	form { display: flex; gap: 0; flex-wrap: wrap; }
-	input[type="email"] { flex: 1 1 14rem; min-width: 0; padding: 0.85rem 1rem; min-height: 48px; border: 2px solid var(--fg); border-right: 0; border-radius: 0; background: transparent; color: var(--fg); font: 500 1rem/1 var(--mono); -webkit-appearance: none; appearance: none; }
+	input[type="email"] { flex: 1 1 14rem; min-width: 0; padding: 0.85rem 1rem; min-height: 48px; border: 2px solid var(--fg); border-right: 0; border-radius: 0; background: transparent; color: var(--fg); font: 500 max(16px, 1rem)/1 var(--mono); -webkit-appearance: none; appearance: none; }
 	input[type="email"]::placeholder { color: color-mix(in srgb, var(--fg) 55%, transparent); }
 	input[type="email"]:focus { outline: 2px solid var(--wait); outline-offset: 2px; }
 	form .btn { border-radius: 0 3px 3px 0; }

@@ -12,14 +12,14 @@ export const mediaUrl = (f: string) => {
 };
 
 export const FAQ = [
-	{ q: "How do I install it?", a: "Run `curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh`. It downloads the latest release, verifies its SHA-256 and installs `atlas` into `~/.atlas/bin`. Then `atlas desktop` installs the desktop app, or download the .dmg from the GitHub releases page." },
-	{ q: "What does it run on?", a: "Prebuilt releases are macOS 13 or later on Apple silicon only: the CLI and the desktop app with its GPU terminal. The CLI, the TUI and the MCP server also build from source on Linux; there are no prebuilt Linux binaries. No Windows." },
+	{ q: "How do I install it?", a: "Run `curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh`. It downloads the latest release, verifies its SHA-256 and installs `atlas` into `~/.atlas/bin`. Then `atlas desktop` installs the desktop app, or get the .dmg from the download page." },
+	{ q: "What does it run on?", a: "Available now: macOS 13 or later on Apple silicon, with the CLI and the desktop app and its GPU terminal. Coming soon: Intel Macs, Windows and Linux; ask to be notified on the download page. Today the CLI, the TUI and the MCP server also build from source on Linux, but there are no prebuilt Linux binaries yet." },
 	{ q: "Is it open source?", a: "Yes. The source is on GitHub under MIT or Apache-2.0, at your option. Issues and pull requests are welcome." },
 	{ q: "Do I need the desktop app to use atlas.yaml?", a: "No. The CLI, the TUI and the MCP server work on their own. The desktop app is a client of the same runners, so the app, a terminal and an agent all see the same live state." },
 	{ q: "Which agents does it work with?", a: "omp, Claude Code and Codex. `atlas setup` detects them, shows what it would change, and with `--apply` adds the MCP server, the skills and the status hooks. Cursor and other MCP clients can be configured by hand." },
 	{ q: "Does quitting the app stop my stack?", a: "No. Start runs `atlas dev --detach` and terminals live in a per-user daemon, so stacks and agents keep running when the app quits, crashes or updates." },
 	{ q: "Does it send my code or logs anywhere?", a: "No. Atlas is local first. Logs stay in `.logs/` in your project and the control socket is local. The release-notes email form on this page is the only thing on the site that talks to a server; the app only contacts GitHub to check for updates." },
-	{ q: "How is it different from process-compose, mprocs or Tilt?", a: "Those run processes. Atlas also gives you the workspace around them: a GPU terminal, a worktree per agent, a project panel with live charts, and an MCP server so agents can read logs and restart services. The README's comparison table is honest about where the others win, such as Windows and replicas." },
+	{ q: "How is it different from process-compose, mprocs or Tilt?", a: "Those run processes. Atlas also gives you the workspace around them: a GPU terminal, a worktree per agent, a project panel with live charts, and an MCP server so agents can read logs and restart services. The README's comparison table is honest about where the others win, such as Windows and replicas (Windows support for Atlas is coming)." },
 ];
 
 /** FAQ answers are markdown-ish: `code` spans become <code>. */
@@ -32,7 +32,7 @@ export const JSON_LD = {
 			"@type": "SoftwareApplication",
 			name: "Atlas",
 			applicationCategory: "DeveloperApplication",
-			operatingSystem: "macOS 13+ (Apple silicon), Linux (CLI)",
+			operatingSystem: "macOS 13+ (Apple silicon); Windows and Linux coming soon",
 			description: SITE.description,
 			url: SITE.url,
 			license: ["https://opensource.org/licenses/MIT", "https://opensource.org/licenses/Apache-2.0"],

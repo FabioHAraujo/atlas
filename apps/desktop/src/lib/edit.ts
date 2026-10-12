@@ -6,8 +6,8 @@
  * decides: focused CodeMirror → its history/selection commands, GPU terminal → its own
  * selection, a plain field → `execCommand`. Anything else is left alone.
  */
-import { redo, selectAll, undo } from "@codemirror/commands";
-import type { EditorView } from "codemirror";
+import type { EditorView } from "@codemirror/view";
+import { ops } from "#lib/symbols.ts";
 
 type EditAction = "undo" | "redo" | "selectAll";
 
@@ -44,7 +44,6 @@ export function targetOf(el: Element | null, env: EditEnv): EditTarget {
 	return env.isField(el) ? { kind: "field" } : { kind: "none" };
 }
 
-const CM = { undo, redo, selectAll };
 /** `execCommand` names of the same actions, for native fields. */
 const NATIVE: Record<EditAction, string> = { undo: "undo", redo: "redo", selectAll: "selectAll" };
 
@@ -62,7 +61,7 @@ interface EditRun {
 export function runEdit(action: EditAction, target: EditTarget, run: EditRun): boolean {
 	switch (target.kind) {
 		case "codemirror":
-			return CM[action](target.view);
+			return ops.edit(target.view, action);
 		case "terminal":
 			if (action !== "selectAll") return false;
 			run.terminalSelectAll(target.tab);

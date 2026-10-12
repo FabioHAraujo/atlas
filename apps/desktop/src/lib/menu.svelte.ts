@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { EditorView } from "codemirror";
 import { EDIT_COMMANDS, runEdit, targetOf, type EditEnv } from "#lib/edit.ts";
 import { allCommands, keymap, runCommand } from "#lib/keymap.svelte.ts";
+import { ops } from "#lib/symbols.ts";
 import { DEFAULT_KEYMAP, merge } from "#lib/keys.ts";
 import { EDIT_ACCELERATORS, MENU_COMMANDS, menuAccelerators } from "#lib/menu.ts";
 import { termFocus } from "#lib/stores/termFocus.svelte.ts";
@@ -11,7 +11,7 @@ import { termFocus } from "#lib/stores/termFocus.svelte.ts";
 const env: EditEnv = {
 	viewOf: (el) => {
 		const host = el.closest<HTMLElement>(".cm-editor");
-		return host ? (EditorView.findFromDOM(host) ?? undefined) : undefined;
+		return host ? ops.viewOf(host) : undefined;
 	},
 	terminalOf: (el) => (el as HTMLElement).dataset?.termTab,
 	isField: (el) => !!el.closest("input, textarea, [contenteditable=true], [contenteditable='']"),

@@ -210,13 +210,15 @@ export async function parseGhosttyConfig(text: string, ctx: GhosttyContext): Pro
 	let themeName: string | undefined;
 	for (const [key, value] of entries) if (key === "theme") themeName = value;
 
-	let name = "Ghostty import";
+	// Named after the source, never after a product: this is the user's own local config.
+	let name = "Ghostty: my config";
 	if (themeName) {
 		const picked = pickTheme(themeName, ctx.appearance ?? "dark");
 		const themeEntries = await loadTheme(picked, ctx, warn);
 		if (themeEntries) {
 			apply(themeEntries, acc, warn);
-			name = picked.split("/").pop() || name;
+			const base = picked.split("/").pop();
+			if (base) name = `Ghostty: ${base}`;
 		}
 	}
 	apply(entries, acc, warn);

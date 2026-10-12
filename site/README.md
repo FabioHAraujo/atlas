@@ -16,6 +16,9 @@ bun run check      # astro check + type-check of scripts/ and functions/ (CI run
 |---|---|
 | `src/pages/index.astro` | the landing page: one chapter per screen (copy lives next to the markup) |
 | `src/data/landing.ts` | landing-page data: FAQ, JSON-LD, log-river rows and the cache-busting `mediaUrl()` |
+| `src/pages/download.astro` | the download page: resolves the latest release at build time (`src/data/release.ts`, from the release's `manifest.json`), highlights the visitor's OS, lists coming-soon platforms with a notify form (`/api/waitlist` + `topic`), checksums, requirements |
+| `functions/` | Cloudflare Pages Functions: `release.json`, `changelog/`, `changelog.json` (the release engine, see [docs/site.md](../docs/site.md)), `api/waitlist` |
+| `src/components/Rail.astro` | the icon-only section rail (tooltip on hover/focus, progress hairline); state comes from one scroll handler in `src/lib/page.ts` |
 | `src/components/Hero.astro` | the live board (atlas.yaml, dependency graph, log river). Server-rendered in its final state |
 | `src/lib/hero.ts` | the boot choreography (GSAP) that rewinds and plays the board once |
 | `src/lib/motion.ts` | GSAP + ScrollTrigger + **Lenis** (the only smooth-scroll engine) and the word-rise heading reveal |

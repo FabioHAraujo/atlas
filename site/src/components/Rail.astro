@@ -1,36 +1,60 @@
 ---
-// The page navigation is the Atlas sidebar: sections listed as services, with a state lamp that goes green
-// while the section is in view. Hidden on small screens.
-const items = [
-	["yaml", "One file"],
-	["terminal", "Terminal"],
-	["spaces", "Spaces"],
-	["panel", "Panel"],
-	["logs", "Logs"],
-	["agents", "Agents"],
-	["mcp", "MCP"],
-	["tui", "TUI"],
-	["film", "Film"],
-	["faq", "FAQ"],
+// Page navigation: one icon per chapter (Lucide-style 24px / 1.75 stroke, same set as the rest of the site chrome).
+// The label is a tooltip on hover and focus and the accessible name; the active chapter is filled, and a thin
+// track shows how far through the page you are. Hidden on narrow screens (phones use the menu sheet).
+const items: [id: string, label: string, icon: string][] = [
+	["yaml", "One file", `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/>`],
+	["terminal", "Terminal", `<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>`],
+	["spaces", "Spaces", `<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>`],
+	["panel", "Panel", `<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>`],
+	["logs", "Logs", `<path d="M3 6h18M3 12h14M3 18h9"/>`],
+	["agents", "Agents", `<circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 7.2v9.6"/><path d="M18 10.2c0 4-6 3-12 6.2"/>`],
+	["mcp", "MCP", `<path d="M12 22v-5"/><path d="M9 8V2M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z"/>`],
+	["tui", "TUI", `<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m7 10 3 2-3 2M13 15h4"/>`],
+	["film", "Film", `<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/>`],
+	["faq", "FAQ", `<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>`],
 ];
 ---
-<nav class="rail" aria-label="On this page">
-	<p class="proj"><i class="dot go"></i> orbit-shop</p>
+<nav class="rail" aria-label="On this page" data-rail-nav>
 	<ul>
-		{items.map(([id, label]) => (
-			<li><a href={`#${id}`} data-rail={id}><i class="dot off"></i>{label}</a></li>
+		{items.map(([id, label, icon]) => (
+			<li>
+				<a href={`#${id}`} data-rail={id} aria-label={label}>
+					<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icon} />
+					<span class="tip" aria-hidden="true">{label}</span>
+				</a>
+			</li>
 		))}
 	</ul>
+	<i class="track" aria-hidden="true"><i class="fill" data-rail-fill></i></i>
 </nav>
 <style>
-	.rail { position: fixed; left: clamp(0.8rem, 1.8vw, 1.6rem); top: 50%; transform: translateY(-50%); z-index: 40; font-size: 0.86rem; color: var(--white); opacity: 0; pointer-events: none; transition: opacity 0.3s; mix-blend-mode: normal; }
+	.rail {
+		position: fixed; left: clamp(0.6rem, 1.4vw, 1.4rem); top: 50%; transform: translateY(-50%); z-index: 40;
+		display: flex; gap: 0.55rem; align-items: stretch; padding: 0.4rem; border-radius: 999px;
+		color: var(--white); background: rgb(11 22 114 / 0.55); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.16);
+		-webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+		opacity: 0; pointer-events: none; transition: opacity 0.3s, color 0.2s, background 0.2s, box-shadow 0.2s;
+	}
 	:global(.rail-on) .rail { opacity: 1; pointer-events: auto; }
-	:global(.on-paper-sec) .rail { color: var(--ink); }
-	.proj { margin: 0 0 0.6rem; display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-stretch: 80%; }
-	ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; }
-	a { display: flex; align-items: center; gap: 0.55rem; padding: 0.15rem 0; text-decoration: none; font-weight: 500; opacity: 0.75; }
-	a:hover { opacity: 1; }
-	a[aria-current="true"] { opacity: 1; font-weight: 700; }
-	a[aria-current="true"] .dot { background: var(--go); box-shadow: none; opacity: 1; }
-	@media (max-width: 1500px) { .rail { display: none; } }
+	/* On paper sections the pill flips to ink on a light ground */
+	:global(.on-paper-sec) .rail { color: var(--ink); background: rgb(238 240 248 / 0.7); box-shadow: 0 0 0 1px rgb(12 16 56 / 0.16); }
+	ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.1rem; }
+	a { position: relative; display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; color: inherit; text-decoration: none; opacity: 0.62; transition: opacity 0.15s, background 0.15s, color 0.15s; }
+	a:hover, a:focus-visible { opacity: 1; background: color-mix(in srgb, currentColor 14%, transparent); }
+	a:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+	a[aria-current="true"] { opacity: 1; background: var(--white); color: var(--blue-deep); }
+	:global(.on-paper-sec) a[aria-current="true"] { background: var(--ink); color: var(--paper); }
+	/* Progress through the page: a hairline track beside the icons */
+	.track { position: relative; display: block; width: 2px; border-radius: 2px; background: color-mix(in srgb, currentColor 22%, transparent); overflow: hidden; margin-block: 0.3rem; }
+	.fill { position: absolute; inset: 0 0 auto 0; height: 100%; background: var(--go); transform-origin: top; transform: scaleY(var(--rail-progress, 0)); }
+	.tip {
+		position: absolute; left: calc(100% + 0.7rem); top: 50%; transform: translate(-4px, -50%); white-space: nowrap; pointer-events: none;
+		padding: 0.35rem 0.6rem; border-radius: 6px; font: 600 0.82rem/1 var(--font); font-stretch: 90%; background: var(--white); color: var(--ink); box-shadow: 0 6px 18px -6px rgb(3 6 60 / 0.5);
+		opacity: 0; visibility: hidden; transition: opacity 0.12s, transform 0.12s, visibility 0.12s;
+	}
+	:global(.on-paper-sec) .tip { background: var(--ink); color: var(--paper); }
+	a:hover .tip, a:focus-visible .tip { opacity: 1; visibility: visible; transform: translate(0, -50%); }
+	@media (max-width: 1099px), (max-height: 560px) { .rail { display: none; } }
+	@media (prefers-reduced-motion: reduce) { .rail, a, .tip { transition: none; } }
 </style>

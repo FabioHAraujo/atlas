@@ -4,22 +4,20 @@
 	import "../../app.css";
 	import "@xterm/xterm/css/xterm.css";
 	import { Toaster } from "@codeatlasdev/ui";
+	import { bootMark } from "#lib/boot.ts";
 	import { ChevronLeft, ChevronRight } from "@lucide/svelte";
 	import { onMount, type Snippet } from "svelte";
 	import AskDialog from "#lib/components/AskDialog.svelte";
 	import CrashProbe from "#lib/errors/CrashProbe.svelte";
 	import Contain from "#lib/errors/Contain.svelte";
 	import ErrorToasts from "#lib/errors/ErrorToasts.svelte";
-	import CreatePrDialog from "#lib/components/CreatePrDialog.svelte";
+	import LazyOpen from "#lib/components/LazyOpen.svelte";
 	import DevLine from "#lib/components/DevLine.svelte";
-	import NewWorktreeDialog from "#lib/components/NewWorktreeDialog.svelte";
 	import Palette from "#lib/components/Palette.svelte";
 	import LspPicker from "#lib/lsp/LspPicker.svelte";
-	import Settings from "#lib/components/Settings.svelte";
 	import Sidebar from "#lib/components/Sidebar.svelte";
 	import UpdatedCard from "#lib/components/UpdatedCard.svelte";
 	import GhosttyOffer from "#lib/settings/theme/GhosttyOffer.svelte";
-	import WhatsNew from "#lib/components/WhatsNew.svelte";
 	import Onboarding from "#lib/onboarding/Onboarding.svelte";
 	import EdgePeek from "#lib/shell/EdgePeek.svelte";
 	import TabSwitcher from "#lib/shell/TabSwitcher.svelte";
@@ -31,6 +29,7 @@
 		palettes,
 		symbolItems,
 	} from "#lib/shell/palettes.svelte.ts";
+	import { startReadyGate } from "#lib/shell/ready.svelte.ts";
 	import { startSession } from "#lib/shell/session.svelte.ts";
 	import { shell } from "#lib/shell/shell.svelte.ts";
 	import { historySwipe } from "#lib/shell/gestures.ts";
@@ -39,12 +38,23 @@
 	import { onKeydown, onKeydownCapture, onKeyup } from "#lib/shell/windowKeys.ts";
 	import { agents } from "#lib/stores/agents.svelte.ts";
 	import { docks } from "#lib/stores/docks.svelte.ts";
+	import { pr } from "#lib/stores/pr.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
+	import { updates } from "#lib/stores/updates.svelte.ts";
+	import { worktrees } from "#lib/stores/worktrees.svelte.ts";
 	import { ws } from "#lib/stores/workspace.svelte.ts";
 
 	let { children }: { children: Snippet } = $props();
 
-	onMount(startSession);
+	onMount(() => {
+		bootMark("layout:mounted");
+		const stopGate = startReadyGate();
+		const stopSession = startSession();
+		return () => {
+			stopGate();
+			stopSession();
+		};
+	});
 </script>
 
 <!-- Focus can leave the window while ⌃ is held (no keyup arrives): blur drops the switcher overlay. -->
@@ -96,13 +106,13 @@
 	dynamic={createItems}
 />
 <Palette bind:open={palettes.commands} placeholder="Run a command" items={commandItems} />
-<NewWorktreeDialog />
-<CreatePrDialog />
+<LazyOpen when={worktrees.newDialog.open} load={() => import("#lib/components/NewWorktreeDialog.svelte")} />
+<LazyOpen when={!!pr.createFor} load={() => import("#lib/components/CreatePrDialog.svelte")} />
 <Palette bind:open={palettes.files} placeholder="Go to file" items={fileItems} />
 <Palette bind:open={palettes.symbols} placeholder="Go to symbol in file" items={symbolItems} />
 <LspPicker />
-<Settings />
-<WhatsNew />
+<LazyOpen when={updates.open} load={() => import("#lib/components/Settings.svelte")} />
+<LazyOpen when={updates.whatsNewOpen} load={() => import("#lib/components/WhatsNew.svelte")} />
 <UpdatedCard />
 <GhosttyOffer />
 <DevLine />

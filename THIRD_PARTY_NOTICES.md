@@ -14,11 +14,13 @@ stated.
 | [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (`material-icon-theme` npm) | File-type icons in the desktop explorer and tabs (SVGs are bundled at build time by `apps/desktop/scripts/gen-icons.ts`) | MIT | `apps/desktop` build |
 | [pdf.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist` npm) | PDF viewer; CMaps, standard fonts and ICC profiles are served same-origin from the bundle (`apps/desktop/scripts/pdfjs-assets.ts`) | Apache-2.0 | `apps/desktop` build |
 | [Atom One](https://github.com/atom/atom/tree/master/packages/one-dark-ui) color palette | The "One Dark" / "One Light" desktop themes reuse its colors | MIT | `apps/desktop/src/lib/themes/one.json` |
-| [Dracula Theme](https://draculatheme.com/spec) color specification (Dracula Classic, Alucard Classic) | The "Dracula" and "Alucard" desktop themes (default), and the scope mapping used by "Dracula Pro" | MIT, © 2023 Dracula Theme ([license](https://github.com/dracula/dracula-theme/blob/main/LICENSE)) | `apps/desktop/src/lib/themes/dracula.json`, `dracula-pro.json` |
+| [Dracula Theme](https://draculatheme.com) by [Zeno Rocha](https://github.com/zenorocha) and [Luxonauta](https://github.com/luxonauta) and the Dracula team: the [color specification](https://draculatheme.com/spec) (Dracula Classic, Alucard Classic) | The "Dracula" and "Alucard" desktop themes (default) | MIT, © 2023 Dracula Theme ([license](https://github.com/dracula/dracula-theme/blob/main/LICENSE)) | `apps/desktop/src/lib/themes/dracula.json` |
 
 The OFL requires that the font software is not sold on its own and that its
 license text accompanies redistributions; both hold (the text ships in the repo
 and the fonts are only embedded in the terminal renderer).
+
+**Dracula Pro is not included.** [Dracula Pro](https://draculatheme.com/pro) is a separate, paid product by Zeno Rocha and Luxonauta under its own license (per-buyer, no redistribution). Atlas ships none of its files, names or colors; if you bought it, you can import your own licensed copy into your own `~/.atlas/themes` from Settings → Appearance (Import theme → archive or folder). Support the author: https://draculatheme.com/pro
 
 ## Rust dependencies
 

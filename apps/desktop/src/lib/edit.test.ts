@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { history } from "@codemirror/commands";
 import { EditorState } from "@codemirror/state";
 import { EDIT_COMMANDS, runEdit, targetOf } from "./edit.ts";
+import "./outline.ts"; // installs the CodeMirror-backed edit ops, as the editor chunk does
 
 /** A headless view: CodeMirror's state and commands do not need a DOM, only `dispatch`. */
 function headless(doc: string) {

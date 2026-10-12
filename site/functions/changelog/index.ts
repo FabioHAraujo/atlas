@@ -1,0 +1,29 @@
+// GET /changelog/ -> the static page shell (nav, footer, styles from the last build) with the body swapped for the changelog
+// of the LATEST published release, read at the edge. If GitHub is down the last good copy is served; if there is none the
+// static build's own body is served untouched (the offline fallback), so the page is never empty.
+import { renderChangelog } from "../_lib/changelog";
+import { loadChangelog, resolveLatest } from "../_lib/edge";
+import { changelogBody } from "../_lib/page";
+import { edgeHeaders, wantsFresh } from "../_lib/respond";
+
+const OPEN = "<!--CHANGELOG-->";
+const CLOSE = "<!--/CHANGELOG-->";
+const HTML = { "content-type": "text/html; charset=utf-8" };
+
+export const onRequestGet: PagesFunction = async ({ request, next }) => {
+	// `next()` serves the static asset for this path: the shell, and the offline fallback body between the markers.
+	const html = await (await next()).text();
+	const a = html.indexOf(OPEN);
+	const b = html.indexOf(CLOSE);
+	if (a < 0 || b < a) return new Response(html, { headers: edgeHeaders(HTML, true) });
+	try {
+		const { value, stale } = await resolveLatest("changelog", loadChangelog, wantsFresh(request.url));
+		const body = changelogBody(renderChangelog(value.markdown), { tag: value.tag, stale });
+		return new Response(`${html.slice(0, a)}${body}${html.slice(b + CLOSE.length)}`, { headers: edgeHeaders({ ...HTML, "x-atlas-tag": value.tag }, stale) });
+	} catch {
+		return new Response(html, { headers: edgeHeaders(HTML, true) });
+	}
+};
+
+// HEAD answers like GET (Pages routes methods separately); the body is dropped by the runtime.
+export const onRequestHead = onRequestGet;

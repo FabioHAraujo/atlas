@@ -21,7 +21,7 @@
 	code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; scrollbar-width: none; font-weight: 600; }
 	code::-webkit-scrollbar { display: none; }
 	.p { margin-right: 0.55em; opacity: 0.6; }
-	button { flex: none; font: 700 0.875rem/1 var(--font); color: var(--ink); background: var(--fg); border: 0; border-radius: 2px; padding: 0.6rem 0.85rem; cursor: pointer; }
+	button { flex: none; min-height: 44px; font: 700 0.875rem/1 var(--font); color: var(--ink); background: var(--fg); border: 0; border-radius: 2px; padding: 0.6rem 0.85rem; cursor: pointer; }
 	@media (pointer: coarse) { button { min-height: 44px; min-width: 44px; padding-inline: 1rem; } }
 	button:hover { background: var(--wait); }
 </style>

@@ -30,6 +30,8 @@ pub struct HostHub {
     /// Outcome of `reconcile` for the local daemon, kept so a webview that registers its
     /// listeners after startup still learns it (`host_status`).
     status: Mutex<Value>,
+    /// Woken by `set`, so a caller waiting for the local daemon continues the moment it connects.
+    connected: tokio::sync::Notify,
 }
 
 /// Host of the registry entry whose root contains `path` (longest match).
@@ -53,13 +55,17 @@ impl HostHub {
             }
             return Err(format!("{host} is not connected (Settings → SSH)"));
         }
-        for _ in 0..100 {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            // Register interest before checking, so a `set` in between is not missed.
+            let woken = self.connected.notified();
             if let Some(c) = self.clients.read().await.get(LOCAL).cloned() {
                 return Ok(c);
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            if tokio::time::timeout_at(deadline, woken).await.is_err() {
+                return Err("atlas hostd is not reachable (see ~/.atlas/hostd.log)".into());
+            }
         }
-        Err("atlas hostd is not reachable (see ~/.atlas/hostd.log)".into())
     }
 
     pub async fn set(&self, host: &str, c: Option<HostClient>) {
@@ -68,6 +74,8 @@ impl HostHub {
             Some(c) => m.insert(host.to_string(), c),
             None => m.remove(host),
         };
+        drop(m);
+        self.connected.notify_waiters();
     }
 
     fn route(&self, args: &Value) -> String {

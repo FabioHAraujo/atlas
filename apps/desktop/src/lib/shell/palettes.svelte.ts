@@ -2,8 +2,6 @@
  * The four command surfaces of the shell (jump, commands, go-to-file, go-to-symbol): their
  * open state and the item lists each `<Palette>` renders.
  */
-import { EditorSelection } from "@codemirror/state";
-import { EditorView } from "codemirror";
 import type { PaletteItem } from "#lib/components/Palette.svelte";
 import { openService, runAction } from "#lib/actions.svelte.ts";
 import { fileIcon } from "#lib/icons.ts";
@@ -15,7 +13,7 @@ import { store } from "#lib/stores/projects.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
 import { worktrees } from "#lib/stores/worktrees.svelte.ts";
 import { lspSymbols } from "#lib/lsp/symbols.svelte.ts";
-import { outline } from "#lib/symbols.ts";
+import { ops } from "#lib/symbols.ts";
 import { goTab, goWorktree, recentWorktrees, wtLabel } from "#lib/shell/navigate.ts";
 
 /** Open flags for each palette plus the file list the "Go to file" palette searches. */
@@ -160,17 +158,14 @@ export function symbolItems(): PaletteItem[] {
 	const symbols =
 		lspSymbols.view === view && lspSymbols.list
 			? lspSymbols.list.map((s) => ({ ...s, kind: s.container ? `${s.kind} in ${s.container}` : s.kind }))
-			: outline(view.state);
+			: ops.outline(view.state);
 	return symbols.map((s, i) => ({
 		id: `${i}`,
 		group: "Symbols",
 		label: s.name,
 		description: `${s.kind} · line ${s.line}`,
 		run: () => {
-			view.dispatch({
-				selection: EditorSelection.cursor(s.from),
-				effects: EditorView.scrollIntoView(s.from, { y: "center" }),
-			});
+			ops.reveal(view, s.from);
 			view.focus();
 		},
 	}));

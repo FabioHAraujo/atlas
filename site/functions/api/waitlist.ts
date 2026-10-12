@@ -11,6 +11,7 @@ const MAX_EMAIL = 254;
 const EMAIL_RE = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]{2,}$/;
 const LIMIT = 5; // requests per window per client
 const WINDOW_S = 600; // 10 minutes
+const TOPICS = new Set(["windows", "linux", "macos-intel", "mobile-link"]);
 const ALLOWED_ORIGINS: Record<string, true> = {
 	"https://atlas.codeatlas.com.br": true,
 };
@@ -54,17 +55,20 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 	let email = "";
 	let lang = "";
+	let topic = "";
 	let honeypot = "";
 	try {
 		if (ctype.includes("application/json")) {
 			const body = (await request.json()) as Record<string, unknown>;
 			email = String(body.email ?? "");
 			lang = String(body.lang ?? "");
+			topic = String(body.topic ?? "");
 			honeypot = String(body.website ?? "");
 		} else {
 			const form = await request.formData();
 			email = String(form.get("email") ?? "");
 			lang = String(form.get("lang") ?? "");
+			topic = String(form.get("topic") ?? "");
 			honeypot = String(form.get("website") ?? "");
 		}
 	} catch {
@@ -79,6 +83,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 		return json({ ok: false, error: "invalid_email" }, 422);
 	}
 	lang = /^[a-z]{2}(-[A-Za-z]{2})?$/.test(lang) ? lang : "";
+	// What the person signed up for: release notes (default) or a platform they are waiting for. Unknown values are dropped.
+	topic = TOPICS.has(topic) ? topic : "";
 
 	// Fixed-window rate limit per hashed client key, atomic in a single statement.
 	const now = Math.floor(Date.now() / 1000);
@@ -96,11 +102,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 		return json({ ok: false, error: "rate_limited" }, 429, { "retry-after": String(WINDOW_S) });
 	}
 
-	// Idempotent: signing up twice is a success, never reveals prior membership.
+	// Idempotent: signing up twice is a success, never reveals prior membership. A repeat signup with a topic
+	// adds it to the stored list (comma-separated, no duplicates) so "notify me for Linux" is not lost.
 	await env.DB.prepare(
-		"INSERT INTO waitlist (email, created_at, lang) VALUES (?1, ?2, ?3) ON CONFLICT(email) DO NOTHING",
+		`INSERT INTO waitlist (email, created_at, lang, topics) VALUES (?1, ?2, ?3, ?4)
+		ON CONFLICT(email) DO UPDATE SET topics = CASE
+			WHEN ?4 = '' THEN topics
+			WHEN topics = '' THEN ?4
+			WHEN instr(',' || topics || ',', ',' || ?4 || ',') > 0 THEN topics
+			ELSE topics || ',' || ?4 END`,
 	)
-		.bind(email, now, lang || null)
+		.bind(email, now, lang || null, topic)
 		.run();
 
 	return json({ ok: true });

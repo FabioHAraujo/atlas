@@ -1,7 +1,7 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
 import { expect, test } from "bun:test";
 import { EditorState } from "@codemirror/state";
-import { flattenSymbols } from "./symbols.svelte.ts";
+import { flattenSymbols } from "./symbolsLoad.ts";
 
 const view = (doc: string) => ({ state: EditorState.create({ doc }) });
 const r = (l: number, c: number) => ({

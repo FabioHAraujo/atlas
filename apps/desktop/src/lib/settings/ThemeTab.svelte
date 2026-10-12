@@ -5,6 +5,7 @@
 	import Group from "./Group.svelte";
 	import Row from "./Row.svelte";
 	import { copyTheme, revealThemesFolder, saveTheme } from "./theme/actions.ts";
+	import CreditCard from "./theme/CreditCard.svelte";
 	import GhosttyBanner from "./theme/GhosttyBanner.svelte";
 	import ImportDialog from "./theme/ImportDialog.svelte";
 	import TerminalThemeSelect from "./theme/TerminalThemeSelect.svelte";
@@ -36,6 +37,7 @@
 			onchange={(v) => void themes.setTheme({ mode: v as "system" | "light" | "dark" })}
 		/>
 	</Row>
+	<CreditCard />
 	<ThemeGrid />
 	<Row id="theme-light" label="Light theme" description="Colors used in light mode.">
 		<div class="select">
@@ -72,7 +74,7 @@
 		id="theme-import"
 		stack
 		label="Import theme"
-		description="From Ghostty, iTerm, VS Code or Base16. Your themes live in ~/.atlas/themes and reload as you save."
+		description="From Ghostty, iTerm, VS Code, Alacritty or Base16, or a zip or folder of themes. Your themes live in ~/.atlas/themes and reload as you save."
 	>
 		<Button size="sm" variant="outlined" onclick={() => (importing = true)}>
 			<Upload size={13} /> Import…

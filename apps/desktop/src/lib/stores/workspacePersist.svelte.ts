@@ -26,22 +26,26 @@ export class WorkspacePersist {
 
 	async init() {
 		const ws = this.ws;
-		this.#unlisten.push(
-			await listen<{ ev: string; pty?: string; title?: string; code?: number | null }>(
-				"host://event",
-				(e) => {
+		// The saved doc and the listeners are independent IPCs: wait for them together. Each
+		// handle is kept as it resolves, so `dispose()` sees it even if the load fails.
+		const track = (p: Promise<UnlistenFn>) => p.then((u) => void this.#unlisten.push(u));
+		const [raw] = await Promise.all([
+			invoke<Doc | null>("workspace_load"),
+			track(
+				listen<{ ev: string; pty?: string; title?: string; code?: number | null }>("host://event", (e) => {
 					const p = e.payload;
 					if (p.ev === "pty_title" && p.pty) ws.titles[p.pty] = p.title ?? "";
 					if (p.ev === "pty_exit" && p.pty) ws.exited[p.pty] = p.code ?? null;
-				},
+				}),
 			),
-			await listen<string>("host://error", (e) => (ws.hostError = e.payload)),
-			await listen("host://reconnected", () => {
-				ws.hostError = null;
-				void ws.syncPtys();
-			}),
-		);
-		const raw = await invoke<Doc | null>("workspace_load");
+			track(listen<string>("host://error", (e) => (ws.hostError = e.payload))),
+			track(
+				listen("host://reconnected", () => {
+					ws.hostError = null;
+					void ws.syncPtys();
+				}),
+			),
+		]);
 		ws.doc = { ...emptyDoc(), ...(raw ?? {}) };
 		ws.loaded = true;
 		await ws.syncPtys();

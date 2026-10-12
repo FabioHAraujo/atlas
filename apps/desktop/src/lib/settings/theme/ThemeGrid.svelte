@@ -1,11 +1,10 @@
 <script lang="ts">
 	/**
-	 * Grid of theme cards for the chosen appearance filter. Roving tabindex + arrow keys; hover or focus
-	 * previews the theme live, leaving the grid always reverts; click / Enter / Space selects.
+	 * Grid of theme cards for the chosen appearance filter. Roving tabindex + arrow keys move focus only;
+	 * click / Enter / Space selects. Nothing changes the app theme until then.
 	 */
 	import { SegmentedControl } from "@codeatlasdev/ui";
 	import { Moon, Sun, SunMoon } from "@lucide/svelte";
-	import { onDestroy } from "svelte";
 	import { useTheme } from "#lib/shell/themeCommands.svelte.ts";
 	import { themes } from "#lib/stores/theme.svelte.ts";
 	import { copyTheme, removeTheme, saveTheme } from "./actions.ts";
@@ -29,9 +28,6 @@
 			shown.find((t) => selectedNames.includes(t.name))?.name ??
 			shown[0]?.name,
 	);
-
-	// A preview must never outlive the grid: unmounting (tab switch, dialog close) reverts it.
-	onDestroy(() => themes.preview(null));
 
 	/** Number of columns the auto-fill grid currently lays out, from the real card positions. */
 	function columns(): number {
@@ -63,15 +59,7 @@
 	}
 </script>
 
-<!-- Leaving the grid by any route (pointer or focus) reverts the preview. -->
-<div
-	class="wrap"
-	role="presentation"
-	onpointerleave={() => themes.preview(null)}
-	onfocusout={(e) => {
-		if (!e.currentTarget.contains(e.relatedTarget as Node | null)) themes.preview(null);
-	}}
->
+<div class="wrap">
 	<div class="filter">
 		<SegmentedControl
 			aria-label="Show themes"
@@ -93,7 +81,6 @@
 					tabindex={t.name === tabStop ? 0 : -1}
 					bind:cardEl={cards[t.name]}
 					onpick={() => useTheme(t)}
-					onpreview={(on) => themes.preview(on ? t.name : null)}
 					oncopy={(f) => copyTheme(t.name, f)}
 					onsave={(f) => saveTheme(t.name, f)}
 					onremove={() => removeTheme(t.name)}

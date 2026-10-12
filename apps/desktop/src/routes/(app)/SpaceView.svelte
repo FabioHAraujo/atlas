@@ -23,14 +23,6 @@
 	<ProjectHeader {p} />
 	{#if space.current}<ActivityDrawer projectId={p.id} />{/if}
 
-	{#if agents.ompIntegration === "missing"}
-		<div class="banner">
-			<Alert severity="info" title="Enable omp integration">
-				Atlas shows omp's state (working, needs you, done) through a small omp extension.
-				<Button size="sm" onclick={() => agents.enableOmp()}>Enable</Button>
-			</Alert>
-		</div>
-	{/if}
 	{#if p.error}
 		<div class="banner">
 			<Alert severity="error" title="atlas.yaml has problems"
@@ -40,6 +32,16 @@
 	{/if}
 
 	<div class="rule"></div>
+	<div class="float-anchor">
+		{#if agents.ompIntegration === "missing"}
+			<div class="banner floating">
+				<Alert severity="info" title="Enable omp integration">
+					Atlas shows omp's state (working, needs you, done) through a small omp extension.
+					<Button size="sm" onclick={() => agents.enableOmp()}>Enable</Button>
+				</Alert>
+			</div>
+		{/if}
+	</div>
 
 	<Contain
 		where="Workbench"
@@ -55,6 +57,23 @@
 <style>
 	.banner {
 		padding: 0 20px 10px;
+	}
+	/* Found by a probe that finishes after the first frame: it floats over the workbench instead
+	   of pushing it (and the native terminal views laid over it) down when it arrives. */
+	.float-anchor {
+		position: relative;
+		height: 0;
+		z-index: 5;
+	}
+	.banner.floating {
+		position: absolute;
+		inset: 0 0 auto 0;
+		z-index: 5;
+		padding-top: 10px;
+		pointer-events: none;
+	}
+	.banner.floating :global(*) {
+		pointer-events: auto;
 	}
 	.banner pre {
 		margin: 4px 0 0;

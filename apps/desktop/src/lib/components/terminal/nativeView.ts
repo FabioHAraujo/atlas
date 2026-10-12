@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "@codeatlasdev/ui";
 import { errText } from "#lib/api.ts";
+import { bootMark } from "#lib/boot.ts";
 import { gpu } from "#lib/stores/gpu.svelte.ts";
 import { prefs } from "#lib/stores/prefs.svelte.ts";
 import { themes } from "#lib/stores/theme.svelte.ts";
@@ -103,7 +104,9 @@ export class NativeView {
 			if (!this.opened) {
 				if (!show) return;
 				this.opened = true;
+				bootMark("term_open:begin");
 				await invoke("term_open", { tab, pty, ...rect, ...termColors(area), prefs: termPrefs() });
+				bootMark("term_open:done");
 			}
 			await invoke("term_bounds", { tab, ...rect, visible: show });
 		} catch (e) {

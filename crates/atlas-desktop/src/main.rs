@@ -1,6 +1,7 @@
 //! Atlas Desktop: native client of the `atlas dev` runners.
 
 mod agent;
+mod boot;
 mod browser;
 mod cmds;
 mod ctl;
@@ -76,9 +77,16 @@ macro_rules! handlers {
             cmds::config_schema,
             cmds::config_validate,
             cmds::config_write,
+            boot::boot_mark,
+            boot::app_ready,
+            boot::theme_cache_write,
+            boot::themes_user_read,
             cmds::open_in_editor,
             cmds::open_url,
             cmds::reveal,
+            cmds::theme_unpack,
+            cmds::theme_unpack_cleanup,
+            cmds::theme_read_packed,
             updates::system_info,
             updates::latest_release,
             updates::releases_between,
@@ -210,8 +218,35 @@ fn visible_on_any(win: (i32, i32, i32, i32), screens: &[(i32, i32, i32, i32)]) -
     })
 }
 
+/// The main window from `tauri.conf.json` (`create: false`), built here so it can start hidden
+/// with the cached theme already on `<html>` and in the native appearance. `boot::app_ready`
+/// (first real frame) or `boot`'s deadline shows it; window-state restores size/position/maximized
+/// while it is still hidden, so it never visibly moves or resizes.
+fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
+    let cache = boot::load_cache();
+    let cfg = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .ok_or_else(|| tauri::Error::WindowNotFound)?;
+    let win = tauri::WebviewWindowBuilder::from_config(app.handle(), cfg)?
+        .visible(false)
+        .theme(boot::window_theme(cache.as_ref()))
+        .initialization_script(boot::init_script(cache.as_ref()))
+        .build()?;
+    boot::mark("window:created");
+    boot::arm_deadline(app.handle());
+    drop(win);
+    Ok(())
+}
+
 fn main() {
+    boot::start();
+    boot::mark("main");
     shell_env::start();
+    boot::mark("shell_env:started");
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -219,9 +254,18 @@ fn main() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&[tray::LABEL])
+                // Showing is `boot`'s call (first frame), not window-state's at creation.
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
                 .build(),
         )
         .setup(|app| {
+            boot::mark("setup:begin");
+            // First: WebKit's WebContent process spawns while the rest of setup runs. Nothing can
+            // reach managed state before `setup` returns (the page's scripts need the event loop).
+            create_main_window(app)?;
             let handle = app.handle().clone();
             app.manage(menu::Items::default());
             app.set_menu(menu::build(&handle)?)?;
@@ -255,7 +299,13 @@ fn main() {
             }
 
             tray::start(&handle)?;
+            boot::mark("setup:end");
             Ok(())
+        })
+        .on_page_load(|wv, p| {
+            if wv.label() == "main" {
+                boot::mark(&format!("page:{:?}", p.event()));
+            }
         })
         .on_menu_event(|app, ev| menu::on_event(app, ev.id().as_ref()))
         .on_window_event(|win, ev| match ev {
@@ -285,10 +335,16 @@ fn main() {
         .invoke_handler(handlers!(debug::debug_log, debug::debug_reply,));
     #[cfg(not(debug_assertions))]
     let builder = builder.invoke_handler(handlers!());
+    boot::mark("builder:configured");
+    let ctx = tauri::generate_context!();
+    boot::mark("context:generated");
     builder
-        .build(tauri::generate_context!())
+        .build(ctx)
         .expect("error while building Atlas")
         .run(|app, ev| {
+            if matches!(ev, tauri::RunEvent::Ready) {
+                boot::mark("ready");
+            }
             // Dock icon click with the window hidden.
             if let tauri::RunEvent::Reopen { .. } = ev {
                 show_main(app);

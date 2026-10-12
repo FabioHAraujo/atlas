@@ -13,7 +13,7 @@
 	 */
 	const space = useSpace();
 	const w = $derived(space.worktree);
-	const tab = $derived(w ? ws.tab(ws.focusedGroup(w.id).activeTab) : undefined);
+	const tab = $derived(w ? ws.focusedTab(w.id) : undefined);
 	const tabLabel = $derived(tab ? (tab.pty && ws.titles[tab.pty]) || tab.label : "");
 	const spaceName = $derived(shell.active?.name ?? "");
 	const wtName = $derived(w ? (w.isMain ? "main" : w.name) : "");

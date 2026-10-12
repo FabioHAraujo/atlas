@@ -9,6 +9,9 @@
   <sub>one <code>atlas.yaml</code> runs your whole stack. a native workspace runs your agents. your platform team is a YAML file.</sub>
 </p>
 
+> [!WARNING]
+> **Atlas is in alpha.** It works and we use it every day, but expect bugs and breaking changes between releases. Please [open an issue](https://github.com/codeatlasdev/atlas/issues/new) when something breaks. Stable/beta release channels will come once Atlas is stable.
+
 <p align="center">
   <a href="#contributing-security-license"><img alt="license" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>
   <img alt="built with rust" src="https://img.shields.io/badge/built%20with-rust-orange?style=flat-square">

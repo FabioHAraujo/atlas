@@ -2,6 +2,16 @@
 
 All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions follow [SemVer](https://semver.org); the CLI and the desktop app always ship together with the same version.
 
+> **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new); release channels (stable/beta) come once Atlas is stable.
+
+## [1.1.2] — 2026-10-12
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Fixed
+
+- Atlas Desktop crashed on launch with `state_unsafe_mutation` ("Where: route /") when a project had no saved layout yet, e.g. on a fresh install. The breadcrumbs and the file explorer created the missing layout while rendering; they now only read it.
+
 ## [1.1.1] — 2026-10-12
 
 ### Changed

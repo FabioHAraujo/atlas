@@ -2,10 +2,11 @@
 # Run .github/workflows/release.yml locally via act (no GitHub-hosted minutes).
 # macOS jobs run natively on this host (-self-hosted); ubuntu jobs in Docker.
 #
-# Usage: bun run release:act [vX.Y.Z] [--publish]
+# Usage: bun run release:act [vX.Y.Z[-pre.N]] [--publish]
 #   default tag: version from crates/atlas-cli/Cargo.toml
 #   --publish:   also create the GitHub Release (token from GITHUB_TOKEN or `gh auth token`);
 #                the tag must already be pushed to origin.
+#   ATLAS_PROMOTED_FROM=<tag> in the environment is recorded in manifest.json (set by release.sh stable).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -35,10 +36,14 @@ event="$(mktemp -t act-tag).json"
 trap 'rm -f "$event"' EXIT
 printf '{"ref":"refs/tags/%s","ref_name":"%s","ref_type":"tag"}\n' "$tag" "$tag" >"$event"
 
+extra_env=()
+[[ -z "${ATLAS_PROMOTED_FROM:-}" ]] || extra_env=(--env ATLAS_PROMOTED_FROM="$ATLAS_PROMOTED_FROM")
+
 rm -rf .act/artifacts
 echo "▶ act: release.yml @ $tag$([[ $publish == 1 ]] && echo ' [publish]')"
 act workflow_dispatch -W .github/workflows/release.yml -e "$event" \
   --env GITHUB_REF="refs/tags/$tag" --env GITHUB_REF_NAME="$tag" \
+  ${extra_env[@]+"${extra_env[@]}"} \
   ${secrets[@]+"${secrets[@]}"}
 
 if [[ $publish == 1 ]]; then

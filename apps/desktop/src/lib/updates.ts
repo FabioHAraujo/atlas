@@ -41,11 +41,17 @@ export function parsePrefs(raw: unknown): UpdatePrefs {
 	};
 }
 
-/** Numeric semver compare (`1.10.0 > 1.9.9`; a pre-release sorts before its release). */
+/**
+ * SemVer 2.0 precedence (`1.10.0 > 1.9.9`, `alpha.10 > alpha.9`, a pre-release sorts before its
+ * release, build metadata ignored). Mirrors `atlas_core::channel::precedence`.
+ */
 export function compareVersions(a: string, b: string): number {
 	const parse = (v: string) => {
 		const [core, pre] = v.replace(/^v/, "").split("+")[0].split(/-(.*)/s);
-		return { nums: core.split(".").map((n) => Number.parseInt(n, 10) || 0), pre: pre ?? null };
+		return {
+			nums: core.split(".").map((n) => Number.parseInt(n, 10) || 0),
+			pre: pre ? pre.split(".") : null,
+		};
 	};
 	const x = parse(a);
 	const y = parse(b);
@@ -53,10 +59,24 @@ export function compareVersions(a: string, b: string): number {
 		const d = (x.nums[i] ?? 0) - (y.nums[i] ?? 0);
 		if (d) return d < 0 ? -1 : 1;
 	}
-	if (x.pre === y.pre) return 0;
-	if (x.pre === null) return 1;
-	if (y.pre === null) return -1;
-	return x.pre < y.pre ? -1 : 1;
+	if (x.pre === null || y.pre === null) return x.pre === y.pre ? 0 : x.pre === null ? 1 : -1;
+	for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+		const p = x.pre[i];
+		const q = y.pre[i];
+		// A shorter set of identifiers loses when all the shared ones are equal.
+		if (p === undefined || q === undefined) return p === undefined ? -1 : 1;
+		const pn = /^\d+$/.test(p);
+		const qn = /^\d+$/.test(q);
+		if (pn && qn) {
+			const d = Number(p) - Number(q);
+			if (d) return d < 0 ? -1 : 1;
+		} else if (pn !== qn) {
+			return pn ? -1 : 1; // numeric identifiers sort before alphanumeric ones
+		} else if (p !== q) {
+			return p < q ? -1 : 1;
+		}
+	}
+	return 0;
 }
 
 /**
@@ -379,4 +399,163 @@ export function blurbOf(n: ParsedNotes): string {
 	if (!first) return "";
 	const text = first.title || first.body.replace(/[`*_]/g, "");
 	return text.length > 90 ? `${text.slice(0, 89).trimEnd()}…` : text;
+}
+
+// ── Update channels ─────────────────────────────────────────────────────────────────────────
+// Mirrors `atlas_core::channel` (serialized by `updates::update_channels` / `update_channel_get`).
+
+export type Channel = "stable" | "beta" | "alpha";
+export const CHANNELS: readonly Channel[] = ["stable", "beta", "alpha"];
+export type ChannelAction = "none" | "update" | "downgrade";
+export type Risk = "low" | "medium" | "high";
+
+/** `atlas_core::channel::ChannelView`, snake_case as serialized. */
+export interface ChannelView {
+	channel: Channel;
+	label: string;
+	promise: string;
+	risk: Risk;
+	risk_label: string;
+	cadence: string;
+	audience: string;
+	switch_to: string;
+	alpha_era_note: string | null;
+	selected: boolean;
+	tag: string | null;
+	offered: string | null;
+	action: ChannelAction;
+}
+
+/** `updates::ChannelState`. */
+export interface ChannelState {
+	channel: Channel;
+	stage: string;
+	stage_note: string;
+	env_override: boolean;
+}
+
+const isChannel = (v: unknown): v is Channel => CHANNELS.includes(v as Channel);
+
+function fail(what: string): never {
+	throw new Error(`unexpected ${what} from the backend`);
+}
+
+const needStr = (o: Record<string, unknown>, k: string, what: string): string =>
+	typeof o[k] === "string" ? (o[k] as string) : fail(`${what}.${k}`);
+const optStr = (o: Record<string, unknown>, k: string, what: string): string | null =>
+	o[k] === null ? null : needStr(o, k, what);
+
+/** Validate the `update_channels` payload (throws when the shape drifts from the Rust side). */
+export function parseChannelViews(raw: unknown): ChannelView[] {
+	if (!Array.isArray(raw)) fail("channel list");
+	return raw.map((r): ChannelView => {
+		if (typeof r !== "object" || r === null) fail("channel");
+		const o = r as Record<string, unknown>;
+		if (!isChannel(o.channel)) fail("channel.channel");
+		if (o.risk !== "low" && o.risk !== "medium" && o.risk !== "high") fail("channel.risk");
+		if (o.action !== "none" && o.action !== "update" && o.action !== "downgrade") fail("channel.action");
+		if (typeof o.selected !== "boolean") fail("channel.selected");
+		return {
+			channel: o.channel,
+			label: needStr(o, "label", "channel"),
+			promise: needStr(o, "promise", "channel"),
+			risk: o.risk,
+			risk_label: needStr(o, "risk_label", "channel"),
+			cadence: needStr(o, "cadence", "channel"),
+			audience: needStr(o, "audience", "channel"),
+			switch_to: needStr(o, "switch_to", "channel"),
+			alpha_era_note: optStr(o, "alpha_era_note", "channel"),
+			selected: o.selected,
+			tag: optStr(o, "tag", "channel"),
+			offered: optStr(o, "offered", "channel"),
+			action: o.action,
+		};
+	});
+}
+
+/** Validate the `update_channel_get` / `update_channel_set` payload. */
+export function parseChannelState(raw: unknown): ChannelState {
+	if (typeof raw !== "object" || raw === null) fail("channel state");
+	const o = raw as Record<string, unknown>;
+	if (!isChannel(o.channel)) fail("state.channel");
+	if (typeof o.env_override !== "boolean") fail("state.env_override");
+	return {
+		channel: o.channel,
+		stage: needStr(o, "stage", "state"),
+		stage_note: needStr(o, "stage_note", "state"),
+		env_override: o.env_override,
+	};
+}
+
+/**
+ * The channel a build of `version` was cut for (`rc` counts as beta); `null` for a label Atlas
+ * does not ship. Mirrors `Channel::of_version`.
+ */
+export function channelOfVersion(version: string): Channel | null {
+	const m = /^v?\d+\.\d+\.\d+(?:-([0-9A-Za-z-]+)(?:\.[0-9A-Za-z.-]+)?)?(?:\+.*)?$/.exec(version.trim());
+	if (!m) return null;
+	if (!m[1]) return "stable";
+	if (m[1] === "alpha") return "alpha";
+	return m[1] === "beta" || m[1] === "rc" ? "beta" : null;
+}
+
+/** `Alpha` / `Beta` / `RC` for a prerelease section; `null` for a release or an unknown label. */
+export function prereleaseBadge(version: string): "Alpha" | "Beta" | "RC" | null {
+	if (channelOfVersion(version) === null) return null;
+	const m = /-(alpha|beta|rc)\b/.exec(version);
+	return m ? (m[1] === "rc" ? "RC" : m[1] === "beta" ? "Beta" : "Alpha") : null;
+}
+
+/** The live offer of a card ("Offers 1.4.0-beta.2" / "Nothing newer than what you run" / …). */
+export function offerLine(v: Pick<ChannelView, "action" | "offered">): string {
+	if (!v.offered) return "Offer unknown";
+	if (v.action === "update") return `Offers ${v.offered}`;
+	if (v.action === "downgrade") return `Offers ${v.offered}, older than yours`;
+	return "Nothing newer than what you run";
+}
+
+export type Tone = "success" | "warn" | "error";
+const RISK_TONE: Record<Risk, Tone> = { low: "success", medium: "warn", high: "error" };
+
+export interface Card {
+	view: ChannelView;
+	/** The channel this app follows. */
+	following: boolean;
+	/** The running build was cut for this channel. */
+	installed: boolean;
+	tone: Tone;
+	offer: string;
+}
+
+/** Everything a card renders that is not copy: selection, installed marker, risk colour, offer. */
+export function cardState(views: ChannelView[], running: string | undefined, selected: Channel): Card[] {
+	const own = running ? channelOfVersion(running) : null;
+	return views.map((view) => ({
+		view,
+		following: view.channel === selected,
+		installed: own === view.channel,
+		tone: RISK_TONE[view.risk],
+		offer: offerLine(view),
+	}));
+}
+
+export interface Confirm {
+	/** What switching means (the channel's `switch_to`). */
+	text: string;
+	/** The explicit, separate downgrade action: only when the channel offers something older. */
+	downgrade: { label: string; version: string; warning: string } | null;
+}
+
+/** Copy of the inline confirmation panel. Switching alone never downgrades. */
+export function confirmCopy(v: ChannelView): Confirm {
+	const down =
+		v.action === "downgrade" && v.offered
+			? {
+					label: `Install ${v.offered} now (downgrade)`,
+					version: v.offered,
+					warning:
+						"Settings and data written by the newer build may not be readable by this older one. Back up ~/.atlas first if it matters.",
+				}
+			: null;
+	return { text: v.switch_to, downgrade: down };
 }

@@ -33,6 +33,7 @@ pub(crate) async fn handle(hub: &Hub, cmd: HostCmd, conn_id: u64) -> Option<Resu
             text,
             version,
             overrides,
+            root,
         } => {
             if let Err(e) = abs(&path) {
                 return Some(Err(e));
@@ -44,11 +45,23 @@ pub(crate) async fn handle(hub: &Hub, cmd: HostCmd, conn_id: u64) -> Option<Resu
                     Err(e) => return Some(Err(format!("bad overrides: {e}"))),
                 },
             };
-            // No marker found: the file's own directory. The desktop opens projects at
-            // worktree roots, which carry a marker for every language that matters.
+            // `root` (the worktree) is the fallback when no marker is found and where dependency files are
+            // served from; without it the file's own directory.
+            if let Some(r) = &root
+                && !Path::new(r).is_absolute()
+            {
+                return Some(Err(format!("root must be absolute: {r}")));
+            }
             hub.lsp_docs.lock().insert(path.clone(), conn_id);
             let r = lsp
-                .open_with(&path, &language_id, text, version, None, &overrides)
+                .open_with(
+                    &path,
+                    &language_id,
+                    text,
+                    version,
+                    root.as_deref().map(Path::new),
+                    &overrides,
+                )
                 .await;
             Ok(json!({
                 "server": r.server,

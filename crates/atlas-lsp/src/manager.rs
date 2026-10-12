@@ -261,6 +261,9 @@ pub struct CatalogEntry {
     pub label: &'static str,
     /// LSP language ids it serves (settings keys).
     pub languages: Vec<&'static str>,
+    /// The desktop reads this as `languageLabels` (`lib/lsp/types.ts`); pinned by
+    /// `catalog_json_uses_the_field_names_the_desktop_reads`.
+    #[serde(rename = "languageLabels")]
     pub language_labels: Vec<&'static str>,
     /// `github` | `go` | `npm`
     pub install: &'static str,
@@ -431,13 +434,11 @@ impl Manager {
         for s in registry::SERVERS {
             let mut languages: Vec<&'static str> = s.languages.to_vec();
             languages.dedup();
-            let mut labels: Vec<&'static str> = vec![];
-            for l in s.languages {
-                let label = registry::language_label(l);
-                if !labels.contains(&label) {
-                    labels.push(label);
-                }
-            }
+            // Exactly one label per language id, same order: the UI pairs them by index.
+            let labels: Vec<&'static str> = languages
+                .iter()
+                .map(|l| registry::language_label(l))
+                .collect();
             out.push(CatalogEntry {
                 name: s.name,
                 label: registry::server_label(s),
@@ -576,6 +577,67 @@ impl Manager {
         fallback_root: Option<&Path>,
         overrides: &Overrides,
     ) -> OpenReply {
+        let reply = self
+            .open_attached(path, language_id, text, version, fallback_root, overrides)
+            .await;
+        // A project file just got (or joined) a server: dependency documents that were served from a
+        // broader root while no project server existed move to it.
+        if !registry::is_dependency(Path::new(path)) {
+            self.adopt_dependencies(path, overrides).await;
+        }
+        reply
+    }
+
+    /// Move dependency documents of the same server that sit on an instance rooted *above* the
+    /// instance of `path` (the worktree-root fallback they got at startup) onto it; an instance left
+    /// without documents idles out.
+    async fn adopt_dependencies(&self, path: &str, overrides: &Overrides) {
+        let inner = &self.inner;
+        let Some(target) = inner.docs.lock().get(path).map(|d| d.inst.clone()) else {
+            return;
+        };
+        let name = instance_name(target.server, overrides);
+        let movers: Vec<(String, String, i64, String, Arc<Inst>)> = {
+            let docs = inner.docs.lock();
+            docs.iter()
+                .filter(|(p, d)| {
+                    !Arc::ptr_eq(&d.inst, &target)
+                        && instance_name(d.inst.server, &d.inst.overrides) == name
+                        && registry::is_dependency(Path::new(p))
+                        && Path::new(&target.root).starts_with(&d.inst.root)
+                })
+                .map(|(p, d)| {
+                    (
+                        p.clone(),
+                        d.language.clone(),
+                        d.version,
+                        d.text.clone(),
+                        d.inst.clone(),
+                    )
+                })
+                .collect()
+        };
+        for (p, language, version, text, from) in movers {
+            self.close_inner(&p, false).await;
+            let root = PathBuf::from(&target.root);
+            self.open_attached(&p, &language, text, version, Some(&root), overrides)
+                .await;
+            // The old instance may now be empty: let it idle out like any server whose last file closed.
+            if from.st.lock().docs.is_empty() {
+                inner.arm_idle(from);
+            }
+        }
+    }
+
+    async fn open_attached(
+        &self,
+        path: &str,
+        language_id: &str,
+        text: String,
+        version: i64,
+        fallback_root: Option<&Path>,
+        overrides: &Overrides,
+    ) -> OpenReply {
         let inner = &self.inner;
         let Some(server) = registry::for_language(language_id) else {
             return OpenReply {
@@ -586,11 +648,28 @@ impl Manager {
         if overrides.disabled {
             return OpenReply::none(Some(server.name), "disabled");
         }
-        let root = registry::find_root(server, Path::new(path), fallback_root)
-            .to_string_lossy()
-            .into_owned();
+        let name = instance_name(server, overrides);
+        // Third-party sources (a dependency, the std library) are browsed through the project that led
+        // there: borrow its running server, else root one at the worktree that opened the file (so the
+        // dependency never wins a startup race and roots a server of its own). Only with neither
+        // (no worktree known, nothing running) does it get a server rooted where its markers say.
+        let dependency = registry::is_dependency(Path::new(path));
+        let root = dependency
+            .then(|| inner.running_root(&name))
+            .flatten()
+            .or_else(|| {
+                dependency
+                    .then_some(fallback_root)
+                    .flatten()
+                    .map(|p| p.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| {
+                registry::find_root(server, Path::new(path), fallback_root)
+                    .to_string_lossy()
+                    .into_owned()
+            });
         // A custom command is a different process than the registry's: never share an instance.
-        let key = (instance_name(server, overrides), root.clone());
+        let key = (name, root.clone());
         // Re-open of an already tracked path: close the old attachment first.
         if inner.docs.lock().contains_key(path) {
             self.close_inner(path, false).await;
@@ -893,6 +972,19 @@ impl Manager {
 }
 
 impl Inner {
+    /// Root of a live instance of `name` that serves a project file (not a dependency), preferring the
+    /// one with the most open documents: the server a dependency file should be opened in.
+    fn running_root(&self, name: &str) -> Option<String> {
+        let insts = self.insts.lock();
+        insts
+            .iter()
+            .filter(|((n, root), i)| {
+                n == name && !registry::is_dependency(Path::new(root)) && i.live().is_some()
+            })
+            .max_by_key(|(_, i)| i.st.lock().docs.len())
+            .map(|((_, root), _)| root.clone())
+    }
+
     fn statuses(&self) -> Vec<ServerStatus> {
         let mut v: Vec<_> = self.insts.lock().values().map(|i| i.status()).collect();
         for (name, text) in self.installing.lock().iter() {
@@ -979,7 +1071,7 @@ impl Inner {
             .overrides
             .initialization_options
             .clone()
-            .unwrap_or_else(|| caps::init_options(inst.server.name));
+            .unwrap_or_else(|| caps::init_options_for(inst.server.name, &inst.root));
         match server::start(
             &launch,
             inst.shared.clone(),

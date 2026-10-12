@@ -27,7 +27,9 @@
 	import { applyDiagnostics, countDiagnostics } from "#lib/lsp/diagnostics.ts";
 	import { formatBeforeSave, lspCompletion, lspExtension } from "#lib/lsp/extension.ts";
 	import LspStatus from "#lib/lsp/LspStatus.svelte";
-	import { openLocation, showLocations } from "#lib/lsp/workspace.ts";
+	import { openLocation, readOnlyPaths, showLocations } from "#lib/lsp/workspace.ts";
+	import { editorKey, fileOfTab, readOnlyExtension } from "#lib/lsp/navigation.ts";
+	import { navigator as nav } from "#lib/lsp/history.ts";
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
 	import { EditorSession } from "#lib/editor/EditorSession.svelte.ts";
 	import { registerSession } from "#lib/editor/registry.ts";
@@ -72,7 +74,10 @@
 	const abort = new AbortController();
 
 	let root = $derived(ws.worktree(worktreeId)?.path ?? "");
-	let abs = $derived(`${root}/${path}`);
+	let file = $derived(fileOfTab(root, path));
+	let abs = $derived(file.abs);
+	/** Dependency and external sources (node_modules, Rust std, cargo registry): view, never write. */
+	let readOnly = $derived(file.external || readOnlyPaths.has(editorKey(worktreeId, path)));
 	let kind = $derived(viewerKind(path));
 	let ft = $derived(fileType(path));
 	let isMd = $derived(kind === "markdown");
@@ -83,7 +88,8 @@
 
 	// svelte-ignore state_referenced_locally
 	const session = new EditorSession(abs, path, root, {
-		extensions: () => [],
+		// Dependency and external sources: browsable, never writable (see `navigation.ts`).
+		extensions: () => (readOnly ? readOnlyExtension() : []),
 		onChange: (u) => lspDoc?.change(u.startState.doc, u.changes),
 		onConflict: () => {},
 	});
@@ -136,8 +142,10 @@
 				lspExtension({
 					env: {
 						doc,
-						openAt: (p, pos) => {
-							if (!openLocation(p, pos, worktreeId)) toast.info(`${p} is outside the open worktrees`);
+						openAt: (p, pos, end) => {
+							const v2 = view;
+							if (v2) nav.leave(abs, v2);
+							if (!openLocation(p, pos, worktreeId, end)) toast.info(`Could not open ${p}`);
 						},
 						showLocations,
 						inlayHints: () => prefs.value.inlay_hints.enabled,

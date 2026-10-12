@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "@codeatlasdev/ui";
+import { sound } from "#lib/sound/sound.svelte.ts";
+import { agentSound } from "#lib/sound/triggers.ts";
 import { api, errText } from "#lib/api.ts";
 import { host } from "#lib/host.ts";
 import { titleState } from "#lib/title.ts";
@@ -145,6 +147,8 @@ class Agents {
 		if (fromTitle || prev !== "working" || !ATTENTION[st.state]) return;
 		const away = !this.focused || ws.doc.selected !== worktreeId;
 		if (w && away) w.unread = true;
+		const cue = agentSound(st.state);
+		if (cue) sound.play(cue);
 		const title = `${w?.name ?? "worktree"} · ${st.agent}`;
 		const body =
 			st.state === "done" ? (st.last_message ?? "Done").replace(/\s+/g, " ").slice(0, 120) : "Needs you";

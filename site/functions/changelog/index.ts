@@ -1,10 +1,10 @@
 // GET /changelog/ -> the static page shell (nav, footer, styles from the last build) with the body swapped for the changelog
-// of the LATEST published release, read at the edge. If GitHub is down the last good copy is served; if there is none the
+// of the LATEST published release (or of `?channel=beta|alpha`: the history at that channel's newest tag), read at the edge. If GitHub is down the last good copy is served; if there is none the
 // static build's own body is served untouched (the offline fallback), so the page is never empty.
 import { renderChangelog } from "../_lib/changelog";
-import { loadChangelog, resolveLatest } from "../_lib/edge";
+import { loadChangelog, resolveChannel } from "../_lib/edge";
 import { changelogBody } from "../_lib/page";
-import { edgeHeaders, wantsFresh } from "../_lib/respond";
+import { edgeHeaders, wantedChannel, wantsFresh } from "../_lib/respond";
 
 const OPEN = "<!--CHANGELOG-->";
 const CLOSE = "<!--/CHANGELOG-->";
@@ -17,7 +17,9 @@ export const onRequestGet: PagesFunction = async ({ request, next }) => {
 	const b = html.indexOf(CLOSE);
 	if (a < 0 || b < a) return new Response(html, { headers: edgeHeaders(HTML, true) });
 	try {
-		const { value, stale } = await resolveLatest("changelog", loadChangelog, wantsFresh(request.url));
+		// An unknown ?channel= is not an error for a page: it shows the default (stable) changelog.
+		const { value, stale } = await resolveChannel("changelog", wantedChannel(request.url) ?? "stable", loadChangelog, wantsFresh(request.url));
+		if (!value) throw new Error("no published release");
 		const body = changelogBody(renderChangelog(value.markdown), { tag: value.tag, stale });
 		return new Response(`${html.slice(0, a)}${body}${html.slice(b + CLOSE.length)}`, { headers: edgeHeaders({ ...HTML, "x-atlas-tag": value.tag }, stale) });
 	} catch {

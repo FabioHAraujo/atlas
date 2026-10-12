@@ -1,6 +1,6 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
 import { expect, test } from "bun:test";
-import { firstTime, hintAction, reasonForFeature, resetHints } from "./messages.ts";
+import { feedbackFor, firstTime, hintAction, reasonForFeature, resetHints } from "./messages.ts";
 import { lspUiState, type UiInput } from "./status.ts";
 
 const input = (over: Partial<UiInput> = {}): UiInput => ({
@@ -94,4 +94,25 @@ test("resetHints makes the explanation news again", () => {
 	firstTime(a, "format");
 	resetHints(a);
 	expect(firstTime(a, "format")).toBe(true);
+});
+
+// Defect: "F12 / ⌘-click silently does nothing". The hint used to be once per document+feature, so
+// the second press (the user retrying after the 8 s note faded) was a no-op with no feedback.
+test("every press of a navigation shortcut gets feedback; only a held key is collapsed", () => {
+	const doc = {};
+	const t0 = 1_000;
+	expect(feedbackFor(doc, "definition", t0)).toBe("show");
+	// A held key (auto-repeat within the debounce) does not stack up messages.
+	expect(feedbackFor(doc, "definition", t0 + 50)).toBe("hold");
+	// A deliberate second press later is answered again, never silent.
+	expect(feedbackFor(doc, "definition", t0 + 2_000)).toBe("show");
+	expect(feedbackFor(doc, "definition", t0 + 9_000)).toBe("show");
+});
+
+test("feedback is per document and per feature", () => {
+	const a = {};
+	const b = {};
+	expect(feedbackFor(a, "definition", 0)).toBe("show");
+	expect(feedbackFor(b, "definition", 10)).toBe("show");
+	expect(feedbackFor(a, "references", 10)).toBe("show");
 });

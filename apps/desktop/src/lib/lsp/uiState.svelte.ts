@@ -17,7 +17,7 @@ export function uiStateOf(doc: LspDoc): LspUiState {
 	return lspUiState({
 		prefsEnabled: prefs.value.enable_language_servers,
 		languageId: doc.languageId,
-		host: hostGate.facts,
+		host: doc.hostOld ? { ...hostGate.facts, lsp: false } : hostGate.facts,
 		doc: doc.replied
 			? { status: doc.status, server: doc.server, reason: doc.reason, supported: doc.supported }
 			: undefined,

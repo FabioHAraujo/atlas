@@ -10,7 +10,7 @@
 </p>
 
 > [!WARNING]
-> **Atlas is in alpha.** It works and we use it every day, but expect bugs and breaking changes between releases. Please [open an issue](https://github.com/codeatlasdev/atlas/issues/new) when something breaks. Stable/beta release channels will come once Atlas is stable.
+> **Atlas is in alpha.** It works and we use it every day, but expect bugs and breaking changes between releases. Please [open an issue](https://github.com/codeatlasdev/atlas/issues/new) when something breaks. Releases come in Stable, Beta and Alpha channels: see [docs/versioning.md](docs/versioning.md).
 
 <p align="center">
   <a href="#contributing-security-license"><img alt="license" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>

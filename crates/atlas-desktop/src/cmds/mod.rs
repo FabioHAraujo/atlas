@@ -14,6 +14,7 @@ mod setup;
 mod stack;
 mod system;
 mod theme_pack;
+mod ui_sounds;
 
 use std::path::PathBuf;
 
@@ -28,6 +29,7 @@ pub use setup::*;
 pub use stack::*;
 pub use system::*;
 pub use theme_pack::*;
+pub use ui_sounds::*;
 
 pub(crate) use stack::atlas_bin;
 

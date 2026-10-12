@@ -2,7 +2,18 @@
 
 All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions follow [SemVer](https://semver.org); the CLI and the desktop app always ship together with the same version.
 
-> **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new); release channels (stable/beta) come once Atlas is stable.
+> **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
+
+## [Unreleased]
+
+### Added
+
+- **Release channels: Stable, Beta and Alpha.** Stable stays the default, so nothing changes for you unless you switch. Pick a channel in Settings → General → Updates → *Update channel*, or with `atlas update channel beta` (`ATLAS_UPDATE_CHANNEL` overrides it for scripts, `ATLAS_CHANNEL` does for the installer). Atlas never downgrades by itself; when your build is newer than what a channel offers it says so and `atlas update --downgrade` installs the older one on request. See [Versioning and release channels](docs/versioning.md).
+- **Prereleases use `-alpha.N`, `-beta.N` and `-rc.N` versions** and are published as GitHub *pre-releases*, so the Stable channel and the "Latest release" badge never point at them. Each release now also lists a `SHA256SUMS` file and a CycloneDX SBOM, and its `manifest.json` records the channel, the commit and, for a Stable release, the beta it was promoted from.
+
+### Changed
+
+- **`bun run release` takes a channel** (`alpha`, `beta`, `rc`, `stable`, `patch`) instead of `minor`/`major`. A Stable release is a soaked beta plus version metadata: the tool refuses it when anything else changed, or when the beta is younger than 48 hours (`--force-soak` overrides and says so in the release notes). `patch` is now a hotfix cut from `release/X.Y`. See [Releasing](docs/release.md).
 
 ## [1.3.0] — 2026-10-12
 

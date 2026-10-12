@@ -18,6 +18,7 @@ pub mod self_update;
 pub mod setup;
 pub mod skills;
 pub mod uninstall;
+pub(crate) mod update_channel;
 pub mod update_core;
 pub mod update_prompt;
 pub mod version;

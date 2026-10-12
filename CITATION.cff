@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use Atlas in your work, please cite it using the metadata from this file."
+type: software
+title: "Atlas"
+abstract: "A local-first developer platform: one atlas.yaml runs your whole stack, and a native desktop workspace runs your agents."
+authors:
+  - name: "CodeAtlas"
+    website: "https://github.com/codeatlasdev"
+repository-code: "https://github.com/codeatlasdev/atlas"
+url: "https://atlas.codeatlas.com.br"
+license:
+  - MIT
+  - Apache-2.0
+# Bumped by the release flow together with Cargo.toml and CHANGELOG.md (see docs/supply-chain.md).
+version: 1.3.0
+date-released: 2026-10-12
+keywords:
+  - developer tools
+  - local development
+  - process manager
+  - model context protocol

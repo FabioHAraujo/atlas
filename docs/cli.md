@@ -31,7 +31,7 @@ Global: `-h/--help` on every command, `-V/--version` on `atlas`.
 | [`browser`](#atlas-browser) / [`file`](#atlas-file) | drive the embedded browser, open files and diffs |
 | [`link` / `unlink`](#atlas-link--unlink) | point the installed `atlas` (and `Atlas.app`) at a local debug build |
 
-On any command except `update`, `self-update` and `mcp`, Atlas checks for a new release in the background (with `curl` against the public GitHub API; at most every 6 hours, cached in `~/.atlas/.update_check`; long `atlas dev` sessions keep re-checking). When a newer release exists:
+On any command except `update`, `self-update` and `mcp`, Atlas checks for a new release in the background (with `curl`, no GitHub API calls; for the [release channel](#atlas-update) you follow; at most every 6 hours, cached in `~/.atlas/.update_check` together with the channel it was computed for, so switching channel discards it; long `atlas dev` sessions keep re-checking). Only a *newer* release is ever announced, never a downgrade. When a newer release exists:
 
 - **Before the TUI starts** (`atlas dev` only, see [Update prompt](#update-prompt-atlas-dev)) Atlas asks whether to update now;
 - **Inside a running TUI** a modal asks `Atlas v<new> available — update when you quit?` (Enter = yes, Esc = not now; once per version per session). Accepting shows `⬆ on exit` in the sidebar brand row; after the TUI exits, the services are stopped and the terminal is restored, Atlas runs the update and prints the result (it does not restart). Attached to a runner (`atlas dev` against `--detach`) the runner keeps the old version until `atlas down && atlas dev --detach`. A plain green `⬆` marks an available update you have not accepted;
@@ -203,10 +203,26 @@ Runs the MCP server over stdio. `--dir` is the project directory; when omitted, 
 ## `atlas update`
 
 ```text
-atlas update [--check]        # alias: atlas up; also hidden alias: atlas self-update
+atlas update [--check] [--channel <stable|beta|alpha>] [--json] [--downgrade] [-y, --yes]
+atlas update channel [<stable|beta|alpha>] [--json]
+# alias: atlas up; also hidden alias: atlas self-update
 ```
 
-Fetches the latest published release from the public GitHub API (with `curl`, no login needed), and if it is newer than the running version downloads `atlas-<version>-<platform>.tar.gz` and its `.sha256` from the release, verifies the checksum, replaces the running binary in place, and then refreshes skills and any OMP, Claude Code or Codex setup it finds, using the new binary (failures are non-fatal). An installed [Atlas Desktop](desktop.md) is brought to the same version (`atlas desktop --sync`). `--check` only reports. Homebrew installs are told to run `brew upgrade atlas`. Refuses while `atlas link` is active (it would overwrite the dev build); run `atlas unlink` first.
+Looks up the newest release of your [release channel](versioning.md#channels) (with `curl`, no login and no GitHub API calls: the `releases/latest` redirect for Stable, the public `releases.atom` feed for Beta and Alpha) and, if it is newer than the running version, downloads `atlas-<version>-<platform>.tar.gz` and its `.sha256` from the release, verifies the checksum, replaces the running binary in place (keeping a backup that is restored if the app cannot follow), and then refreshes skills and any OMP, Claude Code or Codex setup it finds, using the new binary (failures are non-fatal). An installed [Atlas Desktop](desktop.md) is brought to the same version (`atlas desktop --sync`) and the terminal host is reconciled. `--check` only reports. Homebrew installs are told to run `brew upgrade atlas`. Refuses while `atlas link` is active (it would overwrite the dev build); run `atlas unlink` first.
+
+**Channels.** `stable` (the default), `beta` and `alpha` describe how far a release has been soaked, not how finished Atlas is; see [Versioning and release channels](versioning.md). The channel is one word in `~/.atlas/update-channel`, shared with Atlas Desktop. `ATLAS_UPDATE_CHANNEL=<name>` overrides it for one process (scripts, CI); an invalid value is ignored.
+
+- `--channel <name>` **saves** that channel, then updates from it. Without the flag the saved channel is used. An unknown name is an error that lists the valid ones (exit code 2).
+- `atlas update channel` lists every channel with its promise, risk, cadence, audience and what it offers *right now* for your install, and marks the one you follow. In a terminal it ends with a numbered picker (`1`-`3` or the name; Enter keeps the current one); piped, it only prints. `atlas update channel <name>` saves the channel and prints what switching means plus what it offers now.
+- `--check --json` prints a single object and never installs:
+
+  ```json
+  { "installed": "1.3.0", "channel": "beta", "offered": "1.4.0-beta.1", "tag": "v1.4.0-beta.1", "action": "update" }
+  ```
+
+  `action` is `update` (a newer build is offered), `downgrade` (only an older build is offered) or `none`; `offered` and `tag` are `null` when the channel has nothing published. `atlas update channel --json` prints `{ "selected", "installed", "channels": [...] }`, one entry per channel with the same copy the command prints plus `selected`, `tag`, `offered` and `action`.
+
+**Downgrades are never automatic.** When the channel offers something *older* than the build you run (for example you run an alpha and switch to Stable), `atlas update` installs nothing: it says which version you run, which one the channel offers, that you get updates again once the channel passes your build, and how to go back. `atlas update --downgrade` installs that older release anyway, after a data-compatibility warning and a `[y/N]` confirmation (default No; `--yes` skips it, and outside a terminal it is required). The download goes through the same checksum verification, backup and rollback as any update.
 
 ## `atlas desktop`
 

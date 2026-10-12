@@ -207,7 +207,7 @@ pub(crate) async fn preflight(interactive_path: bool) -> Flow {
                 on_accept(
                     current_version(),
                     &mut input,
-                    || self_update::run_update(false, None),
+                    || self_update::run_update(self_update::Request::default()),
                     || {
                         let e = reexec();
                         eprintln!("\x1b[1;31merror:\x1b[0m could not restart atlas: {e}");
@@ -231,7 +231,7 @@ pub(crate) async fn run_on_exit_update() {
         return;
     };
     eprintln!("\x1b[1;34m◆\x1b[0m Updating atlas to v{version}…");
-    match self_update::run_update(false, None).await {
+    match self_update::run_update(self_update::Request::default()).await {
         Ok(UpdateOutcome::Installed) => {
             eprintln!("\x1b[1;32m✓\x1b[0m atlas updated to v{version}");
             if atlas_tui::update_notice::attached() {

@@ -1,8 +1,9 @@
 #!/bin/sh
 # Atlas installer: https://atlas.codeatlas.com.br
 #   curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh
+#   curl -fsSL https://atlas.codeatlas.com.br/install.sh | ATLAS_CHANNEL=beta sh   # beta or alpha
 #
-# Downloads the latest GitHub Release of codeatlasdev/atlas, verifies its sha256
+# Downloads the latest stable GitHub Release of codeatlasdev/atlas, verifies its sha256
 # and runs the binary's own `atlas install`, which puts `atlas` in ~/.atlas/bin,
 # adds it to PATH for fish/zsh/bash and installs the bundled agent skills.
 # No sudo. Prebuilt binaries exist for macOS on Apple silicon only.
@@ -27,15 +28,10 @@ case "$os-$arch" in
     ;;
 esac
 
-# Latest tag: the API first; unauthenticated calls are rate limited (60/h per IP), so fall back to
-# the /releases/latest redirect, which is not.
-tag="$(curl -fsSL --proto '=https' --tlsv1.2 -H 'Accept: application/vnd.github+json' \
-  "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-  | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)" || tag=""
-if [ -z "$tag" ]; then
-  tag="$(curl -fsSI --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases/latest" 2>/dev/null \
-    | tr -d '\r' | sed -n 's|^[Ll]ocation:.*/releases/tag/\(.*\)$|\1|p' | head -n 1)" || tag=""
-fi
+# Latest stable tag: the /releases/latest redirect (no API call, so no 60 requests/hour limit; GitHub
+# never points it at a prerelease).
+tag="$(curl -fsSI --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases/latest" 2>/dev/null \
+  | tr -d '\r' | sed -n 's|^[Ll]ocation:.*/releases/tag/\(.*\)$|\1|p' | head -n 1)" || tag=""
 [ -n "$tag" ] || die "could not find the latest release: https://github.com/$REPO/releases"
 version="${tag#v}"
 case "$version" in
@@ -61,6 +57,18 @@ tar -xzf "$tmp/$asset" -C "$tmp" atlas
 chmod +x "$tmp/atlas"
 
 "$tmp/atlas" install
+
+# ATLAS_CHANNEL=beta|alpha: this script installs the latest stable, then the freshly installed atlas
+# switches channel and updates itself (same verified download, one resolver: `atlas update --channel`).
+case "${ATLAS_CHANNEL:-stable}" in
+  stable) ;;
+  beta | alpha)
+    say "switching to the ${ATLAS_CHANNEL} channel"
+    "$HOME/.atlas/bin/atlas" update --channel "$ATLAS_CHANNEL" \
+      || say "could not switch to ${ATLAS_CHANNEL} now; run later: atlas update --channel ${ATLAS_CHANNEL}"
+    ;;
+  *) die "unknown ATLAS_CHANNEL '$ATLAS_CHANNEL' (expected stable, beta or alpha)" ;;
+esac
 
 say ""
 say "Next:"

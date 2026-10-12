@@ -19,8 +19,8 @@ export interface OutlineSymbol {
 /** CodeMirror-backed operations, set by `outline.ts`. */
 export const ops: {
 	outline: (state: EditorState) => OutlineSymbol[];
-	/** Put the caret at `pos` and scroll it to the middle of the view. */
-	reveal: (view: EditorView, pos: number) => void;
+	/** Put the caret at `pos` (or select `pos..to`) and scroll it to the middle of the view. */
+	reveal: (view: EditorView, pos: number, to?: number) => void;
 	/** The CodeMirror view mounted in `.cm-editor` element `host`. */
 	viewOf: (host: HTMLElement) => EditorView | undefined;
 	/** The language-server env an editor was built with (absent: LSP off for this view). */
@@ -63,22 +63,27 @@ export async function saveAllEditors(): Promise<number> {
 }
 
 /** Line (and column) requested for an editor that is not mounted yet; consumed on registration. */
-const pendingGoto = new Map<string, { line: number; col?: number }>();
+const pendingGoto = new Map<string, { line: number; col?: number; endLine?: number; endCol?: number }>();
 
 /** Put the caret at `line[:col]` (1-based) and scroll it to the middle; clamps to the document. */
-function gotoLine(view: EditorView, line: number, col?: number) {
+function gotoLine(view: EditorView, line: number, col?: number, endLine?: number, endCol?: number) {
 	const doc = view.state.doc;
-	const ln = doc.line(Math.min(Math.max(1, line), doc.lines));
-	const pos = ln.from + Math.min(Math.max(0, (col ?? 1) - 1), ln.length);
-	ops.reveal(view, pos);
+	const at = (l: number, c?: number) => {
+		const ln = doc.line(Math.min(Math.max(1, l), doc.lines));
+		return ln.from + Math.min(Math.max(0, (c ?? 1) - 1), ln.length);
+	};
+	const from = at(line, col);
+	// A target range (go to definition) selects the symbol's name; a plain line jump is a caret.
+	const to = endLine === undefined ? from : at(endLine, endCol);
+	ops.reveal(view, from, to);
 	view.focus();
 }
 
 /** Jump to a line of an editor: now if it is open, otherwise as soon as it registers. */
-export function requestGoto(key: string, line: number, col?: number) {
+export function requestGoto(key: string, line: number, col?: number, endLine?: number, endCol?: number) {
 	const view = editors.get(key);
-	if (view) gotoLine(view, line, col);
-	else pendingGoto.set(key, { line, col });
+	if (view) gotoLine(view, line, col, endLine, endCol);
+	else pendingGoto.set(key, { line, col, endLine, endCol });
 }
 
 /** Called by Editor.svelte right after it registers `view`. */
@@ -94,7 +99,7 @@ export function registerEditor(
 	const want = pendingGoto.get(key);
 	if (want) {
 		pendingGoto.delete(key);
-		gotoLine(view, want.line, want.col);
+		gotoLine(view, want.line, want.col, want.endLine, want.endCol);
 	}
 }
 

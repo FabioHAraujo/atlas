@@ -1,3 +1,4 @@
+pub mod channel;
 pub mod crash;
 pub mod domain;
 pub mod error;

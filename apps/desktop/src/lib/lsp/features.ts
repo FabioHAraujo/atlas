@@ -290,6 +290,7 @@ const hintPlugin = ViewPlugin.fromClass(
 export const lspInlayHints: Extension = [hintField, hintPlugin];
 
 export const lspFeatureTheme = EditorView.baseTheme({
+	".cm-lsp-link": { textDecoration: "underline", cursor: "pointer", textUnderlineOffset: "2px" },
 	".cm-lsp-highlight": {
 		backgroundColor: "var(--cm-lsp-highlight, var(--cm-selection, var(--ca-action-selected)))",
 		borderRadius: "2px",

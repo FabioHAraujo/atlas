@@ -1,4 +1,5 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
+import { CATEGORIES } from "#lib/sound/policy.ts";
 import { describe, expect, test } from "bun:test";
 import {
 	APPEARANCE_TABS,
@@ -150,5 +151,23 @@ describe("relativeFrom", () => {
 		);
 		expect(relativeFrom("/Users/me/p", "/Users/me/p/src/a.ts")).toBe("src/a.ts");
 		expect(relativeFrom("/a/b", "/c/d.json")).toBe("../../c/d.json");
+	});
+});
+
+describe("sound settings are searchable", () => {
+	// Every row of Settings ▸ General ▸ Sounds must be reachable from search, and nothing may point at a category
+	// the sound system does not have (the catalog and the policy are two lists that must stay one).
+	test("master, volume and reduce are findable", () => {
+		for (const q of ["sounds", "volume", "reduce sounds", "earcon", "chime"])
+			expect(
+				searchSettings(q).some((e) => e.section === "general" && e.group === "Sounds"),
+				q,
+			).toBe(true);
+	});
+	test("one entry per sound category, ids matching the policy", () => {
+		const ids = SETTINGS_INDEX.filter((e) => e.group === "Sounds" && e.id.startsWith("sound-cat-")).map((e) =>
+			e.id.slice("sound-cat-".length),
+		);
+		expect(ids.sort()).toEqual([...CATEGORIES].sort());
 	});
 });

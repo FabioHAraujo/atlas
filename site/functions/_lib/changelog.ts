@@ -1,6 +1,7 @@
 // Pure pieces of the changelog engine (no I/O, unit-tested in changelog.test.ts): split CHANGELOG.md into versions,
 // drop [Unreleased], and render each entry to HTML. Anything dynamic (fetching, caching) lives in edge.ts.
 import { marked } from "marked";
+import { parseTag, precedence, supersededPrerelease } from "./channels";
 
 export interface Entry {
 	/** "1.2.0" */
@@ -22,17 +23,30 @@ const HEADING = /^## \[([^\]]+)\](?:\s*[—–-]\s*(\d{4}-\d{2}-\d{2}))?[^\n]*$/
 
 export const versionId = (v: string) => `v${v.replace(/[^0-9A-Za-z]+/g, "-").replace(/^-|-$/g, "")}`;
 
-/** SemVer-ish compare, newest first when used as `sort(cmpVersionDesc)`. Pre-release tags sort before the release. */
+/** SemVer 2.0 precedence, newest first when used as `sort(cmpVersionDesc)`. A heading that is not SemVer sorts last. */
 export function cmpVersionDesc(a: string, b: string): number {
-	const [an, ap = ""] = a.split("-", 2);
-	const [bn, bp = ""] = b.split("-", 2);
-	const x = an.split(".").map(Number);
-	const y = bn.split(".").map(Number);
-	for (let i = 0; i < Math.max(x.length, y.length); i++) {
-		const d = (y[i] ?? 0) - (x[i] ?? 0);
-		if (d) return d;
-	}
-	return ap === bp ? 0 : ap === "" ? -1 : bp === "" ? 1 : bp.localeCompare(ap);
+	const x = parseTag(a);
+	const y = parseTag(b);
+	if (!x || !y) return Number(!x) - Number(!y);
+	return precedence(y, x);
+}
+
+export type Kind = "stable" | "alpha" | "beta" | "rc" | "pre";
+export type Filter = "all" | "stable" | "pre";
+
+/** What a version was cut as: `pre` for a prerelease label Atlas does not ship; `stable` for releases and anything unparsable. */
+export function kindOf(version: string): Kind {
+	const label = parseTag(version)?.pre[0];
+	if (label === undefined) return "stable";
+	return label === "alpha" || label === "beta" || label === "rc" ? label : "pre";
+}
+
+/** Whether `version` shows under `filter`. "stable" hides prereleases whose own release is in `all` (the stable section is the
+ * complete summary; same rule as `atlas_core::github::in_range`); "pre" shows prereleases only. */
+export function visibleIn(filter: Filter, version: string, all: Iterable<string>): boolean {
+	if (filter === "all") return true;
+	const pre = kindOf(version) !== "stable";
+	return filter === "pre" ? pre : !supersededPrerelease(version, all);
 }
 
 /** Splits the markdown into its intro and one entry per `## [version]` heading. `[Unreleased]` is never public. */
@@ -82,16 +96,20 @@ export interface Rendered {
 	date: string;
 	id: string;
 	html: string;
+	kind: Kind;
+	/** A prerelease whose own stable release is in the same changelog (hidden by the Stable-only filter) */
+	superseded: boolean;
 }
 
 export function renderChangelog(md: string): { introHtml: string; entries: Rendered[] } {
 	const { intro, entries } = parseChangelog(md);
 	// The intro repeats the page's own h1 ("# Changelog"); the page template draws that.
 	const introHtml = renderMarkdown(intro.replace(/^# .*\n+/, ""), "intro");
+	const versions = entries.map((e) => e.version);
 	return {
 		introHtml,
 		entries: entries
 			.sort((a, b) => cmpVersionDesc(a.version, b.version))
-			.map((e) => ({ version: e.version, date: e.date, id: e.id, html: renderMarkdown(e.body, e.id) })),
+			.map((e) => ({ version: e.version, date: e.date, id: e.id, html: renderMarkdown(e.body, e.id), kind: kindOf(e.version), superseded: supersededPrerelease(e.version, versions) })),
 	};
 }

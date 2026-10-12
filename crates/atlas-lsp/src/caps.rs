@@ -191,6 +191,26 @@ pub fn init_options(server: &str) -> Value {
     }
 }
 
+/// [`init_options`] plus what depends on the project: TypeScript runs on the project's own
+/// `node_modules/typescript` (nearest ancestor of `root` that has `lib/tsserver.js`), so its
+/// diagnostics match the version the project builds with. Without one, the bundled TypeScript serves.
+pub fn init_options_for(server: &str, root: &str) -> Value {
+    let mut opts = init_options(server);
+    if server == "typescript-language-server"
+        && let Some(path) = project_tsserver(std::path::Path::new(root))
+    {
+        opts["tsserver"] = json!({ "path": path });
+    }
+    opts
+}
+
+fn project_tsserver(root: &std::path::Path) -> Option<String> {
+    root.ancestors()
+        .map(|d| d.join("node_modules/typescript/lib/tsserver.js"))
+        .find(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 /// Answer for one `workspace/configuration` item. `section` is e.g. `rust-analyzer` or
 /// `python.analysis`; unknown sections get `null` (the spec's "no value").
 pub fn configuration(server: &str, section: Option<&str>) -> Value {
@@ -305,6 +325,71 @@ fn dig(v: &Value, dotted: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fake_ts(dir: &std::path::Path) {
+        let lib = dir.join("node_modules/typescript/lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(lib.join("tsserver.js"), "").unwrap();
+    }
+
+    #[test]
+    fn typescript_uses_the_projects_own_typescript_when_it_has_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        fake_ts(tmp.path());
+        let root = tmp.path().to_string_lossy().into_owned();
+        let opts = init_options_for("typescript-language-server", &root);
+        // Same TypeScript version as the project's own build: no mismatched diagnostics.
+        assert_eq!(
+            opts["tsserver"]["path"],
+            tmp.path()
+                .join("node_modules/typescript/lib/tsserver.js")
+                .to_string_lossy()
+                .as_ref()
+        );
+        // Atlas's defaults are kept alongside.
+        assert_eq!(opts["hostInfo"], "atlas");
+    }
+
+    #[test]
+    fn a_monorepo_package_finds_typescript_in_a_parent_node_modules() {
+        let tmp = tempfile::tempdir().unwrap();
+        fake_ts(tmp.path());
+        let pkg = tmp.path().join("packages/app");
+        std::fs::create_dir_all(&pkg).unwrap();
+        let opts = init_options_for("typescript-language-server", &pkg.to_string_lossy());
+        assert!(
+            opts["tsserver"]["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("node_modules/typescript/lib/tsserver.js")
+        );
+    }
+
+    #[test]
+    fn without_a_project_typescript_the_bundled_one_is_used() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts = init_options_for("typescript-language-server", &tmp.path().to_string_lossy());
+        assert!(opts.get("tsserver").is_none(), "{opts}");
+        assert_eq!(opts["hostInfo"], "atlas");
+    }
+
+    #[test]
+    fn a_node_modules_without_tsserver_js_is_not_used() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("node_modules/typescript/lib")).unwrap();
+        let opts = init_options_for("typescript-language-server", &tmp.path().to_string_lossy());
+        assert!(opts.get("tsserver").is_none());
+    }
+
+    #[test]
+    fn other_servers_are_unaffected_by_the_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        fake_ts(tmp.path());
+        assert_eq!(
+            init_options_for("gopls", &tmp.path().to_string_lossy()),
+            Value::Null
+        );
+    }
 
     #[test]
     fn uris_roundtrip_with_special_characters() {

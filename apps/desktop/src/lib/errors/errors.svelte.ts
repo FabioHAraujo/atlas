@@ -5,7 +5,9 @@
  * distinct error with a "Details" action that opens the same panel used for crashed views.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { fingerprint, isBenign, messageOf, report, type ErrorReport } from "./report.ts";
+import { crumbs } from "./breadcrumbs.ts";
+import { gatherContext } from "./context.ts";
+import { fingerprint, isBenign, messageOf, report, withContext, type ErrorReport } from "./report.ts";
 
 /** Same error inside this window collapses into one toast. */
 const DEDUPE_MS = 10_000;
@@ -31,10 +33,22 @@ class Errors {
 		return this.#version;
 	}
 
+	/** Add machine facts and the recent breadcrumbs; never throws. */
+	async enrich(r: ErrorReport): Promise<ErrorReport> {
+		const ctx = await gatherContext({
+			invoke: (cmd) => invoke(cmd),
+			nav: navigator,
+			route: location.pathname,
+			crumbs: crumbs.snapshot(),
+		});
+		return withContext(r, ctx);
+	}
+
 	async capture(e: unknown, where: string) {
 		const message = messageOf(e);
 		if (isBenign(e, message)) return;
-		const r = { ...report(e, { where }), version: await this.version() };
+		const r = await this.enrich({ ...report(e, { where }), version: await this.version() });
+		crumbs.add(`error: ${r.message.split("\n")[0]}`);
 		console.error(`[atlas] ${where}: ${r.message}`, e instanceof Error ? e : "");
 		const fp = fingerprint(r);
 		const now = Date.now();

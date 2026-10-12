@@ -46,8 +46,11 @@ export function outline(state: EditorState): OutlineSymbol[] {
 }
 
 ops.outline = outline;
-ops.reveal = (view, pos) =>
-	view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+ops.reveal = (view, pos, to = pos) =>
+	view.dispatch({
+		selection: { anchor: pos, head: to },
+		effects: EditorView.scrollIntoView(pos, { y: "center" }),
+	});
 ops.viewOf = (host) => EditorView.findFromDOM(host) ?? undefined;
 ops.lspEnv = envOf;
 ops.edit = (view, action) => ({ undo, redo, selectAll })[action](view);

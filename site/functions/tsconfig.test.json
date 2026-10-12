@@ -7,13 +7,20 @@
     "lib": [
       "ES2023",
       "DOM"
-    ]
+    ],
+    "resolveJsonModule": true
   },
   "include": [
     "./_lib/changelog.ts",
     "./_lib/changelog.test.ts",
     "./_lib/page.ts",
-    "./_lib/release.ts"
+    "./_lib/release.ts",
+    "./_lib/channels.ts",
+    "./_lib/channels.test.ts",
+    "./_lib/edge.ts",
+    "./_lib/edge.test.ts",
+    "./_lib/respond.ts",
+    "./release.test.ts"
   ],
   "exclude": []
 }

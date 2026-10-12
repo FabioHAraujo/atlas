@@ -72,6 +72,23 @@ export function firstTime(session: object, feature: Feature): boolean {
 	return true;
 }
 
+/** A held key repeats every ~30 ms; anything slower is a deliberate press. */
+const HOLD_MS = 400;
+const lastShown = new WeakMap<object, Map<Feature, number>>();
+
+/**
+ * What to do with a shortcut that has nothing to run: `show` the reason, or `hold` (a key held down
+ * repeats; one note is enough). Unlike `firstTime`, a later deliberate press is answered again: a
+ * shortcut that does nothing and says nothing is the bug this exists to prevent.
+ */
+export function feedbackFor(session: object, feature: Feature, now = Date.now()): "show" | "hold" {
+	let m = lastShown.get(session);
+	if (!m) lastShown.set(session, (m = new Map()));
+	const prev = m.get(feature);
+	m.set(feature, now);
+	return prev !== undefined && now - prev < HOLD_MS ? "hold" : "show";
+}
+
 /** Forget what was shown for `session` (the state changed: a new explanation is news again). */
 export function resetHints(session: object) {
 	shown.delete(session);

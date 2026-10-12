@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "@codeatlasdev/ui";
 import { api, errText } from "#lib/api.ts";
 import { resolveSection, type AppearanceTab, type SettingsSection } from "#lib/settings/index.ts";
+import { sound } from "#lib/sound/sound.svelte.ts";
 import { agents } from "#lib/stores/agents.svelte.ts";
 import {
 	CHECK_EVERY_MS,
@@ -11,6 +12,8 @@ import {
 	EMPTY_PROGRESS,
 	blurbOf,
 	justUpdated,
+	parseChannelState,
+	parseChannelViews,
 	parseNotes,
 	parsePrefs,
 	phaseFromLog,
@@ -20,6 +23,10 @@ import {
 	shouldRecheck,
 	showPill,
 	stepsFrom,
+	type Channel,
+	type ChannelAction,
+	type ChannelState,
+	type ChannelView,
 	type ProgressEvent,
 	type ReleaseNotes,
 	type UpdatePrefs,
@@ -35,9 +42,17 @@ export interface Release {
 	url: string;
 	published_at: string;
 	notes: string;
-	/** Computed in Rust (semver): installed CLI / this app is older than `version`. */
+	/** The channel `version` was cut for. */
+	channel: Channel;
+	/** What installing `version` is for this app (`update` only when it is strictly newer). */
+	action: ChannelAction;
+	downgrade: boolean;
+	/** Computed in Rust (SemVer precedence): installed CLI / this app is older than `version`. */
 	cli_behind: boolean;
 	app_behind: boolean;
+	/** Installed CLI / this app is newer than `version` (only an explicit downgrade installs it). */
+	cli_ahead: boolean;
+	app_ahead: boolean;
 }
 
 export type { SettingsSection, AppearanceTab } from "#lib/settings/index.ts";
@@ -69,6 +84,14 @@ class Updates {
 	checkedAt = $state<number | null>(null);
 	prefs = $state<UpdatePrefs>({ ...EMPTY_PREFS });
 
+	/** Update channel (shared with the CLI through `~/.atlas/update-channel`, never in settings.json). */
+	channelState = $state<ChannelState | null>(null);
+	/** The three cards with what each offers now; empty until the first (successful) fetch. */
+	channels = $state<ChannelView[]>([]);
+	channelsLoading = $state(false);
+	/** Set when the last `update_channels` failed (offline): the cards render from copy alone. */
+	channelsError = $state<string | null>(null);
+
 	/** "What's new" sheet. */
 	whatsNewOpen = $state(false);
 	notes = $state<ReleaseNotes[]>([]);
@@ -96,7 +119,10 @@ class Updates {
 	dev = $derived(this.linked || !!this.info?.app.dev);
 	cliBehind = $derived(this.release?.cli_behind ?? false);
 	appBehind = $derived(this.release?.app_behind ?? false);
+	/** Only a strictly newer release is an update: a lower channel's offer is never one. */
 	available = $derived(this.cliBehind || this.appBehind);
+	/** The followed channel's newest offer is older than what runs: explained, never installed unasked. */
+	aheadOfChannel = $derived(this.release?.downgrade ?? false);
 	/** The pill in the sidebar: available, not skipped, not a dev build. */
 	pill = $derived(showPill(this.available, this.dev, this.prefs, this.release?.version));
 	steps = $derived(stepsFrom(this.progress, this.outcome, this.relaunchNeeded));
@@ -111,6 +137,7 @@ class Updates {
 		if (this.#started) return;
 		this.#started = true;
 		this.prefs = parsePrefs((await api.settings()).updates);
+		await this.loadChannelState();
 		this.#unlisten.push(
 			await listen<string>("updates://log", (e) => {
 				this.log.push(e.payload);
@@ -161,6 +188,7 @@ class Updates {
 		this.error = null;
 		try {
 			this.info = await invoke<SystemInfo>("system_info");
+			await this.loadChannelState();
 			this.release = await invoke<Release>("latest_release");
 			this.checkedAt = Date.now();
 			void this.#loadSize();
@@ -171,6 +199,46 @@ class Updates {
 			this.checking = false;
 		}
 	}
+
+	async loadChannelState() {
+		try {
+			this.channelState = parseChannelState(await invoke("update_channel_get"));
+		} catch (e) {
+			this.error = errText(e);
+		}
+	}
+
+	/** The cards with live offers. A failure leaves the copy-only cards and sets `channelsError`. */
+	async loadChannels() {
+		if (this.channelsLoading) return;
+		this.channelsLoading = true;
+		this.channelsError = null;
+		try {
+			await this.loadChannelState();
+			this.channels = parseChannelViews(await invoke("update_channels"));
+		} catch (e) {
+			this.channelsError = errText(e);
+			// Keep what was shown; on a cold start fall back to the copy so the cards still render.
+			if (!this.channels.length) {
+				this.channels = parseChannelViews(await invoke("update_channels_offline").catch(() => []));
+			}
+		} finally {
+			this.channelsLoading = false;
+		}
+	}
+
+	/** Follow `channel` (persisted for the CLI too), then look again. Never installs anything. */
+	setChannel = async (channel: Channel): Promise<boolean> => {
+		try {
+			this.channelState = parseChannelState(await invoke("update_channel_set", { channel }));
+		} catch (e) {
+			toast.error(errText(e));
+			return false;
+		}
+		this.notes = [];
+		await Promise.all([this.check(), this.loadChannels()]);
+		return true;
+	};
 
 	/** Download size of the pending update, for the sheet's button. Best effort. */
 	async #loadSize() {
@@ -190,6 +258,7 @@ class Updates {
 		if (!v || !this.pill) return;
 		if (!shouldNotify(this.prefs, v, { notificationsOn: agents.notify.enabled, linked: this.dev })) return;
 		await this.#save({ notified: v });
+		sound.play("update");
 		void invoke("agent_notify", {
 			title: `Atlas ${v} is available`,
 			body: "Open Atlas to see what's new and update.",
@@ -263,7 +332,7 @@ class Updates {
 		else toast.info(`Atlas ${this.release?.version} is available (skipped)`);
 	};
 
-	async #run(kind: Run, cmd: string) {
+	async #run(kind: Run, cmd: string, args?: Record<string, unknown>) {
 		this.running = kind;
 		this.outcome = "running";
 		this.failure = null;
@@ -271,7 +340,7 @@ class Updates {
 		this.progress = { ...EMPTY_PROGRESS };
 		this.#structured = false;
 		try {
-			const res = await invoke<boolean | null>(cmd);
+			const res = await invoke<boolean | null>(cmd, args);
 			if (res === true) this.relaunchNeeded = true;
 			this.outcome = "done";
 			if (!this.whatsNewOpen)
@@ -290,6 +359,8 @@ class Updates {
 	}
 
 	updateAll = () => this.#run("update", "update_all");
+	/** Explicit "Install X now (downgrade)": the CLI is told `--downgrade --yes`; the channel stays as persisted. */
+	downgrade = () => this.#run("update", "update_all", { downgrade: true });
 	reinstall = () => this.#run("reinstall", "reinstall_app");
 	unlink = () => this.#run("unlink", "unlink");
 	relaunch = () => invoke("relaunch").catch((e) => toast.error(errText(e)));

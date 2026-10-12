@@ -1,6 +1,8 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "@codeatlasdev/ui";
 import { api, errText, type ProjectConfig, type ProjectView } from "#lib/api.ts";
+import { sound } from "#lib/sound/sound.svelte.ts";
+import { stackSound } from "#lib/sound/triggers.ts";
 import { Ring, toLogLine, type LogLine, type RawLog } from "#lib/logs/model.ts";
 import {
 	abandon,
@@ -288,6 +290,14 @@ class Store {
 	apply(id: string, ev: RunnerEvent) {
 		const s = this.live[id];
 		if (!s) return;
+		// Snapshots are history replays (resync); only live row events may sound.
+		const before = ev.t === "snapshot" ? undefined : s.services.map((x) => ({ ...x }));
+		this.#reduce(id, s, ev);
+		const cue = before && stackSound(before, s.services);
+		if (cue) sound.play(cue);
+	}
+
+	#reduce(id: string, s: Live, ev: RunnerEvent) {
 		switch (ev.t) {
 			case "snapshot":
 				s.services = ev.services ?? [];

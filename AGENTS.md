@@ -48,4 +48,16 @@ Check CSP and IPC on the **bundled** build (`tauri://localhost`), not only on Vi
 
 ## Tests
 
-Prefer behavior tests (boundaries, failures, transitions). Manager tests live in `runtime/manager/tests.rs` and are wired by `#[cfg(test)] mod tests;` in `mod.rs` — when splitting modules, check the test count does not drop.
+**Tests first, always.** For every bug found or reported, before touching the fix:
+
+1. Write a regression test that reproduces the bug and **watch it fail** for the reported reason.
+2. Find the root cause and list edge cases of the same class of mistake (same contract, same pattern elsewhere); add tests for them. They often find a second bug: the `languageLabels` crash in 1.3.0 also uncovered labels deduplicated out of step with `languages`.
+3. Fix, then show every new test passing. Name the test after the behavior and say in a comment which incident it guards.
+
+What a test must be (full guide: `.agents/skills/real-tests/SKILL.md`):
+
+- **Real behavior or contract**, not wiring: boundaries, failures, transitions, invariants, precedence. It must go red if the code is plausibly wrong; break the code on purpose to check.
+- **Cross-boundary contracts use the real producer output.** Rust → frontend payloads are tested by serializing the real Rust value and checking the keys/shape the TS types read. Never hand-write the other side's JSON in a mock: a camelCase mock hid a snake_case field that crashed every real build.
+- No filler: no "does not throw", no tautologies, no tests of mocks echoing mocks, no snapshots of everything, no tests written for coverage.
+
+Manager tests live in `runtime/manager/tests.rs` and are wired by `#[cfg(test)] mod tests;` in `mod.rs` — when splitting modules, check the test count does not drop.

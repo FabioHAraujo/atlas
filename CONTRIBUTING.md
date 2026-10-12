@@ -6,7 +6,7 @@ By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Atlas is 
 
 ## Report a bug or ask for a feature
 
-Open an [issue](https://github.com/codeatlasdev/atlas/issues/new/choose). For a bug include `atlas version`, your OS, what you ran, what you expected, and the relevant lines of `.logs/<service>.log` (redact secrets). A minimal `atlas.yaml` that reproduces it is the fastest way to get it fixed.
+Open an [issue](https://github.com/codeatlasdev/atlas/issues/new/choose). For a bug include `atlas version`, the [release channel](docs/versioning.md) you are on, your OS, what you ran, what you expected, and the relevant lines of `.logs/<service>.log` (redact secrets). A minimal `atlas.yaml` that reproduces it is the fastest way to get it fixed. Check that it still happens on the newest build of your channel first. There is a separate form for update, installer and channel problems. How issues are labeled and triaged, and what to expect, is in [docs/labels.md](docs/labels.md).
 
 **Security problems do not go in public issues.** Follow [SECURITY.md](SECURITY.md).
 
@@ -22,7 +22,7 @@ bun run check             # the only gate: fmt, clippy -D warnings, tests, cargo
 ```
 
 1. Branch from `main`.
-2. Change the code, add or update tests, and update the docs and `CHANGELOG.md` (`## [Unreleased]`) in the same pull request.
+2. Change the code, add or update tests, and update the docs and `CHANGELOG.md` (`## [Unreleased]`) in the same pull request. **Tests come first**: for a bug fix, write the regression test, watch it fail for the right reason, then fix it (see [AGENTS.md](AGENTS.md)). A change to `atlas.yaml`, the CLI, the MCP tools or the settings files needs a **Changed** or **Removed** changelog entry that says what to do instead, and follows the [deprecation policy](docs/deprecation.md).
 3. Run `bun run check` on its own and read its exit code.
 4. Open a pull request and fill in the template.
 
@@ -35,7 +35,11 @@ Rules of thumb:
 - Do not add a dependency without saying why; `cargo deny check` must pass.
 - Respect the runtime safety rules in [AGENTS.md](AGENTS.md) (exact-PID orphan cleanup, never `docker compose down`, and so on). They come from real incidents.
 
-CI runs on every pull request (fmt, clippy `-D warnings`, tests, `cargo deny`, the desktop frontend checks, the site type-check and build, and the duplication gate) on macOS and Linux; the same gate is `bun run check` locally, plus `bun run site:check` and `bun run dup`. Releases are cut by maintainers (see [docs/release.md](docs/release.md)).
+CI runs on every pull request (fmt, clippy `-D warnings`, tests, `cargo deny`, the desktop frontend checks, the site type-check and build, and the duplication gate) on macOS and Linux; the same gate is `bun run check` locally, plus `bun run site:check` and `bun run dup`. Releases are cut by maintainers (see [docs/release.md](docs/release.md)); what Stable, Beta and Alpha mean is in [docs/versioning.md](docs/versioning.md).
+
+### Release branches
+
+Pull requests always target `main`. When a release is being soaked it lives on a short-lived `release/X.Y` branch (see [docs/versioning.md](docs/versioning.md#how-a-release-moves-between-channels)). Fixes land on `main` first and are then cherry-picked onto the release branch with `git cherry-pick -x <sha>`, which records the original commit in the message. Only a maintainer opens a pull request against `release/X.Y`, and it links the commit that already landed on `main`.
 
 ### Commands
 

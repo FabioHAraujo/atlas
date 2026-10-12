@@ -6,3 +6,10 @@ contact_links:
   - name: Documentation
     url: https://atlas.codeatlas.com.br/docs/
     about: Guides, the CLI reference, configuration and troubleshooting.
+  - name: Release channels and versioning
+    url: https://github.com/codeatlasdev/atlas/blob/main/docs/versioning.md
+    about: What Stable, Beta and Alpha mean, how to switch, and what is supported.
+  # Discussions are not enabled on this repository yet (maintainer decision). When they are, add:
+  # - name: Questions and ideas
+  #   url: https://github.com/codeatlasdev/atlas/discussions
+  #   about: Ask a question or share an idea before opening an issue.

@@ -51,8 +51,27 @@ jobs:
         with:
           key: release-aarch64
 
+      # SOURCE_DATE_EPOCH = the commit time, so embedded timestamps do not depend on when the build ran.
+      # No --remap-path-prefix: not verified against the Tauri build in this repo.
       - name: Build
-        run: cargo build --release --target aarch64-apple-darwin -p atlas-cli
+        run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          cargo build --release --locked --target aarch64-apple-darwin -p atlas-cli
+
+      # CycloneDX SBOM of the CLI's dependency tree (the shipped binary). Skipped, loudly, when the tool is missing.
+      - name: SBOM
+        run: |
+          ATLAS_VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p dist
+          if command -v cargo-cyclonedx >/dev/null || cargo install cargo-cyclonedx --locked; then
+            cargo cyclonedx --manifest-path crates/atlas-cli/Cargo.toml --format json \
+              --target aarch64-apple-darwin --override-filename atlas-cli-sbom
+            # cargo-cyclonedx writes one file per workspace member; keep the CLI's, drop the rest.
+            mv crates/atlas-cli/atlas-cli-sbom.json "dist/atlas-${ATLAS_VERSION}-sbom.cdx.json"
+            rm -f crates/*/atlas-cli-sbom.json
+          else
+            echo "::warning::cargo-cyclonedx is not available: this release has no SBOM"
+          fi
 
       - name: Install Bun
         if: ${{ !env.ACT }}
@@ -62,6 +81,7 @@ jobs:
         run: |
           command -v cargo-tauri >/dev/null || cargo install tauri-cli --version "$(scripts/setup.sh --tauri-version)" --locked
           (cd apps/desktop && bun install --frozen-lockfile)
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           (cd crates/atlas-desktop && cargo tauri build --target aarch64-apple-darwin --bundles app,dmg --ci)
 
       - name: Package
@@ -91,6 +111,7 @@ jobs:
           path: |
             dist/*.tar.gz*
             dist/*.dmg*
+            dist/*.cdx.json
 
   publish:
     name: Publish Release
@@ -106,16 +127,36 @@ jobs:
         with:
           path: artifacts/
 
+      # channel, commit and prerelease come from the tag and the checkout. ATLAS_PROMOTED_FROM (set by
+      # `release.sh stable`) records the prerelease a stable release was promoted from.
       - name: Generate manifest
         run: |
           ATLAS_VERSION=${GITHUB_REF_NAME#v}
           python3 scripts/generate-manifest.py "$ATLAS_VERSION" artifacts/ > manifest.json
 
+      # One checksum file over every asset (the per-file .sha256 files stay for `atlas update`).
+      - name: SHA256SUMS
+        run: |
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.dmg' -o -name '*.cdx.json' \) -print0 \
+            | xargs -0 shasum -a 256 | sed 's#  .*/#  #' | sort -k2 > SHA256SUMS
+          shasum -a 256 manifest.json >> SHA256SUMS
+          cat SHA256SUMS
+
       # The release body: this version's CHANGELOG.md section, then install/update steps.
       - name: Release notes
         run: |
           V=${GITHUB_REF_NAME#v}
-          awk -v v="$V" '/^## /{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md > notes.md
+          case "$V" in
+            *-alpha.*) CH="an **alpha** build, cut straight from main with little soak. Expect rough edges and breaking changes." ;;
+            *-beta.*) CH="a **beta** build: feature-complete and being soaked before it becomes Stable. A bug can slip through." ;;
+            *-rc.*) CH="a **release-candidate** build: the next Stable, being soaked. Only the version number should change when it is promoted." ;;
+            *) CH="" ;;
+          esac
+          : > notes.md
+          if [ -n "$CH" ]; then
+            printf '> This is %s It is not offered on the Stable channel; see [versioning](https://atlas.codeatlas.com.br/docs/versioning).\n\n' "$CH" >> notes.md
+          fi
+          awk -v v="$V" '/^## /{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md >> notes.md
           cat >> notes.md <<'EOF'
 
           ## Install
@@ -125,7 +166,7 @@ jobs:
           ```
 
           Or download `atlas-*-aarch64-apple-darwin.tar.gz` below, verify it against its
-          `.sha256`, extract it and run `./atlas install`.
+          `.sha256` (or `SHA256SUMS`), extract it and run `./atlas install`.
 
           ## Desktop app
 
@@ -153,6 +194,10 @@ jobs:
             artifacts/**/*.tar.gz
             artifacts/**/*.dmg
             artifacts/**/*.sha256
+            artifacts/**/*.cdx.json
             manifest.json
+            SHA256SUMS
           draft: false
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          # Any tag with a "-" is a prerelease: it never becomes "Latest", so the Stable channel never sees it.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}

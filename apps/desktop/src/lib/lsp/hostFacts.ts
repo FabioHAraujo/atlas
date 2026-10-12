@@ -22,3 +22,31 @@ export function hostFacts(h: HostLike): Required<HostFacts> {
 		ptys: h.ptys.map((p) => ({ title: p.title, cwd: p.cwd })),
 	};
 }
+
+/**
+ * An old `atlas hostd` rejects `lsp_*` with serde's `unknown variant` (it predates the commands).
+ * That is the one reliable sign the host is too old even before its caps were reconciled.
+ */
+export function isHostTooOld(err: unknown): boolean {
+	const text = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+	return /unknown variant `lsp_\w+`/.test(text);
+}
+
+/** The `lsp_open` request body (field names are the Rust side's, see `HostCmd::LspOpen`). */
+export function openPayload(o: {
+	path: string;
+	languageId: string;
+	text: string;
+	version: number;
+	root?: string;
+	overrides?: unknown;
+}) {
+	return {
+		path: o.path,
+		language_id: o.languageId,
+		text: o.text,
+		version: o.version,
+		...(o.root ? { root: o.root } : {}),
+		...(o.overrides ? { overrides: o.overrides } : {}),
+	};
+}

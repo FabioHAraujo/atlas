@@ -22,6 +22,7 @@ import { shell } from "#lib/shell/shell.svelte.ts";
 import { agents } from "#lib/stores/agents.svelte.ts";
 import { browserPrefs } from "#lib/stores/browser.svelte.ts";
 import { initHostStatus } from "#lib/stores/hostStatus.svelte.ts";
+import { sound } from "#lib/sound/sound.svelte.ts";
 import { loadPrefs } from "#lib/stores/prefs.svelte.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { quick } from "#lib/stores/quick.svelte.ts";
@@ -29,6 +30,9 @@ import { themes } from "#lib/stores/theme.svelte.ts";
 import { startTrayFeed } from "#lib/stores/trayFeed.svelte.ts";
 import { updates } from "#lib/stores/updates.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
+import { editors } from "#lib/symbols.ts";
+import { lsp, docOf } from "#lib/lsp/client.svelte.ts";
+import { navigator as jumps } from "#lib/lsp/history.ts";
 import { hooks, worktrees } from "#lib/stores/worktrees.svelte.ts";
 
 /** The live stores, shared with `ctl.ts` (HMR-safe) and, in debug builds, `atlas desktop debug eval`. */
@@ -40,6 +44,11 @@ function exposeStores() {
 				...stores,
 				themes,
 				updates,
+				/** Live CodeMirror views by `worktreeId:path`, the LSP state and the jump history (scripts/validate-goto-definition.sh). */
+				editors,
+				lsp,
+				docOf,
+				jumps,
 				/** Make tab `id` throw on its next render (`on = false` heals it); exercises the error boundaries. */
 				crashTab: (id: string, on = true) => (on ? (errors.crashing[id] = true) : delete errors.crashing[id]),
 				/** Reject from a timer: no boundary can catch it, so it surfaces as the toast. */
@@ -134,6 +143,13 @@ export function startSession(): () => void {
 	ws.init().then(() => bootMark("workspace:loaded"), fail);
 	agents.init().catch(fail);
 	quick.init().catch(fail);
+	const stopSound = sound.init().then(
+		(f) => {
+			sound.signature();
+			return f;
+		},
+		() => () => {},
+	);
 	browserPrefs.init().catch(() => {});
 	const stopHostStatus = initHostStatus().then(
 		(f) => {
@@ -166,6 +182,7 @@ export function startSession(): () => void {
 		stopThemeCommands();
 		void stopMenu.then((f) => f());
 		void stopHostStatus.then((f) => f());
+		void stopSound.then((f) => f());
 		store.dispose();
 		updates.dispose();
 		ws.dispose();

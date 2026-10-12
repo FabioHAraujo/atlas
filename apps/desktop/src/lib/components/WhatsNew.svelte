@@ -21,8 +21,10 @@
 		dateOf,
 		formatBytes,
 		isLong,
+		channelOfVersion,
 		parseNotes,
 		percent,
+		prereleaseBadge,
 		versionAnchor,
 		type GroupKind,
 	} from "#lib/updates.ts";
@@ -60,12 +62,16 @@
 			...n,
 			parsed: parseNotes(n.notes),
 			badges: badgesFor(n.version, running, latest, !!u.updatedTo),
+			pre: prereleaseBadge(n.version),
 			date: dateOf(n.published_at),
 		})),
 	);
 	let multi = $derived(releases.length > 1);
 	let hero = $derived(releases[0]);
 	let alpha = $derived(releases.find((r) => r.parsed.alpha)?.parsed.alpha ?? "");
+	/** Channel the shown release was cut for, and the one this app follows (footer line). */
+	let heroChannel = $derived(hero ? channelOfVersion(hero.version) : null);
+	let followed = $derived(u.channelState?.channel ?? null);
 	let pct = $derived(percent(u.progress));
 	let downloading = $derived(busy && u.steps[0].state === "active" && u.progress.at <= 0);
 	let size = $derived(formatBytes(u.size ?? 0));
@@ -186,6 +192,7 @@
 								<h2 class="num">{r.version}</h2>
 								<div class="meta">
 									{#if r.date}<time>{r.date}</time>{/if}
+									{#if r.pre}<span class="chip pre {r.pre.toLowerCase()}">{r.pre}</span>{/if}
 									{#each r.badges as b (b)}
 										<span class="chip {b}"
 											>{b === "latest" ? "Latest" : b === "new" ? "New" : "Installed"}</span
@@ -331,6 +338,12 @@
 					</Button>
 				{/if}
 			</div>
+			{#if heroChannel && followed}
+				<p class="hint chan">
+					<span class="chip pre {heroChannel}">{heroChannel}</span>
+					release · following <b>{followed}</b>
+				</p>
+			{/if}
 			<div class="links">
 				{#if !upToDate && !u.relaunchNeeded}
 					<button class="icon text" disabled={busy} onclick={close}>Remind me later</button>
@@ -456,6 +469,31 @@
 	}
 	.chip.installed {
 		--tone: var(--ca-text-secondary);
+	}
+	.chip.pre.alpha {
+		--tone: var(--ca-semantic-error);
+	}
+	.chip.pre.beta {
+		--tone: var(--ca-semantic-warning);
+	}
+	.chip.pre.rc {
+		--tone: var(--ca-semantic-info);
+	}
+	.chip.pre.stable {
+		--tone: var(--ca-semantic-success);
+	}
+	.hint.chan {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 8px;
+	}
+	.hint.chan .chip {
+		text-transform: capitalize;
+	}
+	.hint.chan b {
+		color: var(--ca-text-primary);
+		text-transform: capitalize;
 	}
 	.tools {
 		display: flex;

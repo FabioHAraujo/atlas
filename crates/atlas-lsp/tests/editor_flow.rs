@@ -478,6 +478,53 @@ async fn catalog_lists_every_server_with_detection_and_never_installs() {
     assert!(!r.base.join("lsp").exists());
 }
 
+/// Regression (1.3.0 crash "t.entry.languageLabels[i]"): the desktop reads `lsp_catalog` with the
+/// field names of `apps/desktop/src/lib/lsp/types.ts` (`CatalogEntry`). Serde's default snake_case
+/// sent `language_labels`, so every real build crashed while the TS tests, fed camelCase mocks,
+/// passed. This pins the serialized JSON itself: every key the frontend reads, at every level,
+/// and no snake_case key anywhere in the payload.
+#[tokio::test]
+async fn catalog_json_uses_the_field_names_the_desktop_reads() {
+    let r = rig(None, &[]);
+    let json = serde_json::to_value(r.m.catalog().await).unwrap();
+    let entries = json.as_array().expect("catalog is an array");
+    assert!(!entries.is_empty());
+    for e in entries {
+        let o = e.as_object().unwrap();
+        for k in [
+            "name",
+            "label",
+            "languages",
+            "languageLabels",
+            "install",
+            "version",
+            "detected",
+        ] {
+            assert!(o.contains_key(k), "missing `{k}` in {e}");
+        }
+        // One label per language id, in the same order (the UI indexes one by the other).
+        assert_eq!(
+            o["languages"].as_array().unwrap().len(),
+            o["languageLabels"].as_array().unwrap().len(),
+            "{e}"
+        );
+        assert!(o["detected"].is_object(), "{e}");
+    }
+    fn no_snake(v: &serde_json::Value, at: &str) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, v) in m {
+                    assert!(!k.contains('_'), "snake_case key `{k}` at {at}");
+                    no_snake(v, &format!("{at}.{k}"));
+                }
+            }
+            serde_json::Value::Array(a) => a.iter().for_each(|v| no_snake(v, at)),
+            _ => {}
+        }
+    }
+    no_snake(&json, "catalog");
+}
+
 #[tokio::test]
 async fn uninstall_removes_only_the_managed_copy_and_stops_instances() {
     let r = rig(None, &[]);
@@ -539,4 +586,426 @@ async fn reinstall_removes_the_managed_copy_before_resolving_again() {
     std::fs::create_dir_all(&managed).unwrap();
     r.m.install("rust-analyzer", false).await.unwrap();
     assert!(managed.exists());
+}
+
+// --- go to definition across files and outside the project root --------------------------------
+//
+// The user's report: "⌘-click does not take me to the file". Same-file definitions were covered; a
+// definition in *another* file, in a file *outside the root* (cargo registry, rustup std, a global
+// node_modules) and as a `LocationLink` (what typescript-language-server sends) were not. These pin
+// the host side of the round trip: what the desktop receives from `lsp_request` is the server's reply
+// untouched, with absolute file URIs it can resolve to a tab.
+
+fn uri_path(uri: &str) -> String {
+    atlas_lsp::caps::path_from_uri(uri).expect("a file: URI")
+}
+
+#[tokio::test]
+async fn definition_in_another_file_of_the_project_is_returned_with_its_exact_range() {
+    let dir = tempfile::tempdir().unwrap();
+    let other = dir.path().join("util.rs");
+    std::fs::write(&other, "// helpers\n\nfn helper(x: i32) {}\n").unwrap();
+    let mut r = rig(None, &[("FAKE_XFILE_DIR", dir.path().to_str().unwrap())]);
+    let f = r.file("main.rs");
+    let rep =
+        r.m.open(
+            &f,
+            "rust",
+            "fn main() {\n    helper(1);\n}\n".into(),
+            1,
+            None,
+        )
+        .await;
+    assert_eq!(rep.status, "ready");
+    r.diagnostics(&f, |_| true).await;
+
+    let def = r
+        .req(
+            &f,
+            "textDocument/definition",
+            json!({"textDocument": td(&f), "position": at(1, 6)}),
+        )
+        .await;
+    let link = &def[0];
+    // A LocationLink: the *name* is the selection range, the whole item the target range.
+    assert_eq!(
+        uri_path(link["targetUri"].as_str().unwrap()),
+        other.to_string_lossy()
+    );
+    assert_eq!(link["targetSelectionRange"]["start"], at(2, 3));
+    assert_eq!(link["targetSelectionRange"]["end"], at(2, 9));
+    assert_eq!(link["targetRange"]["start"], at(2, 0));
+}
+
+#[tokio::test]
+async fn definition_outside_the_project_root_is_not_dropped_by_the_host() {
+    // The target lives in a directory that is not under the project root at all (rustup's std sources,
+    // ~/.cargo/registry, a global node_modules). The host must hand it through unchanged.
+    let outside = tempfile::tempdir().unwrap();
+    let std_src = outside.path().join("lib/rustlib/src/rust/library/core/src");
+    std::fs::create_dir_all(&std_src).unwrap();
+    let option = std_src.join("option.rs");
+    std::fs::write(
+        &option,
+        "pub enum Option<T> {}\nfn unwrap_or_default() {}\n",
+    )
+    .unwrap();
+    let mut r = rig(None, &[("FAKE_XFILE_DIR", std_src.to_str().unwrap())]);
+    let f = r.file("main.rs");
+    r.m.open(
+        &f,
+        "rust",
+        "fn main() {\n    unwrap_or_default();\n}\n".into(),
+        1,
+        None,
+    )
+    .await;
+    r.diagnostics(&f, |_| true).await;
+
+    let def = r
+        .req(
+            &f,
+            "textDocument/definition",
+            json!({"textDocument": td(&f), "position": at(1, 8)}),
+        )
+        .await;
+    let target = uri_path(def[0]["targetUri"].as_str().unwrap());
+    assert_eq!(target, option.to_string_lossy());
+    assert!(
+        !target.starts_with(r.project.to_str().unwrap()),
+        "must be outside the project root"
+    );
+    assert!(
+        std::path::Path::new(&target).is_file(),
+        "the desktop can read it"
+    );
+    assert_eq!(def[0]["targetSelectionRange"]["start"], at(1, 3));
+}
+
+#[tokio::test]
+async fn definition_with_a_space_and_unicode_in_the_path_round_trips_percent_encoded() {
+    let dir = tempfile::tempdir().unwrap();
+    let odd = dir.path().join("My Pro\u{e1}ject");
+    std::fs::create_dir_all(&odd).unwrap();
+    std::fs::write(odd.join("c\u{f3}digo.rs"), "fn saudacao() {}\n").unwrap();
+    let mut r = rig(None, &[("FAKE_XFILE_DIR", odd.to_str().unwrap())]);
+    let f = r.file("main.rs");
+    r.m.open(&f, "rust", "fn main() { saudacao(); }\n".into(), 1, None)
+        .await;
+    r.diagnostics(&f, |_| true).await;
+    let def = r
+        .req(
+            &f,
+            "textDocument/definition",
+            json!({"textDocument": td(&f), "position": at(0, 13)}),
+        )
+        .await;
+    let uri = def[0]["targetUri"].as_str().unwrap();
+    assert!(
+        uri.contains("My%20Pro"),
+        "spaces must be encoded in the URI: {uri}"
+    );
+    assert_eq!(uri_path(uri), odd.join("c\u{f3}digo.rs").to_string_lossy());
+}
+
+#[tokio::test]
+async fn no_definition_is_null_not_an_error() {
+    let mut r = rig(None, &[]);
+    let f = r.file("a.rs");
+    r.m.open(&f, "rust", "fn main() { nowhere(); }\n".into(), 1, None)
+        .await;
+    r.diagnostics(&f, |_| true).await;
+    let def = r
+        .req(
+            &f,
+            "textDocument/definition",
+            json!({"textDocument": td(&f), "position": at(0, 13)}),
+        )
+        .await;
+    assert!(
+        def.is_null() || def.as_array().is_some_and(Vec::is_empty),
+        "{def}"
+    );
+}
+
+// --- dependency and std sources reuse the server of the project that jumped there ----------------
+//
+// Found validating ⌘-click in the desktop app: opening Rust's std `path.rs` (or a `node_modules`
+// `.d.ts`) in an editor started a *second* rust-analyzer / tsserver rooted at the dependency, one per
+// opened library file. It is slow, wasteful, and the second server knows nothing of the project.
+
+#[tokio::test]
+async fn a_dependency_file_is_served_by_the_projects_server_not_a_new_one_rooted_there() {
+    let mut r = rig(None, &[]);
+    let f = r.file("main.rs");
+    r.m.open(&f, "rust", "fn main() {}\n".into(), 1, None).await;
+    r.diagnostics(&f, |_| true).await;
+    assert_eq!(r.m.status().len(), 1);
+
+    // A registry crate, outside the project, with its own Cargo.toml (the usual layout).
+    let dep = tempfile::tempdir().unwrap();
+    let crate_dir = dep
+        .path()
+        .join(".cargo/registry/src/index.crates.io-1/serde-1.0.200");
+    std::fs::create_dir_all(crate_dir.join("src")).unwrap();
+    std::fs::write(crate_dir.join("Cargo.toml"), "[package]\nname=\"serde\"\n").unwrap();
+    let lib = crate_dir.join("src/lib.rs");
+    std::fs::write(&lib, "").unwrap();
+    let lib = lib.to_string_lossy().into_owned();
+
+    let rep =
+        r.m.open(&lib, "rust", "pub fn serialize() {}\n".into(), 1, None)
+            .await;
+    assert_eq!(rep.status, "ready");
+    let st = r.m.status();
+    assert_eq!(st.len(), 1, "no second server for a dependency: {st:#?}");
+    assert_eq!(st[0].root, r.project.to_string_lossy());
+    assert_eq!(r.m.open_doc_count(), 2);
+}
+
+#[tokio::test]
+async fn a_dependency_file_with_no_running_server_still_gets_its_own() {
+    // Opened first (a restored tab at startup): there is no project server to borrow, so it must still work.
+    let r = rig(None, &[]);
+    let dep = tempfile::tempdir().unwrap();
+    let crate_dir = dep.path().join(".cargo/registry/src/x/serde-1.0.200");
+    std::fs::create_dir_all(crate_dir.join("src")).unwrap();
+    std::fs::write(crate_dir.join("Cargo.toml"), "[package]\nname=\"serde\"\n").unwrap();
+    let lib = crate_dir.join("src/lib.rs").to_string_lossy().into_owned();
+    let rep =
+        r.m.open(&lib, "rust", "pub fn a() {}\n".into(), 1, None)
+            .await;
+    assert_eq!(rep.status, "ready");
+    assert_eq!(r.m.status().len(), 1);
+}
+
+#[tokio::test]
+async fn a_dependency_of_another_language_does_not_borrow_a_server_of_the_wrong_kind() {
+    let mut r = rig(None, &[]);
+    let f = r.file("main.rs");
+    r.m.open(&f, "rust", "fn main() {}\n".into(), 1, None).await;
+    r.diagnostics(&f, |_| true).await;
+    let dep = tempfile::tempdir().unwrap();
+    let pkg = dep.path().join("node_modules/pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("package.json"), "{}").unwrap();
+    let ts = pkg.join("index.d.ts").to_string_lossy().into_owned();
+    r.m.open(&ts, "typescript", "export {}\n".into(), 1, None)
+        .await;
+    // Rust's server never serves TypeScript: a second server (the TS one) is right here.
+    assert_eq!(r.m.status().len(), 2);
+}
+
+// The real startup order: restored tabs open at once, a dependency tab usually *before* the project
+// file has finished starting its server. The client says which worktree opened each document
+// (`lsp_open.root`); a dependency file is then served from that worktree's root, so whichever file
+// arrives first, the dependency never roots a server of its own.
+
+#[tokio::test]
+async fn dependency_and_project_files_opened_concurrently_share_one_server() {
+    let r = rig(None, &[]);
+    let f = r.file("main.rs");
+    let dep = tempfile::tempdir().unwrap();
+    let crate_dir = dep.path().join(".cargo/registry/src/x/serde-1.0.200");
+    std::fs::create_dir_all(crate_dir.join("src")).unwrap();
+    std::fs::write(crate_dir.join("Cargo.toml"), "[package]\nname=\"serde\"\n").unwrap();
+    let lib = crate_dir.join("src/lib.rs").to_string_lossy().into_owned();
+
+    // Dependency first, as tabs restore; both carry the worktree that opened them.
+    let (a, b) = tokio::join!(
+        r.m.open(&lib, "rust", "pub fn a() {}\n".into(), 1, Some(&r.project)),
+        async {
+            tokio::task::yield_now().await;
+            r.m.open(&f, "rust", "fn main() {}\n".into(), 1, Some(&r.project))
+                .await
+        }
+    );
+    assert_eq!((a.status, b.status), ("ready", "ready"));
+    let st = r.m.status();
+    assert_eq!(st.len(), 1, "one server for both files: {st:#?}");
+    assert_eq!(st[0].root, r.project.to_string_lossy());
+    assert_eq!(r.m.open_doc_count(), 2);
+}
+
+#[tokio::test]
+async fn a_dependency_file_never_roots_a_server_in_the_dependency_when_a_worktree_is_known() {
+    let r = rig(None, &[]);
+    let dep = tempfile::tempdir().unwrap();
+    let pkg = dep.path().join("node_modules/pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("package.json"), "{}").unwrap();
+    let ts = pkg.join("index.d.ts").to_string_lossy().into_owned();
+    r.m.open(&ts, "typescript", "export {}\n".into(), 1, Some(&r.project))
+        .await;
+    let st = r.m.status();
+    assert_eq!(st.len(), 1);
+    assert_eq!(
+        st[0].root,
+        r.project.to_string_lossy(),
+        "rooted at the worktree, not at {}",
+        pkg.display()
+    );
+}
+
+// A worktree root is not always where a language's project lives (a monorepo: `package.json` in
+// `apps/desktop`). A dependency file opened with the worktree as fallback must join the project's
+// server found *under* that worktree, not start a second one at the worktree root.
+
+#[tokio::test]
+async fn a_dependency_joins_the_server_of_a_project_under_the_worktree_root() {
+    let mut r = rig(None, &[]);
+    // Worktree = r.project; the TS project lives in a subfolder with its own package.json.
+    let app = r.project.join("apps/web");
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(app.join("package.json"), "{}").unwrap();
+    let f = app.join("src/a.ts");
+    std::fs::write(&f, "").unwrap();
+    let f = f.to_string_lossy().into_owned();
+    r.m.open(
+        &f,
+        "typescript",
+        "export const a = 1;\n".into(),
+        1,
+        Some(&r.project),
+    )
+    .await;
+    r.diagnostics(&f, |_| true).await;
+
+    let dep = tempfile::tempdir().unwrap();
+    let pkg = dep.path().join("node_modules/pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("package.json"), "{}").unwrap();
+    let ts = pkg.join("index.d.ts").to_string_lossy().into_owned();
+    r.m.open(&ts, "typescript", "export {}\n".into(), 1, Some(&r.project))
+        .await;
+
+    let st = r.m.status();
+    assert_eq!(
+        st.len(),
+        1,
+        "one TS server for the project and its dependency: {st:#?}"
+    );
+    assert_eq!(st[0].root, app.to_string_lossy());
+}
+
+#[tokio::test]
+async fn a_dependency_opened_first_moves_to_the_project_server_once_one_exists() {
+    let mut r = rig(None, &[]);
+    let app = r.project.join("apps/web");
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(app.join("package.json"), "{}").unwrap();
+    let f = app.join("src/a.ts");
+    std::fs::write(&f, "").unwrap();
+    let f = f.to_string_lossy().into_owned();
+
+    let dep = tempfile::tempdir().unwrap();
+    let pkg = dep.path().join("node_modules/pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("package.json"), "{}").unwrap();
+    let ts = pkg.join("index.d.ts").to_string_lossy().into_owned();
+
+    // The dependency tab restores first: nothing runs, so it is served from the worktree root...
+    r.m.open(&ts, "typescript", "export {}\n".into(), 1, Some(&r.project))
+        .await;
+    assert_eq!(r.m.status().len(), 1);
+    // ...then the project's own file opens: its server (at the package root) takes the dependency over,
+    // and the worktree-root instance, now without documents, goes away.
+    r.m.open(
+        &f,
+        "typescript",
+        "export const a = 1;\n".into(),
+        1,
+        Some(&r.project),
+    )
+    .await;
+    r.diagnostics(&f, |_| true).await;
+
+    tokio::time::sleep(Duration::from_millis(900)).await; // past `idle_shutdown` (300 ms in the rig)
+    let st: Vec<_> =
+        r.m.status()
+            .into_iter()
+            .filter(|s| s.state == State::Ready)
+            .collect();
+    assert_eq!(st.len(), 1, "one live TS server: {st:#?}");
+    assert_eq!(st[0].root, app.to_string_lossy());
+    assert_eq!(r.m.open_doc_count(), 2, "both documents stay open");
+}
+
+// Restored tabs open in any order. The project file may open *before* the dependency that was open
+// when the window closed: the dependency then finds the project's server already running and must be
+// served by it, whichever root the worktree fallback would have given it.
+
+#[tokio::test]
+async fn a_dependency_opened_after_the_project_file_uses_the_project_server_even_while_it_starts() {
+    let r = rig(None, &[]);
+    let app = r.project.join("apps/web");
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(app.join("package.json"), "{}").unwrap();
+    let f = app.join("src/a.ts");
+    std::fs::write(&f, "").unwrap();
+    let f = f.to_string_lossy().into_owned();
+    let dep = tempfile::tempdir().unwrap();
+    let pkg = dep.path().join("node_modules/pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("package.json"), "{}").unwrap();
+    let ts = pkg.join("index.d.ts").to_string_lossy().into_owned();
+
+    // Both in flight at once; the project file wins the race to create its instance.
+    let (a, b) = tokio::join!(
+        r.m.open(
+            &f,
+            "typescript",
+            "export const a = 1;\n".into(),
+            1,
+            Some(&r.project)
+        ),
+        async {
+            tokio::task::yield_now().await;
+            r.m.open(&ts, "typescript", "export {}\n".into(), 1, Some(&r.project))
+                .await
+        }
+    );
+    assert_eq!((a.status, b.status), ("ready", "ready"));
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    let st = r.m.status();
+    assert_eq!(st.len(), 1, "one TS server: {st:#?}");
+    assert_eq!(st[0].root, app.to_string_lossy());
+    assert_eq!(r.m.open_doc_count(), 2);
+}
+
+#[tokio::test]
+async fn a_dependency_arriving_while_the_project_server_is_still_starting_joins_it() {
+    // A resolver that takes a moment (a first-time download): the instance exists but is not live yet.
+    let r = rig(None, &[("FAKE_INIT_DELAY_MS", "400")]);
+    let app = r.project.join("apps/web");
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(app.join("package.json"), "{}").unwrap();
+    let f = app.join("src/a.ts");
+    std::fs::write(&f, "").unwrap();
+    let f = f.to_string_lossy().into_owned();
+    let dep = tempfile::tempdir().unwrap();
+    let pkg = dep.path().join("node_modules/pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(pkg.join("package.json"), "{}").unwrap();
+    let ts = pkg.join("index.d.ts").to_string_lossy().into_owned();
+
+    let (a, b) = tokio::join!(
+        r.m.open(
+            &f,
+            "typescript",
+            "export const a = 1;\n".into(),
+            1,
+            Some(&r.project)
+        ),
+        async {
+            tokio::time::sleep(Duration::from_millis(120)).await; // project instance exists, still starting
+            r.m.open(&ts, "typescript", "export {}\n".into(), 1, Some(&r.project))
+                .await
+        }
+    );
+    assert_eq!((a.status, b.status), ("ready", "ready"));
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    let st = r.m.status();
+    assert_eq!(st.len(), 1, "one TS server: {st:#?}");
+    assert_eq!(st[0].root, app.to_string_lossy());
 }

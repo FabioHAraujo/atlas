@@ -6,7 +6,7 @@
 import type { EditorView } from "@codemirror/view";
 import { envOf } from "#lib/lsp/context.ts";
 import { runAction } from "#lib/lsp/run.ts";
-import { firstTime, hintAction, reasonForFeature, type Feature } from "#lib/lsp/messages.ts";
+import { feedbackFor, hintAction, reasonForFeature, type Feature } from "#lib/lsp/messages.ts";
 import { uiStateOf } from "#lib/lsp/uiState.svelte.ts";
 import type { ActionId } from "#lib/lsp/status.ts";
 
@@ -38,7 +38,8 @@ export function runHintAction() {
 /**
  * Explain why `feature` did nothing. Returns true when the caller can go on (a server serves the
  * file, or the file has no language session at all so there is nothing to explain); false when the
- * reason was shown now or earlier and the caller should stop.
+ * reason was shown (or is already on screen because the key is held) and the caller should stop.
+ * Every deliberate press is answered: a shortcut that does nothing and says nothing is a bug.
  */
 export function explainUnserved(view: EditorView, feature: Feature): boolean {
 	const env = envOf(view);
@@ -46,7 +47,7 @@ export function explainUnserved(view: EditorView, feature: Feature): boolean {
 	const state = uiStateOf(env.doc);
 	const message = reasonForFeature(feature, state);
 	if (message === undefined) return true;
-	if (!firstTime(env.doc, feature)) return false;
+	if (feedbackFor(env.doc, feature) === "hold") return false;
 	clearTimeout(timer);
 	hint.current = { message, action: hintAction(state), path: env.doc.path };
 	timer = window.setTimeout(dismissHint, SHOW_MS);

@@ -2,6 +2,7 @@
  * The searchable catalog of every user-facing setting: where it lives (section/tab), its
  * label and description. Data only; matching is in `search.ts`.
  */
+import { CATEGORIES, SPECS } from "#lib/sound/policy.ts";
 import type { AppearanceTab, SettingsSection, SettingsTarget } from "./sections.ts";
 
 export interface SettingEntry extends SettingsTarget {
@@ -41,6 +42,14 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Updates",
 		"Check for a new Atlas release and install it.",
 		"version upgrade release cli app",
+	),
+	entry(
+		"general",
+		"Updates",
+		"update-channel",
+		"Update channel",
+		"Follow Stable, Beta or Alpha releases. Shared with the atlas CLI.",
+		"beta alpha stable prerelease pre-release rc nightly insiders downgrade release train",
 	),
 	entry(
 		"general",
@@ -654,5 +663,32 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Getting started checklist",
 		"Bring back the first steps card, or start over.",
 		"onboarding progress",
+	),
+	entry(
+		"general",
+		"Sounds",
+		"sounds",
+		"Sounds",
+		"Short, quiet cues for the moments that matter. Off with one switch.",
+		"audio sound effects earcon chime notification mute silent",
+	),
+	entry(
+		"general",
+		"Sounds",
+		"sound-volume",
+		"Sound volume",
+		"How loud Atlas sounds are, on top of your Mac's volume.",
+		"loudness quiet audio level",
+	),
+	entry(
+		"general",
+		"Sounds",
+		"sound-reduce",
+		"Reduce sounds",
+		"Only play the ones that need your attention, and quieter.",
+		"quiet minimal less fewer",
+	),
+	...CATEGORIES.map((c) =>
+		entry("general", "Sounds", `sound-cat-${c}`, SPECS[c].label, SPECS[c].description, "sound earcon chime"),
 	),
 ];

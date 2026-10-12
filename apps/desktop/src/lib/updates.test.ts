@@ -6,7 +6,14 @@ import {
 	EMPTY_PROGRESS,
 	badgesFor,
 	blurbOf,
+	cardState,
+	channelOfVersion,
 	compareVersions,
+	confirmCopy,
+	offerLine,
+	parseChannelState,
+	parseChannelViews,
+	prereleaseBadge,
 	dateOf,
 	formatBytes,
 	isSkipped,
@@ -25,6 +32,8 @@ import {
 	stripVersionHeading,
 	versionAnchor,
 } from "./updates.ts";
+import { searchSettings } from "./settings/index.ts";
+import fixture from "./__fixtures__/channel-views.json";
 
 const rel = (version) => ({ version, url: "", published_at: "", notes: "" });
 const prefs = (p = {}) => ({ ...EMPTY_PREFS, ...p });
@@ -35,6 +44,167 @@ describe("compareVersions", () => {
 		expect(compareVersions("1.0.0", "1.0.0")).toBe(0);
 		expect(compareVersions("1.0.0-rc.1", "1.0.0")).toBe(-1);
 		expect(compareVersions("v1.0.1", "1.0.0")).toBe(1);
+	});
+
+	test("pre-release identifiers follow SemVer precedence", () => {
+		expect(compareVersions("1.4.0-alpha.10", "1.4.0-alpha.9")).toBe(1);
+		expect(compareVersions("1.4.0-alpha.9", "1.4.0-alpha.10")).toBe(-1);
+		expect(compareVersions("1.4.0-alpha.3", "1.4.0-beta.1")).toBe(-1);
+		expect(compareVersions("1.4.0-beta.2", "1.4.0-rc.1")).toBe(-1);
+		expect(compareVersions("1.4.0-rc.1", "1.4.0")).toBe(-1);
+		expect(compareVersions("1.4.0-alpha", "1.4.0-alpha.1")).toBe(-1);
+		expect(compareVersions("1.4.0-1", "1.4.0-alpha")).toBe(-1);
+		expect(compareVersions("1.5.0-alpha.1", "1.4.0")).toBe(1);
+	});
+
+	test("build metadata is ignored", () => {
+		expect(compareVersions("1.3.0+b2", "1.3.0+b1")).toBe(0);
+		expect(compareVersions("1.3.0-beta.1+x", "1.3.0-beta.1")).toBe(0);
+	});
+});
+
+describe("channelOfVersion", () => {
+	test.each([
+		["1.3.0", "stable"],
+		["v1.3.0", "stable"],
+		["1.4.0-rc.1", "beta"],
+		["1.4.0-beta.2", "beta"],
+		["1.4.0-alpha.3", "alpha"],
+		["1.4.0-alpha", "alpha"],
+		["1.4.0-nightly.1", null],
+		["garbage", null],
+		["", null],
+	])("%s → %s", (v, want) => expect(channelOfVersion(v)).toBe(want));
+});
+
+describe("prereleaseBadge", () => {
+	test("Alpha / Beta / RC for prereleases, nothing for a release or unknown label", () => {
+		expect(prereleaseBadge("1.4.0-alpha.3")).toBe("Alpha");
+		expect(prereleaseBadge("1.4.0-beta.2")).toBe("Beta");
+		expect(prereleaseBadge("1.4.0-rc.1")).toBe("RC");
+		expect(prereleaseBadge("1.4.0")).toBeNull();
+		expect(prereleaseBadge("1.4.0-nightly.1")).toBeNull();
+		expect(prereleaseBadge("junk")).toBeNull();
+	});
+});
+
+// The fixture is written by the real Rust serializer (`channel_views_fixture_is_the_real_serialization`).
+describe("contract with the Rust serializer", () => {
+	test("channel views parse with their snake_case keys", () => {
+		const views = parseChannelViews(fixture.views);
+		expect(views.map((v) => v.channel)).toEqual(["stable", "beta", "alpha"]);
+		const beta = views[1];
+		expect(beta.risk_label).toBe(fixture.views[1].risk_label);
+		expect(beta.switch_to).toBe(fixture.views[1].switch_to);
+		expect(beta.offered).toBe("1.4.0-beta.2");
+		expect(beta.tag).toBe("v1.4.0-beta.2");
+		expect(beta.action).toBe("update");
+		expect(views[0].selected).toBe(true);
+		expect(views[0].alpha_era_note).toBe(fixture.views[0].alpha_era_note);
+	});
+
+	test("an offline check (no tag, no offer) still parses", () => {
+		const views = parseChannelViews(fixture.offline);
+		expect(views).toHaveLength(3);
+		for (const v of views) {
+			expect(v.offered).toBeNull();
+			expect(v.tag).toBeNull();
+			expect(v.action).toBe("none");
+		}
+		expect(views.find((v) => v.selected)?.channel).toBe("beta");
+	});
+
+	test("a downgrade offer is carried", () => {
+		expect(parseChannelViews(fixture.ahead)[0].action).toBe("downgrade");
+	});
+
+	test("channel state parses", () => {
+		expect(parseChannelState(fixture.state)).toEqual({
+			channel: "beta",
+			stage: fixture.state.stage,
+			stage_note: fixture.state.stage_note,
+			env_override: false,
+		});
+		expect(parseChannelState(fixture.state_override).env_override).toBe(true);
+	});
+
+	test("camelCase drift is rejected, not silently accepted", () => {
+		const camel = fixture.views.map(({ risk_label, ...r }) => ({ ...r, riskLabel: risk_label }));
+		expect(() => parseChannelViews(camel)).toThrow();
+		expect(() => parseChannelViews("nope")).toThrow();
+		expect(() => parseChannelViews([{ channel: "nightly" }])).toThrow();
+		expect(() => parseChannelState({ channel: "beta" })).toThrow();
+	});
+
+	test("the Release payload keeps its keys", () => {
+		const r = fixture.release;
+		expect(r.update).toMatchObject({ channel: "beta", action: "update", downgrade: false, app_behind: true });
+		expect(r.downgrade).toMatchObject({
+			action: "downgrade",
+			downgrade: true,
+			app_ahead: true,
+			app_behind: false,
+		});
+		expect(r.none).toMatchObject({ action: "none", cli_behind: false, cli_ahead: false });
+	});
+});
+
+describe("offerLine", () => {
+	const view = (action, offered) => ({ action, offered });
+	test("says what the channel offers", () => {
+		expect(offerLine(view("update", "1.4.0-beta.2"))).toBe("Offers 1.4.0-beta.2");
+		expect(offerLine(view("none", "1.3.0"))).toBe("Nothing newer than what you run");
+		expect(offerLine(view("downgrade", "1.3.0"))).toBe("Offers 1.3.0, older than yours");
+		expect(offerLine(view("none", null))).toBe("Offer unknown");
+	});
+});
+
+describe("cardState", () => {
+	const views = () => parseChannelViews(fixture.views);
+	test("marks the followed channel and the one matching the running build", () => {
+		const cards = cardState(views(), "1.3.0", "stable");
+		expect(cards.map((c) => [c.view.channel, c.following, c.installed])).toEqual([
+			["stable", true, true],
+			["beta", false, false],
+			["alpha", false, false],
+		]);
+		const onAlpha = cardState(views(), "1.4.0-alpha.3", "alpha");
+		expect(onAlpha.map((c) => c.installed)).toEqual([false, false, true]);
+		expect(onAlpha[2].following).toBe(true);
+	});
+
+	test("a build with an unknown label is installed on no card", () => {
+		expect(cardState(views(), "1.4.0-nightly.1", "stable").some((c) => c.installed)).toBe(false);
+		expect(cardState(views(), undefined, "stable").some((c) => c.installed)).toBe(false);
+	});
+
+	test("risk tone and offer line per card", () => {
+		const cards = cardState(views(), "1.3.0", "stable");
+		expect(cards.map((c) => c.tone)).toEqual(["success", "warn", "error"]);
+		expect(cards[1].offer).toBe("Offers 1.4.0-beta.2");
+		expect(cards[0].offer).toBe("Nothing newer than what you run");
+	});
+});
+
+describe("confirmCopy", () => {
+	const [stable, beta] = parseChannelViews(fixture.views);
+	test("switching to a channel that offers an update never downgrades", () => {
+		const c = confirmCopy(beta);
+		expect(c.text).toBe(beta.switch_to);
+		expect(c.downgrade).toBeNull();
+	});
+	test("nothing offered: just the switch text", () => {
+		expect(confirmCopy(stable).downgrade).toBeNull();
+	});
+	test("a lower channel offers an explicit, separate downgrade with a warning", () => {
+		const [low] = parseChannelViews(fixture.ahead);
+		const c = confirmCopy(low);
+		expect(c.text).toBe(low.switch_to);
+		expect(c.downgrade).toEqual({
+			label: "Install 1.3.0 now (downgrade)",
+			version: "1.3.0",
+			warning: expect.stringContaining("may not be readable"),
+		});
 	});
 });
 
@@ -302,4 +472,12 @@ test("blurbOf prefers the summary, then the first change, and caps its length", 
 	expect(blurbOf(parseNotes("### Fixed\n- Plain `code` text."))).toBe("Plain code text.");
 	expect(blurbOf(parseNotes("### Fixed\n- " + "x".repeat(200))).length).toBe(90);
 	expect(blurbOf(parseNotes(""))).toBe("");
+});
+
+describe("settings search", () => {
+	test("the update channel is findable and lives in General", () => {
+		for (const q of ["update channel", "beta", "alpha", "stable", "prerelease"]) {
+			expect(searchSettings(q).some((e) => e.id === "update-channel" && e.section === "general")).toBe(true);
+		}
+	});
 });

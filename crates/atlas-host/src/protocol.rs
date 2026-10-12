@@ -19,7 +19,7 @@
 //!   crashed; first open of a language may download its server); `lsp_change`, `lsp_close`,
 //!   `lsp_save`, `lsp_request {path, method, params, rid?}` (raw LSP result; `$/capabilities`
 //!   gives the server's capabilities), `lsp_cancel {id: rid}`, `lsp_status` → `{servers}`,
-//!   `lsp_apply_edit_result {id, applied}`. `lsp_open` also takes `overrides` (the user's
+//!   `lsp_apply_edit_result {id, applied}`. `lsp_open` also takes `root` (the worktree that opened it) and `overrides` (the user's
 //!   `lsp.<language>` settings: `command`, `args`, `initialization_options`, `settings`,
 //!   `disabled`) and replies with `reason` (why `missing`/`crashed`: `{code, message, hint?,
 //!   command?}`) and, for `disabled`, `supported` (languages that have a server).
@@ -231,6 +231,10 @@ pub enum HostCmd {
         /// The user's per-language customization (`lsp.<language>` settings).
         #[serde(default)]
         overrides: Option<Value>,
+        /// Worktree root that opened the document: where a dependency file (`node_modules`, the cargo
+        /// registry, Rust std) is served from, and the fallback when no project marker is found.
+        #[serde(default)]
+        root: Option<String>,
     },
     /// LSP `contentChanges` (incremental, UTF-16 positions), applied in order.
     LspChange {
@@ -340,5 +344,27 @@ mod tests {
         let r: Request = serde_json::from_str(r#"{"id":1,"cmd":"pty_list","args":{}}"#).unwrap();
         assert!(matches!(r.cmd, HostCmd::PtyList {}));
         assert!(serde_json::from_str::<Request>(r#"{"id":1,"cmd":"nope","args":{}}"#).is_err());
+    }
+
+    /// `root` is the worktree that opened the document (dependency files are served from it). It is
+    /// optional on the wire: a desktop that predates it must keep working.
+    #[test]
+    fn lsp_open_carries_the_worktree_root_and_stays_optional() {
+        let with: Request = serde_json::from_str(
+            r#"{"id":1,"cmd":"lsp_open","args":{"path":"/p/a.rs","language_id":"rust","text":"","root":"/p"}}"#,
+        )
+        .unwrap();
+        match with.cmd {
+            HostCmd::LspOpen { root, .. } => assert_eq!(root.as_deref(), Some("/p")),
+            other => panic!("{other:?}"),
+        }
+        let without: Request = serde_json::from_str(
+            r#"{"id":2,"cmd":"lsp_open","args":{"path":"/p/a.rs","language_id":"rust","text":""}}"#,
+        )
+        .unwrap();
+        match without.cmd {
+            HostCmd::LspOpen { root, .. } => assert!(root.is_none()),
+            other => panic!("{other:?}"),
+        }
     }
 }

@@ -1,9 +1,36 @@
 #!/usr/bin/env python3
-"""Generate manifest.json from release artifacts."""
+"""Generate manifest.json from release artifacts.
+
+Usage: generate-manifest.py <version> <artifacts-dir>
+Optional environment: ATLAS_COMMIT (default: GITHUB_SHA, then `git rev-parse HEAD`),
+ATLAS_PROMOTED_FROM (the prerelease tag a stable release was promoted from).
+"""
 import json
+import re
+import subprocess
 import sys
 import os
 from datetime import datetime, timezone
+
+VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.(0|[1-9]\d*))?$")
+# rc is offered on the beta channel (docs/versioning.md).
+CHANNEL_BY_LABEL = {None: "stable", "alpha": "alpha", "beta": "beta", "rc": "beta"}
+
+
+def channel_of(version):
+    m = VERSION_RE.match(version)
+    if not m:
+        raise ValueError(f"invalid version {version!r}: expected X.Y.Z or X.Y.Z-(alpha|beta|rc).N")
+    return CHANNEL_BY_LABEL[m.group(4)]
+
+
+def commit():
+    sha = os.environ.get("ATLAS_COMMIT") or os.environ.get("GITHUB_SHA")
+    if sha:
+        return sha
+    return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True,
+                          cwd=os.path.dirname(os.path.abspath(__file__))).stdout.strip()
+
 
 def get_sha256(filepath):
     sha_file = filepath + ".sha256"
@@ -65,15 +92,21 @@ def main():
             },
         }
 
+    channel = channel_of(version)
     manifest = {
         "version": version,
-        "channel": "beta" if "beta" in version else "stable",
+        "channel": channel,
+        "prerelease": channel != "stable",
+        "commit": commit(),
         "date": datetime.now(timezone.utc).isoformat(),
         "min_os": "14.0",
         "assets": assets,
         "changelog": f"https://github.com/codeatlasdev/atlas/releases/tag/v{version}",
         "required_update": False,
     }
+    promoted_from = os.environ.get("ATLAS_PROMOTED_FROM")
+    if promoted_from:
+        manifest["promoted_from"] = promoted_from
 
     print(json.dumps(manifest, indent=2))
 

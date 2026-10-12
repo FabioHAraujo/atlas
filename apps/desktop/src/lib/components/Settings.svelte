@@ -11,6 +11,7 @@
 	import SearchResults from "./settings/SearchResults.svelte";
 	import SectionTitle from "./settings/SectionTitle.svelte";
 	import SettingsNav from "./settings/SettingsNav.svelte";
+	import SoundSettings from "./settings/SoundSettings.svelte";
 	import UpdatesSection from "./settings/UpdatesSection.svelte";
 	import ShellSettings from "./ShellSettings.svelte";
 	import ShortcutSettings from "./ShortcutSettings.svelte";
@@ -54,6 +55,7 @@
 					shell if tools like bun or node are not found.
 				</SectionTitle>
 				<ShellSettings />
+				<SoundSettings />
 			{:else if u.section === "appearance"}
 				<EditorSettings />
 			{:else if u.section === "workspaces"}

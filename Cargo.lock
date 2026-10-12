@@ -331,6 +331,7 @@ version = "1.3.0"
 dependencies = [
  "anyhow",
  "dirs",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",

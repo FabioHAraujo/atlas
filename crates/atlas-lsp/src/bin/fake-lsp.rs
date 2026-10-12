@@ -14,6 +14,12 @@
 //!   `fn` declaration; `references`/`rename` cover every whole-word occurrence; `hover`
 //!   answers `fn <name>`; `documentSymbol` lists the `fn`s. Text is kept in sync from
 //!   `didChange` (incremental or full).
+//! - `FAKE_XFILE_DIR=<dir>` (with `FAKE_SEMANTIC`): `definition` of a name not declared in the open
+//!   document is looked up in the files of `<dir>` and answered as a `LocationLink` (what
+//!   typescript-language-server sends), with a percent-encoded `file://` URI. `<dir>` may be outside
+//!   the project root, like the Rust std sources or a global `node_modules`.
+//! - `FAKE_INIT_DELAY_MS=<ms>`: wait before answering `initialize`, so "the server is still starting"
+//!   is observable.
 //! - Every spawn increments a counter file when `FAKE_COUNT_FILE` is set, so tests can
 //!   count restarts.
 
@@ -110,6 +116,55 @@ mod semantic {
             .find(|d| d.3 == name)
             .map(|(l, a, b, _)| json!([{"uri": uri, "range": range(l, a, b)}]))
             .unwrap_or(Value::Null)
+    }
+
+    fn encode(path: &std::path::Path) -> String {
+        let mut out = String::from("file://");
+        for b in path.to_string_lossy().bytes() {
+            match b {
+                b'A'..=b'Z'
+                | b'a'..=b'z'
+                | b'0'..=b'9'
+                | b'-'
+                | b'_'
+                | b'.'
+                | b'~'
+                | b'/'
+                | b':' => out.push(b as char),
+                _ => out.push_str(&format!("%{b:02X}")),
+            }
+        }
+        out
+    }
+
+    /// `definition` of a name declared in a file of `dir`: a `LocationLink` onto its `fn` line.
+    pub fn xfile_definition(dir: &str, text: &str, line: u64, character: u64) -> Value {
+        let Some((_, _, _, name)) = word_at(text, line, character) else {
+            return Value::Null;
+        };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Value::Null;
+        };
+        let mut files: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+        files.sort();
+        for path in files.into_iter().filter(|p| p.is_file()) {
+            let Ok(body) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if let Some((l, a, b, _)) = decls(&body).into_iter().find(|d| d.3 == name) {
+                let whole_start = body
+                    .lines()
+                    .nth(l as usize)
+                    .map_or(0, |ln| ln.chars().count() as u64);
+                return json!([{
+                    "targetUri": encode(&path),
+                    "targetRange": {"start": {"line": l, "character": 0},
+                                    "end": {"line": l, "character": whole_start}},
+                    "targetSelectionRange": range(l, a, b),
+                }]);
+            }
+        }
+        Value::Null
     }
 
     pub fn references(uri: &str, text: &str, line: u64, character: u64) -> Value {
@@ -216,18 +271,26 @@ fn main() {
         let id = m.get("id").cloned();
         let params = m.get("params").cloned().unwrap_or(Value::Null);
         match (method, id) {
-            ("initialize", Some(id)) => send(&json!({"jsonrpc":"2.0","id":id,"result":{
-                "capabilities": {
-                    "textDocumentSync": {"openClose": true, "change": sync, "save": {"includeText": true}},
-                    "hoverProvider": true,
-                    "renameProvider": {"prepareProvider": true},
-                    "completionProvider": semantic.then(|| json!({"triggerCharacters": ["."]})),
-                    "definitionProvider": semantic,
-                    "referencesProvider": semantic,
-                    "documentSymbolProvider": semantic
-                },
-                "serverInfo": {"name": "fake-lsp"}
-            }})),
+            ("initialize", Some(id)) => {
+                if let Some(ms) = std::env::var("FAKE_INIT_DELAY_MS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                }
+                send(&json!({"jsonrpc":"2.0","id":id,"result":{
+                    "capabilities": {
+                        "textDocumentSync": {"openClose": true, "change": sync, "save": {"includeText": true}},
+                        "hoverProvider": true,
+                        "renameProvider": {"prepareProvider": true},
+                        "completionProvider": semantic.then(|| json!({"triggerCharacters": ["."]})),
+                        "definitionProvider": semantic,
+                        "referencesProvider": semantic,
+                        "documentSymbolProvider": semantic
+                    },
+                    "serverInfo": {"name": "fake-lsp"}
+                }}))
+            }
             ("shutdown", Some(id)) => send(&json!({"jsonrpc":"2.0","id":id,"result":null})),
             ("exit", _) => std::process::exit(0),
             ("textDocument/didOpen", _) => {
@@ -288,7 +351,13 @@ fn main() {
                 let c = params["position"]["character"].as_u64().unwrap_or(0);
                 let result = match method {
                     "textDocument/completion" => semantic::completion(t, l, c),
-                    "textDocument/definition" => semantic::definition(uri, t, l, c),
+                    "textDocument/definition" => {
+                        let local = semantic::definition(uri, t, l, c);
+                        match (local.is_null(), std::env::var("FAKE_XFILE_DIR")) {
+                            (true, Ok(dir)) => semantic::xfile_definition(&dir, t, l, c),
+                            _ => local,
+                        }
+                    }
                     "textDocument/references" => semantic::references(uri, t, l, c),
                     "textDocument/rename" => {
                         semantic::rename(uri, t, l, c, params["newName"].as_str().unwrap_or(""))

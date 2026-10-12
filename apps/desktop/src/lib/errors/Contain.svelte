@@ -7,7 +7,7 @@
 	import type { Snippet } from "svelte";
 	import ErrorPanel from "./ErrorPanel.svelte";
 	import { errors } from "./errors.svelte.ts";
-	import { report } from "./report.ts";
+	import { report, type ErrorReport } from "./report.ts";
 
 	let {
 		children,
@@ -32,6 +32,8 @@
 
 	let version = $state<string | undefined>();
 	$effect(() => void errors.version().then((v) => (version = v)));
+	/** Machine facts and recent breadcrumbs, added once the card is up (never blocks showing it). */
+	let enriched = $state<ErrorReport | undefined>();
 
 	function onerror(e: unknown) {
 		// The boundary swallows the error, so the window `error` event never fires: log it here.
@@ -42,8 +44,10 @@
 <svelte:boundary {onerror}>
 	{@render children()}
 	{#snippet failed(error, reset)}
+		{@const base = report(error, { where, kind, file, version })}
+		{void errors.enrich(base).then((r) => (enriched = r))}
 		<ErrorPanel
-			report={report(error, { where, kind, file, version })}
+			report={enriched?.message === base.message ? enriched : base}
 			{title}
 			{hint}
 			retry={reset}

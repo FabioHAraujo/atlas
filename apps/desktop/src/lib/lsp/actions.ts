@@ -17,33 +17,23 @@ import {
 import type { LspDiagnostic } from "#lib/lsp/client.svelte.ts";
 import { explainUnserved } from "#lib/lsp/hints.svelte.ts";
 import type { Feature } from "#lib/lsp/messages.ts";
+import { toTargets, type Target } from "#lib/lsp/navigation.ts";
 
-interface LspLocation {
-	uri: string;
-	range: Range;
-}
-interface LspLocationLink {
-	targetUri: string;
-	targetSelectionRange: Range;
-	targetRange: Range;
-}
-
-const toLocation = (l: LspLocation | LspLocationLink): Location => {
-	const link = "targetUri" in l;
-	const r = link ? l.targetSelectionRange : l.range;
-	return { path: uriToPath(link ? l.targetUri : l.uri), line: r.start.line, character: r.start.character };
-};
+const toLocation = (t: Target): Location => ({
+	path: t.path,
+	line: t.start.line,
+	character: t.start.character,
+	end: t.end,
+});
 
 async function locate(view: EditorView, method: string, label: string, feature: Feature) {
 	const env = envOf(view);
 	if (!env || !explainUnserved(view, feature)) return;
-	const res = await env.doc.request<LspLocation | LspLocationLink | (LspLocation | LspLocationLink)[]>(
-		method,
-		posParams(view, env),
-	);
-	const list = (Array.isArray(res) ? res : res ? [res] : []).map(toLocation);
+	const res = await env.doc.request<unknown>(method, posParams(view, env));
+	const list = toTargets(res).map(toLocation);
 	if (list.length === 0) return toast.info(`No ${label} found`);
-	if (list.length === 1) env.openAt(list[0].path, { line: list[0].line, character: list[0].character });
+	if (list.length === 1)
+		env.openAt(list[0].path, { line: list[0].line, character: list[0].character }, list[0].end);
 	else env.showLocations(label[0].toUpperCase() + label.slice(1) + "s", list);
 }
 
@@ -57,13 +47,13 @@ export const goToImplementation = (view: EditorView) =>
 export async function findReferences(view: EditorView) {
 	const env = envOf(view);
 	if (!env || !explainUnserved(view, "references")) return;
-	const res = await env.doc.request<LspLocation[]>("textDocument/references", {
+	const res = await env.doc.request<unknown>("textDocument/references", {
 		...posParams(view, env),
 		context: { includeDeclaration: true },
 	});
 	const doc = view.state.doc;
-	const list = (res ?? []).map((r) => {
-		const loc = toLocation(r);
+	const list = toTargets(res).map((t) => {
+		const loc = toLocation(t);
 		// Same-file hits get their source line; other files would need a read per result.
 		if (loc.path === env.doc.path && loc.line < doc.lines) loc.preview = doc.line(loc.line + 1).text.trim();
 		return loc;

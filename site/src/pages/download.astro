@@ -3,8 +3,13 @@ import Base from "../layouts/Base.astro";
 import InstallCopy from "../components/islands/InstallCopy.svelte";
 import Waitlist from "../components/islands/Waitlist.svelte";
 import ShareLink from "../components/islands/ShareLink.svelte";
-import { latestRelease, fmtDate, fmtSize } from "../data/release";
+import { channelReleases, latestRelease, fmtDate, fmtSize } from "../data/release";
 import { SITE } from "../data/site";
+import copy from "../../../crates/atlas-core/data/channels.json";
+
+// Beta and Alpha: the copy is the one the CLI and Atlas Desktop use; what each offers is resolved like the edge does it.
+const others = await channelReleases();
+const otherChannels = copy.channels.filter((c) => c.id !== "stable");
 
 const rel = await latestRelease();
 const dmgUrl = rel.dmg?.url ?? SITE.releases;
@@ -62,6 +67,7 @@ const reqs: [string, string][] = [
 						<a class="btn solid big" href={dmgUrl} rel="noopener" data-dmg>Download for Mac (.dmg)</a>
 						<span class="meta" data-size>{rel.dmg ? `${fmtSize(rel.dmg.size)} · Apple silicon` : "Apple silicon"}</span>
 					</div>
+					{copy.stage === "alpha" && <p class="stage" data-stage>{copy.stage_note}</p>}
 					<p class="note" data-intel hidden>This download is for Apple silicon. Intel Macs are coming soon: use Notify me below.</p>
 					<div class="cli">
 						<p class="cli-h">Or install the command line and the app from a terminal</p>
@@ -83,6 +89,40 @@ const reqs: [string, string][] = [
 					</dl>
 				</aside>
 			</div>
+
+			<section class="channels" aria-labelledby="ch-h" data-channels>
+				<h2 id="ch-h" class="h">Other channels</h2>
+				<p class="sub">The download above is the Stable channel. Beta and Alpha get new work sooner and break more often. You can switch at any time with <code>atlas update channel</code> or in Settings.</p>
+				<ul class="cards">
+					{otherChannels.map((c) => {
+						const r = others[c.id as "beta" | "alpha"];
+						return (
+							<li class="card chan" data-channel={c.id} data-risk={c.risk}>
+								<div class="ct chan-t">
+									<div>
+										<h3 id={`ch-${c.id}`}>{c.label}</h3>
+										<p class="pn">{c.audience}</p>
+									</div>
+									<span class={`badge risk risk-${c.risk}`}>{c.risk_label}</span>
+								</div>
+								<p class="promise">{c.promise}</p>
+								<div class="chan-r" data-offer aria-live="polite">
+									{r ? (
+										<>
+											<p class="chan-v"><a class="ln" href={r.notes} rel="noopener" data-ver>{r.version}</a> · <time data-date datetime={r.date}>{fmtDate(r.date)}</time></p>
+											{r.dmg ? <a class="btn" href={r.dmg.url} rel="noopener" data-dmg>Download {c.label} (.dmg)</a> : null}
+											{r.dmg ? <p class="meta">{fmtSize(r.dmg.size)} · Apple silicon · SHA-256 <code data-sha>{r.dmg.sha256}</code></p> : null}
+										</>
+									) : (
+										<p class="chan-none" data-none>No {c.label} release yet.</p>
+									)}
+								</div>
+								<p class="fine chan-sw">{c.switch_to}</p>
+							</li>
+						);
+					})}
+				</ul>
+			</section>
 
 			<section class="soon" aria-labelledby="soon-h">
 				<h2 id="soon-h" class="h">Coming soon</h2>
@@ -175,6 +215,52 @@ const reqs: [string, string][] = [
 		}
 		document.documentElement.dataset.release = r.version;
 	};
+	// Other channels: /channels.json carries the same copy as the page and what each channel offers right now. A channel that offers
+	// nothing newer than Stable ("release" is Stable's own tag) shows the honest empty state instead of repeating the Stable download.
+	interface Chan { id: string; label: string; release: (Rel & { tag: string }) | null }
+	const fmt = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+	const offer = (c: Chan, stable: string | undefined) => {
+		const box = $(`[data-channel="${c.id}"] [data-offer]`);
+		if (!box) return;
+		const r = c.release;
+		box.replaceChildren();
+		const add = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, fill: (el: HTMLElementTagNameMap[K]) => void) => {
+			const el = document.createElement(tag);
+			if (cls) el.className = cls;
+			fill(el);
+			box.append(el);
+			return el;
+		};
+		if (!r || r.tag === stable) {
+			add("p", "chan-none", (p) => { p.dataset.none = ""; p.textContent = `No ${c.label} release yet.`; });
+			return;
+		}
+		add("p", "chan-v", (p) => {
+			const a = document.createElement("a");
+			a.className = "ln"; a.href = r.notes; a.rel = "noopener"; a.textContent = r.version; a.dataset.ver = "";
+			const t = document.createElement("time");
+			t.dateTime = r.date; t.textContent = fmt(r.date); t.dataset.date = "";
+			p.append(a, " · ", t);
+		});
+		if (r.dmg) {
+			const d = r.dmg;
+			add("a", "btn", (a) => { a.href = d.url; a.rel = "noopener"; a.textContent = `Download ${c.label} (.dmg)`; a.dataset.dmg = ""; });
+			add("p", "meta", (p) => {
+				const code = document.createElement("code");
+				code.dataset.sha = ""; code.textContent = d.sha256;
+				p.append(`${(d.size / 1_048_576).toFixed(1)} MB · Apple silicon · SHA-256 `, code);
+			});
+		}
+	};
+	fetch("/channels.json", { headers: { accept: "application/json" } })
+		.then((r) => (r.ok ? (r.json() as Promise<{ channels: Chan[] }>) : Promise.reject()))
+		.then(({ channels }) => {
+			const stable = channels.find((c) => c.id === "stable")?.release?.tag;
+			for (const c of channels) if (c.id !== "stable") offer(c, stable);
+		})
+		.catch(() => {
+			// Same as /release.json: the built cards stay.
+		});
 	fetch("/release.json", { headers: { accept: "application/json" } })
 		.then((r) => (r.ok ? (r.json() as Promise<Rel>) : Promise.reject()))
 		.then(apply)
@@ -228,6 +314,22 @@ const reqs: [string, string][] = [
 	.pn { margin: 0.2rem 0 0; color: var(--fg-2); font-size: 0.92rem; }
 	.src { max-width: 70ch; }
 
+	.stage { margin: 0; max-width: 56ch; color: var(--fg-2); font-size: 0.95rem; }
+	.channels { margin-top: var(--s-7); display: grid; gap: var(--s-3); }
+	.chan { align-content: start; }
+	.chan-t { grid-template-columns: minmax(0, 1fr) auto; }
+	.chan-t .badge { grid-column: auto; align-self: start; }
+	.risk-medium { color: var(--wait); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--wait) 55%, transparent); }
+	.risk-high { color: #ff9d8a; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, #ff9d8a 55%, transparent); }
+	.promise { margin: 0; }
+	/* The offer box is rebuilt by the script below, and nodes it creates carry no scoped-style attribute: hence :global under .chan-r */
+	.chan-r { display: grid; gap: var(--s-2); justify-items: start; min-width: 0; }
+	.chan-r :global(.chan-v) { margin: 0; font-weight: 700; }
+	.chan-r :global(.chan-none) { margin: 0; color: var(--fg-2); }
+	.chan-r :global(.meta) { margin: 0; color: var(--fg-2); font-size: 0.92rem; overflow-wrap: anywhere; }
+	.chan-r :global(code) { font-size: 0.8rem; word-break: break-all; }
+	.chan-sw { margin: 0; }
+
 	.sums { margin: 0; display: grid; gap: var(--s-3); }
 	.sums > div { display: grid; gap: 0.3rem; min-width: 0; }
 	.sums dt { font-weight: 700; overflow-wrap: anywhere; }
@@ -237,5 +339,5 @@ const reqs: [string, string][] = [
 	/* Phones: the .dmg is for a computer, so the button steps back; the send-me-the-link block above leads */
 	:global(html[data-os="mobile"]) .big { background: transparent; color: var(--fg); border-color: var(--fg); }
 	@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } .side { grid-row: 2; } }
-	@media (max-width: 520px) { .cta .btn { width: 100%; } .facts > div { grid-template-columns: 5.5rem minmax(0, 1fr); } }
+	@media (max-width: 520px) { .cta .btn, .chan-r .btn { width: 100%; } .facts > div { grid-template-columns: 5.5rem minmax(0, 1fr); } }
 </style>

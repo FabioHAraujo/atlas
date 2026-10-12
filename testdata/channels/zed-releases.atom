@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xml:lang="en-US">
+  <id>tag:github.com,2008:https://github.com/zed-industries/zed/releases</id>
+  <link type="text/html" rel="alternate" href="https://github.com/zed-industries/zed/releases"/>
+  <link type="application/atom+xml" rel="self" href="https://github.com/zed-industries/zed/releases.atom"/>
+  <title>Release notes from zed</title>
+  <updated>2026-10-12T12:28:20Z</updated>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/v1.24.2-pre</id>
+    <updated>2026-10-12T19:35:15Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/v1.24.2-pre"/>
+    <title>v1.24.2-pre</title>
+    <content type="html"></content>
+    <author>
+      <name>zed-zippy[bot]</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/v1.23.3</id>
+    <updated>2026-10-12T18:38:29Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/v1.23.3"/>
+    <title>v1.23.3</title>
+    <content type="html"></content>
+    <author>
+      <name>zed-zippy[bot]</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/nightly</id>
+    <updated>2026-10-12T13:54:17Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/nightly"/>
+    <title>nightly: Fix a permission in community automation (#65511)</title>
+    <content type="html"></content>
+    <author>
+      <name>zelenenka</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/collab-staging</id>
+    <updated>2026-10-12T16:04:28Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/collab-staging"/>
+    <title>collab-staging: agent: Release native command work with its session (#65502)</title>
+    <content type="html"></content>
+    <author>
+      <name>benbrandt</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/v1.24.1-pre</id>
+    <updated>2026-10-07T18:28:21Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/v1.24.1-pre"/>
+    <title>v1.24.1-pre</title>
+    <content type="html"></content>
+    <author>
+      <name>zed-zippy[bot]</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/v1.24.0-pre</id>
+    <updated>2026-10-07T14:12:14Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/v1.24.0-pre"/>
+    <title>v1.24.0-pre</title>
+    <content type="html"></content>
+    <author>
+      <name>zed-zippy[bot]</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/v1.23.2</id>
+    <updated>2026-10-07T18:27:26Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/v1.23.2"/>
+    <title>v1.23.2</title>
+    <content type="html"></content>
+    <author>
+      <name>zed-zippy[bot]</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/v1.23.1</id>
+    <updated>2026-10-07T14:13:12Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/v1.23.1"/>
+    <title>v1.23.1</title>
+    <content type="html"></content>
+    <author>
+      <name>zed-zippy[bot]</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/v1.23.1-pre</id>
+    <updated>2026-09-30T18:26:15Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/v1.23.1-pre"/>
+    <title>v1.23.1-pre</title>
+    <content type="html"></content>
+    <author>
+      <name>zed-zippy[bot]</name>
+    </author>
+    
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/340547520/v1.23.0-pre</id>
+    <updated>2026-09-30T14:36:41Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/zed-industries/zed/releases/tag/v1.23.0-pre"/>
+    <title>v1.23.0-pre</title>
+    <content type="html"></content>
+    <author>
+      <name>zed-zippy[bot]</name>
+    </author>
+    
+  </entry>
+</feed>

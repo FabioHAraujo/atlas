@@ -56,6 +56,7 @@ macro_rules! handlers {
         tauri::generate_handler![
             cmds::projects_list,
             cmds::projects_add,
+            cmds::system_ui_sounds,
             cmds::live_resync,
             cmds::projects_remove,
             cmds::projects_pin,
@@ -89,6 +90,10 @@ macro_rules! handlers {
             cmds::theme_read_packed,
             updates::system_info,
             updates::latest_release,
+            updates::update_channels,
+            updates::update_channels_offline,
+            updates::update_channel_get,
+            updates::update_channel_set,
             updates::releases_between,
             updates::update_size,
             updates::update_all,

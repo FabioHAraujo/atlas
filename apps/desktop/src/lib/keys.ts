@@ -13,6 +13,8 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
 	"shift-escape": "workspace::ToggleZoom",
 	// Language server (the focused editor): F-keys as in Zed/VS Code
 	f12: "editor::GoToDefinition",
+	"ctrl--": "editor::GoBack",
+	"ctrl-shift--": "editor::GoForward",
 	"alt-f12": "editor::GoToTypeDefinition",
 	"cmd-f12": "editor::GoToImplementation",
 	"shift-f12": "editor::FindAllReferences",

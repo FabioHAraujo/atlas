@@ -13,8 +13,9 @@ Maintainers review and merge pull requests, triage issues, cut releases (see [do
 ## How decisions are made
 
 - Small fixes: one maintainer approval and a green `bun run check` / CI.
-- Features, config-schema changes, CLI flag changes, MCP tool changes and anything touching the runtime safety rules in [AGENTS.md](AGENTS.md): discuss in an issue or Discussion first; the lead maintainer decides when there is no consensus.
-- Public surfaces (CLI flags, `atlas.yaml`, MCP tools) follow [SemVer](https://semver.org); breaking changes are called out in [CHANGELOG.md](CHANGELOG.md).
+- Features, config-schema changes, CLI flag changes, MCP tool changes and anything touching the runtime safety rules in [AGENTS.md](AGENTS.md): discuss in an issue first; the lead maintainer decides when there is no consensus.
+- Public surfaces (CLI flags, `atlas.yaml`, MCP tools) follow [SemVer](https://semver.org); breaking changes are called out in [CHANGELOG.md](CHANGELOG.md). The release channels (Stable, Beta, Alpha) and what each promises are in [docs/versioning.md](docs/versioning.md), and how something is deprecated and removed is in [docs/deprecation.md](docs/deprecation.md).
+- Issues are triaged by a maintainer using the labels and targets in [docs/labels.md](docs/labels.md).
 
 ## Becoming a maintainer
 

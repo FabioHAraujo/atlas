@@ -19,6 +19,7 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 dirs = { workspace = true }
+semver = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

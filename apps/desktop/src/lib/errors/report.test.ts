@@ -96,3 +96,121 @@ test("a plain object carrying a stack (SvelteKit's handleError result) keeps its
 	const r = report({ message: "m", stack: "m\n    at f (/Users/ana/p/a.ts:1:2)" }, { where: "x" });
 	expect(r.stack).toBe("    at f (a.ts:1:2)");
 });
+
+// --- AI-first artifacts -------------------------------------------------------------------------
+
+import {
+	aiDiagnosePrompt,
+	aiFixPrompt,
+	aiIssuePrompt,
+	causeHint,
+	markdownReport,
+	withContext,
+} from "./report.ts";
+
+const CTX = {
+	os: "macOS 26.0",
+	arch: "arm64",
+	locale: "pt-BR",
+	route: "/projects/atlas",
+	hostVersion: "0.6.2",
+	hostCaps: ["pty_attach_raw"],
+	breadcrumbs: [
+		{ at: 1000, text: "opened Settings > Languages" },
+		{ at: 1200, text: "lsp_catalog ok" },
+	],
+};
+const base = {
+	...report(
+		Object.assign(new TypeError("undefined is not an object (evaluating 't.entry.languageLabels[R(i)]')"), {
+			stack:
+				"TypeError: x\n    at render (/Users/ana/p/src/lib/settings/ServerRow.svelte:30:5)\n    at run (/Users/ana/p/a.ts:1:1)",
+		}),
+		{ where: "route /", kind: undefined, file: undefined },
+	),
+	version: "1.3.0",
+};
+
+describe("withContext", () => {
+	test("keeps what is safe and caps breadcrumbs; scrubs home paths in breadcrumb text", () => {
+		const r = withContext(base, {
+			...CTX,
+			breadcrumbs: Array.from({ length: 80 }, (_, i) => ({ at: i, text: `open /Users/ana/secret/${i}` })),
+		});
+		expect(r.context?.os).toBe("macOS 26.0");
+		expect(r.context?.breadcrumbs.length).toBeLessThanOrEqual(20);
+		expect(JSON.stringify(r.context)).not.toContain("/Users/ana");
+		// Most recent last, and the newest are the ones kept.
+		expect(r.context?.breadcrumbs.at(-1)?.at).toBe(79);
+	});
+});
+
+describe("causeHint", () => {
+	test("a TypeError on a missing field of a backend payload points at a Rust/TS contract mismatch", () => {
+		const h = causeHint(base);
+		expect(h?.title).toMatch(/backend|host|data/i);
+		expect(h?.detail).toContain("ServerRow.svelte");
+	});
+	test("an old terminal host with an lsp error says to restart the host", () => {
+		const r = withContext({ ...base, message: "lsp_open failed: unknown command" }, CTX);
+		expect(causeHint(r)?.title).toMatch(/terminal host/i);
+	});
+	test("unknown errors have no guess rather than a wrong one", () => {
+		expect(causeHint({ ...base, message: "boom", stack: "" })).toBeNull();
+	});
+});
+
+describe("markdownReport", () => {
+	const r = withContext(base, CTX);
+	test("is a complete, paste-ready report", () => {
+		const md = markdownReport(r);
+		expect(md).toContain("# Atlas desktop error");
+		expect(md).toContain("languageLabels");
+		expect(md).toContain("Atlas: 1.3.0");
+		expect(md).toContain("macOS 26.0");
+		expect(md).toContain("opened Settings > Languages");
+		expect(md).toContain("```");
+		expect(md).not.toContain("/Users/ana");
+	});
+});
+
+describe("AI prompts", () => {
+	const r = withContext(base, CTX);
+	test("fix prompt: names the repo, the file, the error, and demands a test first", () => {
+		const p = aiFixPrompt(r);
+		expect(p).toContain("codeatlasdev/atlas");
+		expect(p).toContain("ServerRow.svelte:30:5");
+		expect(p).toContain("languageLabels");
+		expect(p).toMatch(/failing test/i);
+		expect(p).toMatch(/serialized|real .*JSON|contract/i);
+		expect(p).not.toContain("/Users/ana");
+	});
+	test("issue prompt: asks the agent to search duplicates then file with gh, body inlined", () => {
+		const p = aiIssuePrompt(r);
+		expect(p).toContain("gh issue list");
+		expect(p).toContain("gh issue create");
+		expect(p).toContain("--repo codeatlasdev/atlas");
+		expect(p).toContain("languageLabels");
+		expect(p).toContain("--label bug");
+	});
+	test("diagnose prompt: for a person, plain language, no repo edits", () => {
+		const p = aiDiagnosePrompt(r);
+		expect(p).toMatch(/plain language|simple terms/i);
+		expect(p).toMatch(/do not (edit|change|modify)/i);
+		expect(p).toContain("languageLabels");
+	});
+	test("prompts stay bounded however long the stack is", () => {
+		const long = withContext({ ...r, stack: "at f (a.ts:1:1)\n".repeat(5000) }, CTX);
+		for (const p of [aiFixPrompt(long), aiIssuePrompt(long), aiDiagnosePrompt(long)])
+			expect(p.length).toBeLessThan(12_000);
+	});
+});
+
+test("the issue URL carries the richer report (context + hint) yet stays under budget", () => {
+	const r = withContext(base, CTX);
+	const u = new URL(issueUrl(r));
+	const body = u.searchParams.get("body") ?? "";
+	expect(body).toContain("macOS 26.0");
+	expect(body).toContain("opened Settings > Languages");
+	expect(issueUrl(r).length).toBeLessThan(9000);
+});

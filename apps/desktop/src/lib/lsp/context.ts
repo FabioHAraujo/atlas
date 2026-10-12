@@ -6,8 +6,8 @@ import { offsetToPos, pathToUri, type Position } from "#lib/lsp/convert.ts";
 /** What an editor gives the LSP extensions: its document sync and the host-side effects. */
 export interface LspEnv {
 	doc: LspDoc;
-	/** Open `path` (absolute) at a 0-based LSP position, in a tab. */
-	openAt: (path: string, pos: Position) => void;
+	/** Open `path` (absolute) with `start..end` (0-based LSP positions) selected, in a tab. */
+	openAt: (path: string, start: Position, end?: Position) => void;
 	/** Lists of locations (references) shown in a panel. */
 	showLocations: (title: string, locations: Location[]) => void;
 	/** Settings read live. */
@@ -19,6 +19,8 @@ export interface Location {
 	path: string;
 	line: number;
 	character: number;
+	/** End of the target range, when the server gave one. */
+	end?: Position;
 	/** Source line text for the results list, when known (only same-file hits). */
 	preview?: string;
 }

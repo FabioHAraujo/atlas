@@ -22,6 +22,7 @@
 	import HostStatusRow from "./HostStatusRow.svelte";
 	import Row from "./Row.svelte";
 	import SectionTitle from "./SectionTitle.svelte";
+	import UpdateChannel from "./UpdateChannel.svelte";
 
 	const CHANGELOG_URL = "https://github.com/codeatlasdev/atlas/blob/main/CHANGELOG.md";
 
@@ -120,7 +121,7 @@
 		</div>
 	</Row>
 	<HostStatusRow />
-	<Row icon={Sparkles} name="Channel" sub="Stable releases from GitHub">
+	<Row icon={Sparkles} name="Changelog" sub="Every release, newest first">
 		<button class="link" onclick={() => api.openUrl(CHANGELOG_URL)}
 			>Full changelog <ExternalLink size={11} /></button
 		>
@@ -137,6 +138,17 @@
 		/>
 	</Row>
 </Group>
+
+{#if u.aheadOfChannel && !u.linked}
+	<p class="skipnote">
+		You run a newer build than the {u.channelState?.channel ?? "selected"} channel offers ({u.release
+			?.version}), so no update is offered. Pick a more adventurous channel to keep moving forward, or install
+		{u.release?.version} explicitly with the button at the bottom (settings written by the newer build may not be
+		readable).
+	</p>
+{/if}
+
+<UpdateChannel />
 
 {#if u.linked}
 	<div class="devbox">
@@ -189,6 +201,14 @@
 						size={14}
 					/>{/if}{/snippet}
 			{u.running === "update" ? "Updating…" : "Update CLI and app"}
+		</Button>
+	{:else if u.aheadOfChannel && u.info && !u.info.app.dev}
+		<Button variant="ghost" onclick={u.showWhatsNew}>What's new</Button>
+		<Button variant="glass" disabled={!!u.running} onclick={u.downgrade}>
+			{#snippet leading()}{#if u.running === "update"}<Spinner size={14} />{:else}<Download
+						size={14}
+					/>{/if}{/snippet}
+			Install {u.release?.version} now (downgrade)
 		</Button>
 	{:else if u.info && !u.info.app.dev}
 		<Button variant="ghost" onclick={u.showWhatsNew}>What's new</Button>

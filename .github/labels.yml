@@ -1,0 +1,128 @@
+# The label set of codeatlasdev/atlas. Source of truth: edit here, then run
+#   scripts/sync-labels.sh --dry-run   (prints the gh commands)
+#   scripts/sync-labels.sh             (creates or updates; never deletes)
+# Explained in docs/labels.md. Format: a flat list of {name, color, description}.
+# color: 6 hex digits without '#'. description: at most 100 characters (GitHub's limit).
+
+# type: what kind of work it is (exactly one per issue or PR)
+- name: "type: bug"
+  color: d73a4a
+  description: Something does not work the way the docs say it should
+- name: "type: feature"
+  color: a2eeef
+  description: A new capability or an improvement
+- name: "type: docs"
+  color: 0075ca
+  description: Documentation is wrong, missing or unclear
+- name: "type: chore"
+  color: ededed
+  description: Maintenance with no user-visible change (refactor, tooling, deps)
+- name: "type: security"
+  color: b60205
+  description: Hardening or a fix with security impact (vulnerabilities go through SECURITY.md)
+- name: "type: question"
+  color: d876e3
+  description: A usage question; usually answered then closed
+
+# area: which part of Atlas (one or more)
+- name: "area: cli"
+  color: 1d76db
+  description: The atlas binary, commands, flags and exit codes
+- name: "area: runtime"
+  color: 1d76db
+  description: atlas.yaml, service runner, health checks, logs
+- name: "area: tui"
+  color: 1d76db
+  description: The terminal UI of atlas dev
+- name: "area: desktop"
+  color: 1d76db
+  description: Atlas Desktop (Tauri shell and Svelte frontend)
+- name: "area: terminal"
+  color: 1d76db
+  description: GPU terminal, terminal host (atlas hostd)
+- name: "area: editor"
+  color: 1d76db
+  description: The editor and language servers
+- name: "area: mcp"
+  color: 1d76db
+  description: atlas mcp, agent integration, hooks, skills
+- name: "area: deploy"
+  color: 1d76db
+  description: atlas deploy and host provisioning
+- name: "area: installer"
+  color: 1d76db
+  description: install.sh, atlas update, channels, release assets
+- name: "area: site"
+  color: 1d76db
+  description: The website and its edge functions
+- name: "area: ci"
+  color: 1d76db
+  description: Workflows, release tooling, local act builds
+
+# priority: how urgent (set by a maintainer during triage; at most one)
+- name: "priority: 0 data loss or security"
+  color: b60205
+  description: Data loss, crash on start or a security impact; drop everything
+- name: "priority: 1 high"
+  color: d93f0b
+  description: Breaks a main workflow with no good workaround
+- name: "priority: 2 normal"
+  color: fbca04
+  description: Real problem with a workaround, or a clear improvement
+- name: "priority: 3 low"
+  color: c5def5
+  description: Nice to have, cosmetic or rare
+
+# status: where it is in triage (one at a time, set by a maintainer)
+- name: "status: needs-triage"
+  color: ededed
+  description: New; a maintainer has not looked at it yet
+- name: "status: needs-repro"
+  color: fef2c0
+  description: Cannot act until there is a minimal reproduction or the requested details
+- name: "status: confirmed"
+  color: 0e8a16
+  description: Reproduced by a maintainer
+- name: "status: blocked"
+  color: 5319e7
+  description: Waiting on something else (another issue, a decision, a release)
+- name: "status: upstream"
+  color: 5319e7
+  description: The cause is in a third-party dependency or tool
+- name: "status: stale"
+  color: cfd3d7
+  description: No activity after a request for information; closes if nobody answers
+- name: "status: wontfix"
+  color: ffffff
+  description: Understood, and we will not change it (the reason is in the comments)
+- name: "status: duplicate"
+  color: cfd3d7
+  description: Already tracked in another issue
+
+# channel: which release channel the problem was seen on (see docs/versioning.md)
+- name: "channel: stable"
+  color: 0e8a16
+  description: Seen on the Stable channel
+- name: "channel: beta"
+  color: fbca04
+  description: Seen on the Beta channel
+- name: "channel: alpha"
+  color: d93f0b
+  description: Seen on the Alpha channel or a build from main
+
+# standalone
+- name: good first issue
+  color: 7057ff
+  description: Small and well described; a good first contribution
+- name: help wanted
+  color: 008672
+  description: A maintainer would welcome a pull request for this
+- name: breaking change
+  color: b60205
+  description: Changes atlas.yaml, the CLI, MCP tools or settings; needs a changelog Changed or Removed entry
+- name: skip-changelog
+  color: ededed
+  description: A pull request that needs no CHANGELOG.md entry
+- name: dependencies
+  color: 0366d6
+  description: Dependency updates (applied by Dependabot)

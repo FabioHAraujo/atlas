@@ -207,9 +207,11 @@ pub(crate) fn sync_app(installed: Option<&Path>) -> Result<()> {
 }
 
 fn latest_release() -> Result<String> {
-    Ok(atlas_core::github::latest_release(REPO)?
-        .version()
-        .to_string())
+    Ok(
+        atlas_core::github::latest_release(REPO, atlas_core::channel::current())?
+            .version()
+            .to_string(),
+    )
 }
 
 /// Download the app tarball (+ checksum) of `version` into a temp dir and verify it.

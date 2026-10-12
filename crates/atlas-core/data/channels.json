@@ -1,0 +1,38 @@
+{
+  "_doc": "Single source of the channel copy shown by the CLI, Atlas Desktop and the website. The `promise` strings must appear verbatim in docs/versioning.md (a test in atlas-core enforces it). Edit both together.",
+  "stage": "alpha",
+  "stage_note": "Atlas is in alpha. Every channel, including Stable, can have rough edges and breaking changes until the first release that meets the general availability criteria in the versioning policy.",
+  "channels": [
+    {
+      "id": "stable",
+      "label": "Stable",
+      "promise": "The default. Only builds that already ran as a beta, with nothing changed since but the version number.",
+      "risk": "low",
+      "risk_label": "Lowest risk of the three",
+      "cadence": "When a soaked beta is promoted, usually every few weeks.",
+      "audience": "Everyone, and anyone who uses Atlas for real work.",
+      "switch_to": "You move to the next Stable release that is newer than the version you run. Atlas never installs an older build by itself.",
+      "alpha_era_note": "While Atlas is in alpha, Stable means soaked through alpha and beta, not finished."
+    },
+    {
+      "id": "beta",
+      "label": "Beta",
+      "promise": "Feature-complete builds that are being soaked before they become Stable. Only fixes land between betas.",
+      "risk": "medium",
+      "risk_label": "Mostly works; a bug can slip through",
+      "cadence": "A new beta about every one to two weeks while a release is soaking.",
+      "audience": "People who want next release's features a few weeks early and will report what breaks.",
+      "switch_to": "You get the newest beta or release candidate, and Stable as soon as it is newer. Going back to Stable later waits for a Stable newer than your build, or you can reinstall Stable explicitly."
+    },
+    {
+      "id": "alpha",
+      "label": "Alpha",
+      "promise": "Fresh builds cut straight from main, with little soak. Features can be unfinished and behavior can change between builds.",
+      "risk": "high",
+      "risk_label": "Expect rough edges and breaking changes",
+      "cadence": "Whenever the maintainer cuts one, often several times a week.",
+      "audience": "Contributors and testers who accept breakage in exchange for the newest work.",
+      "switch_to": "You get the newest build of any channel, so a settings or config change may not be readable by an older Atlas. Going back to Beta or Stable later waits for a newer build there, or you can reinstall it explicitly."
+    }
+  ]
+}

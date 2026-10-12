@@ -2,32 +2,71 @@
 //! update check behind the exit banner and the pre-flight prompt.
 
 use anyhow::{Context, Result, bail};
-use clap::Args;
+use atlas_core::channel::{self, Channel, Decision};
+use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::AtlasCommand;
 use super::release::{REPO, download_verified};
+use super::update_channel::{self as ch, Pick};
 use super::update_core;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Hit GitHub at most every 6h (cached result is reused in between).
 const CHECK_INTERVAL_SECS: u64 = 6 * 3600;
 
+/// `atlas update` — see `docs/cli.md#atlas-update`.
 #[derive(Debug, Args)]
 pub struct UpdateArgs {
+    #[command(subcommand)]
+    pub command: Option<UpdateCmd>,
     /// Only check for updates, do not install
     #[arg(long)]
     pub check: bool,
-    #[arg(long, hide = true)]
-    pub channel: Option<String>,
+    /// Follow this release channel (stable, beta or alpha); remembered for later updates
+    #[arg(long, value_name = "CHANNEL")]
+    pub channel: Option<Channel>,
+    /// Print the result as JSON (with --check)
+    #[arg(long, requires = "check")]
+    pub json: bool,
+    /// Install the older release the channel offers when you run a newer build
+    #[arg(long)]
+    pub downgrade: bool,
+    /// Do not ask for confirmation (with --downgrade)
+    #[arg(short, long)]
+    pub yes: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum UpdateCmd {
+    /// Show the release channels and what each offers now, or switch to one
+    Channel {
+        /// stable, beta or alpha; omit to list them (and pick one in a terminal)
+        name: Option<Channel>,
+        /// Print machine-readable JSON; never prompts
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 impl AtlasCommand for UpdateArgs {
     async fn run(self) -> Result<()> {
-        handle(self.check, self.channel).await
+        match self.command {
+            Some(UpdateCmd::Channel { name, json }) => channel_command(name, json).await,
+            None => run_update(Request {
+                check_only: self.check,
+                channel: self.channel,
+                json: self.json,
+                downgrade: self.downgrade,
+                yes: self.yes,
+            })
+            .await
+            .map(|_| ()),
+        }
     }
 }
 
@@ -41,6 +80,10 @@ pub(crate) struct UpdateCache {
     /// until `until` (unix secs). Absent in caches written by older atlas versions.
     #[serde(default)]
     pub(crate) dismissed: Option<Dismissal>,
+    /// The channel `available_version` was computed for. Absent in caches written before
+    /// channels existed, which only ever knew the stable releases.
+    #[serde(default)]
+    pub(crate) channel: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -53,18 +96,32 @@ pub(crate) struct Dismissal {
 pub(crate) const DISMISS_SECS: u64 = 24 * 3600;
 
 impl UpdateCache {
-    /// Cache after a check: fresh timestamp and result, keeping a still-relevant dismissal.
-    fn checked(&self, available: Option<String>) -> Self {
+    /// Cache after a check on `on`: fresh timestamp and result, keeping a still-relevant dismissal.
+    pub(crate) fn checked_for(&self, on: Channel, available: Option<String>) -> Self {
         Self {
             last_checked: now_secs(),
             available_version: available,
             dismissed: self.dismissed.clone(),
+            channel: Some(on.as_str().to_string()),
         }
     }
 
-    /// The cache is older than the check interval (or was never written).
-    pub(crate) fn is_stale(&self, now: u64) -> bool {
-        now.saturating_sub(self.last_checked) >= CHECK_INTERVAL_SECS
+    /// Computed for `on` (a cache without a channel is a stable one).
+    pub(crate) fn valid_for(&self, on: Channel) -> bool {
+        self.channel.as_deref().unwrap_or(Channel::Stable.as_str()) == on.as_str()
+    }
+
+    /// Older than the check interval, never written, or computed for another channel.
+    pub(crate) fn is_stale_for(&self, on: Channel, now: u64) -> bool {
+        !self.valid_for(on) || now.saturating_sub(self.last_checked) >= CHECK_INTERVAL_SECS
+    }
+
+    /// The cached version when it is an upgrade over `installed` on `on`, else `None`.
+    pub(crate) fn available_for(&self, installed: &semver::Version, on: Channel) -> Option<String> {
+        if !self.valid_for(on) {
+            return None;
+        }
+        background_available(installed, self.available_version.as_deref()?)
     }
 
     /// `version` was dismissed and the 24h silence has not elapsed.
@@ -157,28 +214,38 @@ pub(crate) fn newer_than_current(v: &str) -> Option<String> {
     newer_than(CURRENT_VERSION, v)
 }
 
-/// `candidate` when it parses and is strictly greater than `current`.
+/// `candidate` when it parses and its SemVer precedence is above `current`'s (build metadata
+/// does not count; a leading `v` is fine). Only ever an upgrade: never a downgrade.
 pub(crate) fn newer_than(current: &str, candidate: &str) -> Option<String> {
-    let current = semver::Version::parse(current).ok()?;
-    (semver::Version::parse(candidate).ok()? > current).then(|| candidate.to_string())
+    let current = channel::parse_tag(current)?;
+    background_available(&current, candidate)
+}
+
+/// What a background check may report for `offered`: the version when it is an
+/// [`Decision::Upgrade`] over `installed`, nothing for current or older builds.
+pub(crate) fn background_available(installed: &semver::Version, offered: &str) -> Option<String> {
+    let (_, decision) = ch::offer(installed, offered)?;
+    (decision == Decision::Upgrade).then(|| offered.to_string())
 }
 
 pub(crate) const fn current_version() -> &'static str {
     CURRENT_VERSION
 }
 
+/// The cached upgrade for the persisted channel, if any.
+fn cached_available(cache: &UpdateCache, on: Channel) -> Option<String> {
+    cache.available_for(&installed_version(), on)
+}
+
 /// Background update check, best-effort and silent on errors.
 /// Publishes a cached result immediately, refreshes it when older than
-/// `CHECK_INTERVAL_SECS`, and keeps re-checking for long-lived commands
-/// (`atlas dev` sessions that stay open for days still learn about releases).
+/// `CHECK_INTERVAL_SECS` (or when the channel changed), and keeps re-checking for long-lived
+/// commands (`atlas dev` sessions that stay open for days still learn about releases).
+/// It follows the persisted channel and only ever reports an upgrade.
 /// The TUI reads it via `atlas_tui::update_notice`; `print_update_notice`
 /// prints the exit banner.
 pub fn spawn_background_check() {
-    if let Some(v) = load_cache()
-        .available_version
-        .as_deref()
-        .and_then(newer_than_current)
-    {
+    if let Some(v) = cached_available(&load_cache(), channel::current()) {
         atlas_tui::update_notice::publish(v);
     }
     tokio::spawn(async {
@@ -190,15 +257,16 @@ pub fn spawn_background_check() {
 }
 
 async fn background_check_inner() -> Result<()> {
+    let on = channel::current();
     let cache = load_cache();
-    if !cache.is_stale(now_secs()) {
+    if !cache.is_stale_for(on, now_secs()) {
         return Ok(());
     }
-    let available = newer_than_current(&fetch_latest_version().await?);
+    let available = newer_than_current(&fetch_latest_version(on).await?);
     if let Some(v) = &available {
         atlas_tui::update_notice::publish(v.clone());
     }
-    save_cache(&cache.checked(available));
+    save_cache(&cache.checked_for(on, available));
     Ok(())
 }
 
@@ -207,18 +275,16 @@ async fn background_check_inner() -> Result<()> {
 pub(crate) async fn newest_for_preflight(
     timeout: std::time::Duration,
 ) -> (UpdateCache, Option<String>) {
+    let on = channel::current();
     let cache = load_cache();
-    let cached = cache
-        .available_version
-        .as_deref()
-        .and_then(newer_than_current);
-    if !cache.is_stale(now_secs()) {
+    let cached = cached_available(&cache, on);
+    if !cache.is_stale_for(on, now_secs()) {
         return (cache, cached);
     }
-    match tokio::time::timeout(timeout, fetch_latest_version()).await {
+    match tokio::time::timeout(timeout, fetch_latest_version(on)).await {
         Ok(Ok(latest)) => {
             let available = newer_than_current(&latest);
-            let fresh = cache.checked(available.clone());
+            let fresh = cache.checked_for(on, available.clone());
             save_cache(&fresh);
             (fresh, available)
         }
@@ -229,12 +295,9 @@ pub(crate) async fn newest_for_preflight(
 /// Print the update banner if a newer release is known. Call after the
 /// command's own output (and after the TUI restored the terminal).
 pub fn print_update_notice() {
-    let Some(v) = atlas_tui::update_notice::available().or_else(|| {
-        load_cache()
-            .available_version
-            .as_deref()
-            .and_then(newer_than_current)
-    }) else {
+    let Some(v) = atlas_tui::update_notice::available()
+        .or_else(|| cached_available(&load_cache(), channel::current()))
+    else {
         return;
     };
     let width = crossterm::terminal::size()
@@ -251,15 +314,21 @@ pub fn print_update_notice() {
     eprintln!("\x1b[2m{rule}\x1b[0m");
 }
 
-/// Fetch the latest published version from the public GitHub Releases API.
-async fn fetch_latest_version() -> Result<String> {
-    let release =
-        tokio::task::spawn_blocking(|| atlas_core::github::latest_release(REPO)).await??;
-    let tag = release.version().to_string();
+/// The tag `on` offers right now (`v1.4.0`, from the `releases/latest` redirect for Stable,
+/// the release feed for Beta and Alpha); never calls the GitHub API.
+async fn fetch_latest_tag(on: Channel) -> Result<String> {
+    let tag =
+        tokio::task::spawn_blocking(move || atlas_core::github::channel_tag(REPO, on)).await??;
     if tag.is_empty() {
         bail!("empty version from GitHub");
     }
     Ok(tag)
+}
+
+/// [`fetch_latest_tag`] without the leading `v`: the version the banner and the cache hold.
+async fn fetch_latest_version(on: Channel) -> Result<String> {
+    let tag = fetch_latest_tag(on).await?;
+    Ok(tag.strip_prefix('v').unwrap_or(&tag).to_string())
 }
 
 // ── atlas update handler ──────────────────────────────────────────────────────
@@ -273,14 +342,142 @@ pub(crate) enum UpdateOutcome {
     Unchanged,
 }
 
-pub async fn handle(check_only: bool, channel: Option<String>) -> Result<()> {
-    run_update(check_only, channel).await.map(|_| ())
+/// Ask before installing an older build (default No). `--yes` skips the question; outside a
+/// terminal there is nobody to ask, so it needs `--yes`.
+fn confirm_downgrade(
+    current: &semver::Version,
+    offered: &semver::Version,
+    on: Channel,
+    yes: bool,
+) -> Result<bool> {
+    println!();
+    println!(
+        "\x1b[1;33m!\x1b[0m Downgrading v{current} → v{offered} ({on}). Data written by v{current} (settings, caches, \
+         terminal host state) may not be readable by the older build; back up ~/.atlas first if it matters."
+    );
+    if yes {
+        return Ok(true);
+    }
+    if !interactive() {
+        bail!("a downgrade needs confirmation: run it in a terminal, or pass --yes");
+    }
+    print!("Install v{offered} now? [y/N] ");
+    std::io::stdout().flush()?;
+    Ok(ch::parse_confirm(&read_line().unwrap_or_default()))
 }
 
-pub(crate) async fn run_update(check_only: bool, channel: Option<String>) -> Result<UpdateOutcome> {
+/// What `atlas update` was asked to do.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct Request {
+    pub check_only: bool,
+    /// `--channel X`: persisted, then followed. `None` follows the persisted/env channel.
+    pub channel: Option<Channel>,
+    pub json: bool,
+    pub downgrade: bool,
+    pub yes: bool,
+}
+
+/// Stdin line, `None` on EOF or error.
+fn read_line() -> Option<String> {
+    let mut line = String::new();
+    match std::io::stdin().lock().read_line(&mut line) {
+        Ok(0) | Err(_) => None,
+        Ok(_) => Some(line),
+    }
+}
+
+fn interactive() -> bool {
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+/// Persist `on` in the file shared with Atlas Desktop.
+fn remember_channel(on: Channel) -> Result<()> {
+    ch::persist_channel(&channel::file(), on).with_context(|| {
+        format!(
+            "cannot save the update channel to {}",
+            channel::file().display()
+        )
+    })
+}
+
+/// `atlas update channel [<name>] [--json]`.
+async fn channel_command(name: Option<Channel>, json: bool) -> Result<()> {
+    let installed = installed_version();
+    if let Some(name) = name {
+        remember_channel(name)?;
+    }
+    let selected = name.unwrap_or_else(channel::current);
+    let views = {
+        let installed = installed.clone();
+        tokio::task::spawn_blocking(move || {
+            atlas_core::github::channel_views(REPO, &installed, selected)
+        })
+        .await?
+    };
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&ch::channels_json(&views, selected, &installed))?
+        );
+        return Ok(());
+    }
+    if let Some(name) = name {
+        let view = views
+            .iter()
+            .find(|v| v.channel == name)
+            .context("channel missing from the listing")?;
+        print!("{}", ch::render_switched(view));
+        return Ok(());
+    }
+
+    print!("{}", ch::render_channels(&views, &installed));
+    if !interactive() {
+        println!("Switch with: atlas update channel <stable|beta|alpha>");
+        return Ok(());
+    }
+    loop {
+        print!("Pick a channel [1-3 or name, Enter keeps {selected}]: ");
+        std::io::stdout().flush()?;
+        // EOF behaves like Enter: leave things as they are.
+        match ch::parse_pick(&read_line().unwrap_or_default()) {
+            Pick::Keep => return Ok(()),
+            Pick::Set(picked) => {
+                remember_channel(picked)?;
+                let view = views
+                    .iter()
+                    .find(|v| v.channel == picked)
+                    .context("channel missing from the listing")?;
+                println!();
+                print!("{}", ch::render_switched(view));
+                return Ok(());
+            }
+            Pick::Invalid => {
+                println!("Enter 1, 2, 3, stable, beta or alpha (or nothing to keep {selected}).")
+            }
+        }
+    }
+}
+
+fn installed_version() -> semver::Version {
+    semver::Version::parse(CURRENT_VERSION).expect("CARGO_PKG_VERSION is SemVer")
+}
+
+pub(crate) async fn run_update(req: Request) -> Result<UpdateOutcome> {
     let method = InstallMethod::detect();
 
+    // `--channel X` sticks, even where this binary cannot install anything itself.
+    if let Some(on) = req.channel {
+        remember_channel(on)?;
+    }
+    let on = req.channel.unwrap_or_else(channel::current);
+
     if method == InstallMethod::Homebrew {
+        if req.json {
+            bail!(
+                "--json needs an Atlas installed by the shell installer; Homebrew manages this one"
+            );
+        }
         println!("\x1b[1;34m◆\x1b[0m Installed via Homebrew — run:");
         println!("  brew upgrade atlas");
         return Ok(UpdateOutcome::Unchanged);
@@ -288,7 +485,7 @@ pub(crate) async fn run_update(check_only: bool, channel: Option<String>) -> Res
 
     // `atlas link` made ~/.atlas/bin/atlas a symlink to target/debug/atlas: replacing
     // "the binary" would overwrite the dev build, not install a release.
-    if !check_only
+    if !req.check_only
         && let installed = atlas_core::paths::atlas_home().join("bin/atlas")
         && installed
             .symlink_metadata()
@@ -300,38 +497,72 @@ pub(crate) async fn run_update(check_only: bool, channel: Option<String>) -> Res
         );
     }
 
-    println!("\x1b[1;34m◆\x1b[0m Checking for updates...");
-    println!("  Current: v{CURRENT_VERSION}");
-    let _channel = channel.as_deref().unwrap_or("stable");
-    println!();
+    let current = installed_version();
+    if !req.json {
+        println!("\x1b[1;34m◆\x1b[0m Checking for updates...");
+        println!("  Current: v{CURRENT_VERSION}");
+        println!("  Channel: {on}");
+        println!();
+    }
 
-    let latest = fetch_latest_version()
+    let tag = fetch_latest_tag(on)
         .await
         .context("Could not check for updates. Check your network connection (needs curl).")?;
 
-    let current = semver::Version::parse(CURRENT_VERSION).context("Bad current version")?;
-    let remote = semver::Version::parse(&latest).context("Bad remote version")?;
+    if req.json {
+        // `--json` is a report: it never installs.
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&ch::check_json(&current, on, Some(&tag)))?
+        );
+        return Ok(UpdateOutcome::Unchanged);
+    }
 
-    if remote <= current {
-        println!("\x1b[1;32m✓\x1b[0m Already up to date (v{CURRENT_VERSION})");
-        // Clear any stale cache entry
-        save_cache(&load_cache().checked(None));
-        // The app may still lag behind (an earlier sync failed or was skipped).
-        if !check_only {
-            run_self(&["desktop", "--sync"]);
+    let (offered, decision) =
+        ch::offer(&current, &tag).with_context(|| format!("Bad remote version '{tag}'"))?;
+
+    match decision {
+        Decision::Current => {
+            println!("{}", ch::describe(&current, &tag, on, req.downgrade));
+            // Clear any stale cache entry
+            save_cache(&load_cache().checked_for(on, None));
+            // The app may still lag behind (an earlier sync failed or was skipped).
+            if !req.check_only {
+                run_self(&["desktop", "--sync"]);
+            }
+            return Ok(UpdateOutcome::Unchanged);
         }
-        return Ok(UpdateOutcome::Unchanged);
+        Decision::Ahead => {
+            save_cache(&load_cache().checked_for(on, None));
+            println!("{}", ch::describe(&current, &tag, on, req.downgrade));
+            if !req.downgrade || req.check_only {
+                return Ok(UpdateOutcome::Unchanged);
+            }
+            if !confirm_downgrade(&current, &offered, on, req.yes)? {
+                println!("Cancelled; nothing was changed.");
+                return Ok(UpdateOutcome::Unchanged);
+            }
+        }
+        Decision::Upgrade => {
+            if req.downgrade {
+                bail!(
+                    "--downgrade only applies when the {on} channel offers an older build than v{current}; \
+                     v{offered} is newer, run `atlas update`"
+                );
+            }
+            println!("  Latest:  v{offered}");
+            println!("  Changelog: https://github.com/{REPO}/releases/tag/{tag}");
+            println!();
+            if req.check_only {
+                println!(
+                    "\x1b[1;33m◆\x1b[0m {}",
+                    ch::describe(&current, &tag, on, false)
+                );
+                return Ok(UpdateOutcome::Unchanged);
+            }
+        }
     }
-
-    println!("  Latest:  v{latest}");
-    println!("  Changelog: https://github.com/{REPO}/releases/tag/v{latest}");
-    println!();
-
-    if check_only {
-        println!("\x1b[1;33m◆\x1b[0m Update available: v{CURRENT_VERSION} → v{latest}");
-        println!("  Run \x1b[1matlas update\x1b[0m to install.");
-        return Ok(UpdateOutcome::Unchanged);
-    }
+    let latest = offered.to_string();
 
     // Held until this function returns; the kernel frees it if we die. The spawned
     // `atlas desktop --sync` must not wait on us, hence the env marker on that child.
@@ -378,7 +609,7 @@ pub(crate) async fn run_update(check_only: bool, channel: Option<String>) -> Res
     }
 
     // Clear cache
-    save_cache(&load_cache().checked(None));
+    save_cache(&load_cache().checked_for(on, None));
 
     println!();
     println!("\x1b[1;32m✓\x1b[0m Updated to v{latest}");
@@ -503,6 +734,7 @@ fn extract_tarball(data: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atlas_core::channel::Channel;
 
     #[test]
     fn test_current_platform() {
@@ -539,6 +771,7 @@ mod tests {
             last_checked: 1234567890,
             available_version: Some("1.2.3".into()),
             dismissed: None,
+            channel: Some("beta".into()),
         };
         cache.dismiss("1.2.3", 1000);
         let json = serde_json::to_string(&cache).unwrap();
@@ -579,7 +812,7 @@ mod tests {
     fn refreshing_the_check_keeps_the_dismissal() {
         let mut cache = UpdateCache::default();
         cache.dismiss("1.0.0", 5);
-        let refreshed = cache.checked(Some("1.0.0".into()));
+        let refreshed = cache.checked_for(Channel::Stable, Some("1.0.0".into()));
         assert_eq!(refreshed.dismissed, cache.dismissed);
         assert_eq!(refreshed.available_version.as_deref(), Some("1.0.0"));
     }
@@ -590,9 +823,12 @@ mod tests {
             last_checked: 100,
             ..Default::default()
         };
-        assert!(!cache.is_stale(100 + CHECK_INTERVAL_SECS - 1));
-        assert!(cache.is_stale(100 + CHECK_INTERVAL_SECS));
-        assert!(UpdateCache::default().is_stale(now_secs()), "never checked");
+        assert!(!cache.is_stale_for(Channel::Stable, 100 + CHECK_INTERVAL_SECS - 1));
+        assert!(cache.is_stale_for(Channel::Stable, 100 + CHECK_INTERVAL_SECS));
+        assert!(
+            UpdateCache::default().is_stale_for(Channel::Stable, now_secs()),
+            "never checked"
+        );
     }
 
     #[test]
@@ -601,5 +837,165 @@ mod tests {
         assert_eq!(newer_than("0.4.1", "0.4.1"), None);
         assert_eq!(newer_than("0.4.1", "0.4.0"), None);
         assert_eq!(newer_than("0.4.1", "garbage"), None);
+    }
+
+    // ── channels: clap ────────────────────────────────────────────────────────
+
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        update: UpdateArgs,
+    }
+
+    fn parse(args: &[&str]) -> Result<UpdateArgs, clap::Error> {
+        Cli::try_parse_from(std::iter::once("atlas").chain(args.iter().copied())).map(|c| c.update)
+    }
+
+    fn ver(s: &str) -> semver::Version {
+        semver::Version::parse(s).unwrap()
+    }
+
+    #[test]
+    fn update_flags_parse() {
+        let a = parse(&[]).unwrap();
+        assert!(!a.check && !a.json && !a.downgrade && !a.yes);
+        assert!(a.channel.is_none() && a.command.is_none());
+
+        let a = parse(&["--check", "--channel", "beta", "--json"]).unwrap();
+        assert!(a.check && a.json);
+        assert_eq!(a.channel, Some(Channel::Beta));
+
+        let a = parse(&["--downgrade", "--yes"]).unwrap();
+        assert!(a.downgrade && a.yes);
+
+        let a = parse(&["--channel", "ALPHA"]).unwrap();
+        assert_eq!(
+            a.channel,
+            Some(Channel::Alpha),
+            "names are case-insensitive"
+        );
+    }
+
+    #[test]
+    fn invalid_channel_is_an_error_that_lists_the_valid_names() {
+        let e = parse(&["--channel", "nightly"]).unwrap_err().to_string();
+        assert!(e.contains("nightly"), "{e}");
+        for name in ["stable", "beta", "alpha"] {
+            assert!(e.contains(name), "{e} should list {name}");
+        }
+    }
+
+    #[test]
+    fn channel_subcommand_parses() {
+        let a = parse(&["channel"]).unwrap();
+        assert!(matches!(
+            a.command,
+            Some(UpdateCmd::Channel {
+                name: None,
+                json: false
+            })
+        ));
+        let a = parse(&["channel", "alpha", "--json"]).unwrap();
+        assert!(matches!(
+            a.command,
+            Some(UpdateCmd::Channel {
+                name: Some(Channel::Alpha),
+                json: true
+            })
+        ));
+        assert!(parse(&["channel", "nightly"]).is_err());
+    }
+
+    // ── channels: cache and background checks ─────────────────────────────────
+
+    #[test]
+    fn cache_written_before_channels_loads_and_counts_as_stable() {
+        let old: UpdateCache =
+            serde_json::from_str(r#"{"last_checked":1,"available_version":"1.2.0"}"#).unwrap();
+        assert_eq!(old.channel, None);
+        assert_eq!(old.available_version.as_deref(), Some("1.2.0"));
+        assert!(old.valid_for(Channel::Stable), "old caches were stable's");
+        assert!(!old.valid_for(Channel::Beta));
+        assert!(!old.valid_for(Channel::Alpha));
+    }
+
+    #[test]
+    fn cache_is_ignored_when_the_channel_changed() {
+        let c = UpdateCache {
+            last_checked: 10_000,
+            ..Default::default()
+        }
+        .checked_for(Channel::Beta, Some("1.4.0-beta.1".into()));
+        assert_eq!(c.channel.as_deref(), Some("beta"));
+        assert!(c.valid_for(Channel::Beta));
+        assert!(!c.valid_for(Channel::Stable));
+        // Fresh by age, but computed for another channel: stale, and its offer is not reported.
+        let now = c.last_checked;
+        assert!(c.is_stale_for(Channel::Stable, now));
+        assert!(!c.is_stale_for(Channel::Beta, now));
+        assert_eq!(c.available_for(&ver("1.3.0"), Channel::Stable), None);
+        assert_eq!(
+            c.available_for(&ver("1.3.0"), Channel::Beta).as_deref(),
+            Some("1.4.0-beta.1")
+        );
+    }
+
+    #[test]
+    fn old_cache_is_stale_for_a_non_stable_channel() {
+        let old: UpdateCache =
+            serde_json::from_str(r#"{"last_checked":1,"available_version":"1.2.0"}"#).unwrap();
+        assert!(!old.is_stale_for(Channel::Stable, 2));
+        assert!(old.is_stale_for(Channel::Beta, 2));
+        assert_eq!(old.available_for(&ver("1.0.0"), Channel::Beta), None);
+        assert_eq!(
+            old.available_for(&ver("1.0.0"), Channel::Stable).as_deref(),
+            Some("1.2.0")
+        );
+    }
+
+    #[test]
+    fn changing_channel_keeps_the_dismissal_of_its_version() {
+        let mut c = UpdateCache::default();
+        c.dismiss("1.4.0-beta.1", 5);
+        let c = c.checked_for(Channel::Beta, Some("1.4.0-beta.1".into()));
+        assert!(c.is_dismissed("1.4.0-beta.1", 6));
+        assert!(!c.is_dismissed("1.4.0-beta.2", 6));
+    }
+
+    #[test]
+    fn background_check_never_reports_ahead_or_current() {
+        let installed = ver("1.5.0-alpha.1");
+        // Stable offers an older build than the alpha that runs: not an "update".
+        assert_eq!(background_available(&installed, "1.3.0"), None);
+        assert_eq!(background_available(&installed, "1.5.0-alpha.1"), None);
+        assert_eq!(background_available(&installed, "garbage"), None);
+        assert_eq!(
+            background_available(&installed, "1.5.0-alpha.2").as_deref(),
+            Some("1.5.0-alpha.2")
+        );
+        assert_eq!(
+            background_available(&ver("1.3.0"), "1.4.0").as_deref(),
+            Some("1.4.0")
+        );
+    }
+
+    #[test]
+    fn newer_than_uses_precedence_not_string_or_build_metadata() {
+        assert_eq!(
+            newer_than("1.4.0-alpha.2", "1.4.0-alpha.10").as_deref(),
+            Some("1.4.0-alpha.10")
+        );
+        assert_eq!(
+            newer_than("1.4.0-alpha.1", "1.4.0").as_deref(),
+            Some("1.4.0")
+        );
+        assert_eq!(newer_than("1.4.0", "1.4.0-rc.1"), None);
+        assert_eq!(
+            newer_than("1.4.0+a", "1.4.0+b"),
+            None,
+            "build metadata ignored"
+        );
     }
 }

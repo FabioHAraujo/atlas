@@ -1,0 +1,197 @@
+{
+	"ahead": [
+		{
+			"action": "downgrade",
+			"alpha_era_note": "While Atlas is in alpha, Stable means soaked through alpha and beta, not finished.",
+			"audience": "Everyone, and anyone who uses Atlas for real work.",
+			"cadence": "When a soaked beta is promoted, usually every few weeks.",
+			"channel": "stable",
+			"label": "Stable",
+			"offered": "1.3.0",
+			"promise": "The default. Only builds that already ran as a beta, with nothing changed since but the version number.",
+			"risk": "low",
+			"risk_label": "Lowest risk of the three",
+			"selected": true,
+			"switch_to": "You move to the next Stable release that is newer than the version you run. Atlas never installs an older build by itself.",
+			"tag": "v1.3.0"
+		},
+		{
+			"action": "downgrade",
+			"alpha_era_note": null,
+			"audience": "People who want next release's features a few weeks early and will report what breaks.",
+			"cadence": "A new beta about every one to two weeks while a release is soaking.",
+			"channel": "beta",
+			"label": "Beta",
+			"offered": "1.4.0-beta.2",
+			"promise": "Feature-complete builds that are being soaked before they become Stable. Only fixes land between betas.",
+			"risk": "medium",
+			"risk_label": "Mostly works; a bug can slip through",
+			"selected": false,
+			"switch_to": "You get the newest beta or release candidate, and Stable as soon as it is newer. Going back to Stable later waits for a Stable newer than your build, or you can reinstall Stable explicitly.",
+			"tag": "v1.4.0-beta.2"
+		},
+		{
+			"action": "downgrade",
+			"alpha_era_note": null,
+			"audience": "Contributors and testers who accept breakage in exchange for the newest work.",
+			"cadence": "Whenever the maintainer cuts one, often several times a week.",
+			"channel": "alpha",
+			"label": "Alpha",
+			"offered": "1.4.0-alpha.3",
+			"promise": "Fresh builds cut straight from main, with little soak. Features can be unfinished and behavior can change between builds.",
+			"risk": "high",
+			"risk_label": "Expect rough edges and breaking changes",
+			"selected": false,
+			"switch_to": "You get the newest build of any channel, so a settings or config change may not be readable by an older Atlas. Going back to Beta or Stable later waits for a newer build there, or you can reinstall it explicitly.",
+			"tag": "v1.4.0-alpha.3"
+		}
+	],
+	"installed": "1.3.0",
+	"offline": [
+		{
+			"action": "none",
+			"alpha_era_note": "While Atlas is in alpha, Stable means soaked through alpha and beta, not finished.",
+			"audience": "Everyone, and anyone who uses Atlas for real work.",
+			"cadence": "When a soaked beta is promoted, usually every few weeks.",
+			"channel": "stable",
+			"label": "Stable",
+			"offered": null,
+			"promise": "The default. Only builds that already ran as a beta, with nothing changed since but the version number.",
+			"risk": "low",
+			"risk_label": "Lowest risk of the three",
+			"selected": false,
+			"switch_to": "You move to the next Stable release that is newer than the version you run. Atlas never installs an older build by itself.",
+			"tag": null
+		},
+		{
+			"action": "none",
+			"alpha_era_note": null,
+			"audience": "People who want next release's features a few weeks early and will report what breaks.",
+			"cadence": "A new beta about every one to two weeks while a release is soaking.",
+			"channel": "beta",
+			"label": "Beta",
+			"offered": null,
+			"promise": "Feature-complete builds that are being soaked before they become Stable. Only fixes land between betas.",
+			"risk": "medium",
+			"risk_label": "Mostly works; a bug can slip through",
+			"selected": true,
+			"switch_to": "You get the newest beta or release candidate, and Stable as soon as it is newer. Going back to Stable later waits for a Stable newer than your build, or you can reinstall Stable explicitly.",
+			"tag": null
+		},
+		{
+			"action": "none",
+			"alpha_era_note": null,
+			"audience": "Contributors and testers who accept breakage in exchange for the newest work.",
+			"cadence": "Whenever the maintainer cuts one, often several times a week.",
+			"channel": "alpha",
+			"label": "Alpha",
+			"offered": null,
+			"promise": "Fresh builds cut straight from main, with little soak. Features can be unfinished and behavior can change between builds.",
+			"risk": "high",
+			"risk_label": "Expect rough edges and breaking changes",
+			"selected": false,
+			"switch_to": "You get the newest build of any channel, so a settings or config change may not be readable by an older Atlas. Going back to Beta or Stable later waits for a newer build there, or you can reinstall it explicitly.",
+			"tag": null
+		}
+	],
+	"release": {
+		"downgrade": {
+			"action": "downgrade",
+			"app_ahead": true,
+			"app_behind": false,
+			"channel": "stable",
+			"cli_ahead": true,
+			"cli_behind": false,
+			"downgrade": true,
+			"notes": "### Added\n- A thing",
+			"published_at": "2026-10-12",
+			"url": "https://github.com/codeatlasdev/atlas/releases/tag/v1.3.0",
+			"version": "1.3.0"
+		},
+		"none": {
+			"action": "none",
+			"app_ahead": false,
+			"app_behind": false,
+			"channel": "stable",
+			"cli_ahead": false,
+			"cli_behind": false,
+			"downgrade": false,
+			"notes": "### Added\n- A thing",
+			"published_at": "2026-10-12",
+			"url": "https://github.com/codeatlasdev/atlas/releases/tag/v1.3.0",
+			"version": "1.3.0"
+		},
+		"update": {
+			"action": "update",
+			"app_ahead": false,
+			"app_behind": true,
+			"channel": "beta",
+			"cli_ahead": false,
+			"cli_behind": true,
+			"downgrade": false,
+			"notes": "### Added\n- A thing",
+			"published_at": "2026-10-12",
+			"url": "https://github.com/codeatlasdev/atlas/releases/tag/v1.4.0-beta.2",
+			"version": "1.4.0-beta.2"
+		}
+	},
+	"state": {
+		"channel": "beta",
+		"env_override": false,
+		"stage": "alpha",
+		"stage_note": "Atlas is in alpha. Every channel, including Stable, can have rough edges and breaking changes until the first release that meets the general availability criteria in the versioning policy."
+	},
+	"state_override": {
+		"channel": "alpha",
+		"env_override": true,
+		"stage": "alpha",
+		"stage_note": "Atlas is in alpha. Every channel, including Stable, can have rough edges and breaking changes until the first release that meets the general availability criteria in the versioning policy."
+	},
+	"views": [
+		{
+			"action": "none",
+			"alpha_era_note": "While Atlas is in alpha, Stable means soaked through alpha and beta, not finished.",
+			"audience": "Everyone, and anyone who uses Atlas for real work.",
+			"cadence": "When a soaked beta is promoted, usually every few weeks.",
+			"channel": "stable",
+			"label": "Stable",
+			"offered": "1.3.0",
+			"promise": "The default. Only builds that already ran as a beta, with nothing changed since but the version number.",
+			"risk": "low",
+			"risk_label": "Lowest risk of the three",
+			"selected": true,
+			"switch_to": "You move to the next Stable release that is newer than the version you run. Atlas never installs an older build by itself.",
+			"tag": "v1.3.0"
+		},
+		{
+			"action": "update",
+			"alpha_era_note": null,
+			"audience": "People who want next release's features a few weeks early and will report what breaks.",
+			"cadence": "A new beta about every one to two weeks while a release is soaking.",
+			"channel": "beta",
+			"label": "Beta",
+			"offered": "1.4.0-beta.2",
+			"promise": "Feature-complete builds that are being soaked before they become Stable. Only fixes land between betas.",
+			"risk": "medium",
+			"risk_label": "Mostly works; a bug can slip through",
+			"selected": false,
+			"switch_to": "You get the newest beta or release candidate, and Stable as soon as it is newer. Going back to Stable later waits for a Stable newer than your build, or you can reinstall Stable explicitly.",
+			"tag": "v1.4.0-beta.2"
+		},
+		{
+			"action": "update",
+			"alpha_era_note": null,
+			"audience": "Contributors and testers who accept breakage in exchange for the newest work.",
+			"cadence": "Whenever the maintainer cuts one, often several times a week.",
+			"channel": "alpha",
+			"label": "Alpha",
+			"offered": "1.4.0-alpha.3",
+			"promise": "Fresh builds cut straight from main, with little soak. Features can be unfinished and behavior can change between builds.",
+			"risk": "high",
+			"risk_label": "Expect rough edges and breaking changes",
+			"selected": false,
+			"switch_to": "You get the newest build of any channel, so a settings or config change may not be readable by an older Atlas. Going back to Beta or Stable later waits for a newer build there, or you can reinstall it explicitly.",
+			"tag": "v1.4.0-alpha.3"
+		}
+	]
+}

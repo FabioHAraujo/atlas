@@ -238,6 +238,21 @@ pub fn by_name(name: &str) -> Option<&'static Server> {
     SERVERS.iter().find(|s| s.name == name)
 }
 
+/// Is `file` third-party source the user browses rather than a project they work on: a package manager
+/// store (`node_modules`, the cargo registry and git checkouts) or the Rust toolchain's own sources?
+/// Such a file is served by the server of the project that led there, never by one rooted in it.
+pub fn is_dependency(file: &Path) -> bool {
+    let parts: Vec<_> = file
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect();
+    let has = |a: &str, b: &str| parts.windows(2).any(|w| w[0] == a && w[1] == b);
+    parts.iter().any(|p| p == "node_modules")
+        || has(".cargo", "registry")
+        || has(".cargo", "git")
+        || has(".rustup", "toolchains")
+}
+
 /// Root directory for `file` under `server`. `fallback` (the worktree root, or the file's
 /// directory) applies when no marker is found.
 pub fn find_root(server: &Server, file: &Path, fallback: Option<&Path>) -> PathBuf {
@@ -324,6 +339,27 @@ mod label_tests {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn dependency_locations_are_recognised_and_projects_are_not() {
+        for p in [
+            "/p/node_modules/typescript/lib/lib.d.ts",
+            "/p/apps/a/node_modules/.bun/x@1/node_modules/x/index.d.ts",
+            "/Users/me/.cargo/registry/src/index.crates.io-6f17/serde-1.0/src/lib.rs",
+            "/Users/me/.cargo/git/checkouts/foo-abc/1234/src/lib.rs",
+            "/Users/me/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/path.rs",
+        ] {
+            assert!(is_dependency(Path::new(p)), "{p}");
+        }
+        for p in [
+            "/Users/me/Projetos/atlas/crates/atlas-core/src/lib.rs",
+            "/Users/me/node_modules_notes/a.ts",
+            "/Users/me/cargo/registry/x.rs",
+            "/Users/me/.cargo/bin/tool",
+        ] {
+            assert!(!is_dependency(Path::new(p)), "{p}");
+        }
+    }
 
     fn touch(p: &Path) {
         fs::create_dir_all(p.parent().unwrap()).unwrap();

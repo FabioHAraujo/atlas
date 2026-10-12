@@ -3,9 +3,11 @@
 | You want to | Go to |
 |---|---|
 | Learn or look something up | The [docs](https://atlas.codeatlas.com.br/docs/) (source in [`docs/`](docs/)), then [troubleshooting](docs/troubleshooting.md) and the [FAQ](docs/faq.md) |
-| Ask a question or share an idea | [GitHub Discussions](https://github.com/codeatlasdev/atlas/discussions) |
+| Ask a question or share an idea | Read the docs and the FAQ first; if they do not answer it, open a [feature request](https://github.com/codeatlasdev/atlas/issues/new/choose) form describing what you are trying to do. GitHub Discussions are not enabled yet |
 | Report a bug | [A bug report](https://github.com/codeatlasdev/atlas/issues/new/choose). Include `atlas version`, your OS, the steps and the relevant lines of `.logs/<service>.log` (redact secrets) |
-| Request a feature | [A feature request](https://github.com/codeatlasdev/atlas/issues/new/choose); for anything big, start a Discussion first |
+| Request a feature | [A feature request](https://github.com/codeatlasdev/atlas/issues/new/choose); for anything big, say so in the issue so the approach is agreed before you build it |
+| Understand Stable, Beta and Alpha, or switch channel | [Versioning and release channels](docs/versioning.md); for a failed update or channel switch use the *Release or update problem* form |
+| See how issues are labeled and how fast to expect an answer | [Labels and triage](docs/labels.md) |
 | Report a vulnerability | **Not in public.** [SECURITY.md](SECURITY.md) |
 | Contribute | [CONTRIBUTING.md](CONTRIBUTING.md) |
 

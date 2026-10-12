@@ -4,7 +4,7 @@
  * `lsp_open`, debounced + coalesced `lsp_change` (UTF-16 incremental events), `lsp_save`, `lsp_close`,
  * and a re-open of every live document when hostd reconnects (a new daemon has no document state).
  */
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { untrack } from "svelte";
 import type { ChangeSet, Text } from "@codemirror/state";
 import { hostCall } from "#lib/host.ts";
@@ -13,6 +13,8 @@ import { mergeLspOverrides } from "#lib/lsp/overrides.ts";
 import type { ProjectLsp } from "#lib/lsp/projectParse.ts";
 import { invalidateProjectSettings, isProjectSettingsPath, projectLsp } from "#lib/lsp/projectSettings.ts";
 import type { Catalog, LspOverride, Reason, ServerStatus } from "#lib/lsp/types.ts";
+import { isHostTooOld, openPayload } from "#lib/lsp/hostFacts.ts";
+import { startSync } from "#lib/lsp/sync.ts";
 import { prefs } from "#lib/stores/prefs.svelte.ts";
 
 const CHANGE_DEBOUNCE_MS = 40;
@@ -76,19 +78,20 @@ type EditHandler = (edit: WorkspaceEdit) => Promise<boolean>;
 const docs: Record<string, LspDoc> = {};
 let editHandler: EditHandler | null = null;
 let rid = 0;
-let offs: Promise<UnlistenFn[]> | null = null;
+let stopSync: (() => void) | null = null;
 
 /** Registered by the workspace: applies a server-initiated WorkspaceEdit (open docs + disk). */
 export const setApplyEditHandler = (h: EditHandler) => (editHandler = h);
 
-/** Start the app-wide hostd listener (idempotent): status pushes, diagnostics, reconnect re-open. */
+/** Start the app-wide hostd sync (idempotent): the server list at start, status pushes, diagnostics, reconnects. */
 export function startLspEvents() {
-	offs ??= Promise.all([
-		listen<Record<string, unknown> & { ev: string }>("host://event", (e) => onEvent(e.payload)),
-		listen("host://reconnected", () => {
-			for (const d of Object.values(docs)) void d.reopen();
-		}),
-	]);
+	stopSync ??= startSync({
+		listen: (ev, h) => listen(ev, h),
+		fetchServers: async () => (await hostCall<{ servers: ServerStatus[] }>("lsp_status")).servers,
+		apply: (s) => applyServers(s as ServerStatus[]),
+		reopenAll,
+		onEvent: (p) => onEvent(p as Record<string, unknown> & { ev: string }),
+	});
 }
 
 function onEvent(p: Record<string, unknown> & { ev: string }) {
@@ -171,6 +174,8 @@ export class LspDoc {
 	reason = $state<Reason | undefined>();
 	/** Human names of the supported languages, when hostd has no server for this one. */
 	supported = $state<string[] | undefined>();
+	/** hostd rejected `lsp_open` as an unknown command: it is older than the app (before its caps were read). */
+	hostOld = $state(false);
 	/** hostd has answered `lsp_open` at least once (before that the state is "starting"). */
 	replied = $state(false);
 	/** `.atlas/settings.json` is unusable: one line for the status popover. */
@@ -257,17 +262,22 @@ export class LspDoc {
 		const sentText = this.#text();
 		try {
 			const overrides = await this.#overrides();
-			const r = await hostCall<OpenReply>("lsp_open", {
-				path: this.path,
-				language_id: this.languageId,
-				text: sentText,
-				version: sentVersion,
-				...(overrides ? { overrides } : {}),
-			});
+			const r = await hostCall<OpenReply>(
+				"lsp_open",
+				openPayload({
+					path: this.path,
+					languageId: this.languageId,
+					text: sentText,
+					version: sentVersion,
+					root: this.#root,
+					overrides,
+				}),
+			);
 			if (this.#closed) {
 				if (r.server) void hostCall("lsp_close", { path: this.path }).catch(() => {});
 				return;
 			}
+			this.hostOld = false;
 			this.server = r.server;
 			this.status = r.status;
 			this.reason = r.reason;
@@ -279,18 +289,23 @@ export class LspDoc {
 				const cur = this.#text();
 				if (cur !== sentText) {
 					await hostCall("lsp_close", { path: this.path }).catch(() => {});
-					await hostCall("lsp_open", {
-						path: this.path,
-						language_id: this.languageId,
-						text: cur,
-						version: this.version,
-						...(overrides ? { overrides } : {}),
-					}).catch(() => {});
+					await hostCall(
+						"lsp_open",
+						openPayload({
+							path: this.path,
+							languageId: this.languageId,
+							text: cur,
+							version: this.version,
+							root: this.#root,
+							overrides,
+						}),
+					).catch(() => {});
 				}
 			}
 			if (this.#open && !this.caps) void this.refreshCaps();
 			else this.pullSoon(0);
 		} catch (e) {
+			this.hostOld = isHostTooOld(e);
 			this.status = "missing";
 			this.reason = {
 				code: "crashed",

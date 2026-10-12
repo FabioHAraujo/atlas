@@ -2,6 +2,7 @@
 import type { Command } from "#lib/keymap.svelte.ts";
 import { activeEditor } from "#lib/shell/editors.ts";
 import { ops } from "#lib/symbols.ts";
+import { navigator } from "#lib/lsp/history.ts";
 import type { EditorView } from "@codemirror/view";
 
 /**
@@ -37,7 +38,24 @@ const cmd = (id: string, label: string, fn: (v: EditorView) => unknown): Command
 	when: () => !!lspView(),
 });
 
+/** ⌃- / ⌃⇧-: back and forward over jump positions (does not need a server). */
+const navCommands = (): Command[] => [
+	{
+		id: "editor::GoBack",
+		label: "Go back to previous position",
+		run: () => void navigator.go(-1),
+		when: () => navigator.canGo(-1),
+	},
+	{
+		id: "editor::GoForward",
+		label: "Go forward to next position",
+		run: () => void navigator.go(1),
+		when: () => navigator.canGo(1),
+	},
+];
+
 export const lspCommands = (): Command[] => [
+	...navCommands(),
 	cmd("editor::GoToDefinition", "Go to definition", async (v) => (await actions()).goToDefinition(v)),
 	cmd("editor::GoToTypeDefinition", "Go to type definition", async (v) =>
 		(await actions()).goToTypeDefinition(v),

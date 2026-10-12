@@ -1,11 +1,15 @@
-// GET /changelog.json -> the public changelog of the latest release as data: [{ version, date, id, html }].
+// GET /changelog.json[?channel=stable|beta|alpha] -> the public changelog at the channel's newest tag (default stable) as data:
+// { tag, entries: [{ version, date, id, html, kind, superseded }] }. The markdown at a channel's newest tag carries the whole history.
 import { renderChangelog } from "./_lib/changelog";
-import { loadChangelog, resolveLatest } from "./_lib/edge";
-import { edgeHeaders, wantsFresh } from "./_lib/respond";
+import { loadChangelog, resolveChannel } from "./_lib/edge";
+import { badChannel, edgeHeaders, wantedChannel, wantsFresh } from "./_lib/respond";
 
 export const onRequestGet: PagesFunction = async ({ request }) => {
+	const channel = wantedChannel(request.url);
+	if (!channel) return badChannel();
 	try {
-		const { value, stale } = await resolveLatest("changelog", loadChangelog, wantsFresh(request.url));
+		const { value, stale } = await resolveChannel("changelog", channel, loadChangelog, wantsFresh(request.url));
+		if (!value) throw new Error(`no published ${channel} release`);
 		const { entries } = renderChangelog(value.markdown);
 		return Response.json({ tag: value.tag, entries }, { headers: edgeHeaders({ "access-control-allow-origin": "*" }, stale) });
 	} catch (err) {

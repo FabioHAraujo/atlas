@@ -27,7 +27,8 @@ dist/
 .logs/
 
 # ── Agent / tool state ──────────────────────────────────────────────────────
-.agents/
+.agents/*
+!.agents/skills/
 graphify-out/
 .act/
 

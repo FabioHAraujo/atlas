@@ -92,3 +92,10 @@ test("⌘1…8 and ⌘9 are tab shortcuts, worktrees moved to ⌃⌘", () => {
 		"ctrl-shift-tab",
 	);
 });
+
+test("⌃- and ⌃⇧- are Go Back / Go Forward over jump positions, distinct from ⌘[ ⌘] tab history", () => {
+	const m = merge(DEFAULT_KEYMAP, {});
+	expect(m.get(normalize("ctrl--"))).toBe("editor::GoBack");
+	expect(m.get(normalize("ctrl-shift--"))).toBe("editor::GoForward");
+	expect(m.get("cmd-[")).toBe("shell::Back");
+});

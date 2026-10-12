@@ -3,7 +3,11 @@
 //! Uses no REST API and no token: the unauthenticated API allows 60 requests an hour per IP,
 //! which a shared network (or a few update checks) exhausts. Instead, through `curl`
 //! (present on every supported OS):
-//! - the latest tag comes from the `releases/latest` redirect on github.com;
+//! - the latest tag comes from the `releases/latest` redirect on github.com (that redirect
+//!   never points at a prerelease, which is what keeps the Stable channel stable);
+//! - Beta and Alpha also read `releases.atom` (public, 10 newest published releases, no
+//!   prerelease flag, so the channel is inferred from the SemVer tag) and pick the newest
+//!   version the channel accepts, see [`crate::channel::resolve`];
 //! - release notes are the `## [X.Y.Z] - date` sections of `CHANGELOG.md` at that tag
 //!   (the release body is the same section, extracted by `release.yml`);
 //! - assets come from the public `releases/download` URLs.
@@ -12,6 +16,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use thiserror::Error;
+
+use crate::channel::{self, Channel};
 
 pub const MISSING: &str = "curl not found — install it and try again";
 
@@ -122,20 +128,174 @@ fn sections(repo: &str, md: &str) -> Vec<ReleaseInfo> {
     out
 }
 
-/// Every published release, newest first: the sections of `CHANGELOG.md` at the latest tag,
-/// which carries the whole history (older tags may not exist in this repository).
-pub fn releases(repo: &str) -> Result<Vec<ReleaseInfo>, GithubError> {
-    Ok(sections(repo, &changelog(repo, &latest_tag(repo)?)?))
+/// Entry tags of a `releases.atom` feed, in feed order (newest published first), percent-decoded.
+/// Moving tags (`nightly`) and non-release tags are kept: judging them is [`channel::resolve`]'s job.
+pub fn atom_tags(xml: &str) -> Vec<String> {
+    const MARK: &str = "/releases/tag/";
+    xml.split("<entry>")
+        .skip(1)
+        .filter_map(|entry| {
+            let entry = entry.split("</entry>").next()?;
+            let link = entry
+                .split("<link ")
+                .find(|l| l.contains("rel=\"alternate\""))?;
+            let href = link.split("href=\"").nth(1)?.split('"').next()?;
+            let (_, tag) = href.split_once(MARK)?;
+            Some(percent_decode(tag)).filter(|t| !t.is_empty())
+        })
+        .collect()
 }
 
-/// Latest published (non-draft, non-prerelease) release of `repo`.
-pub fn latest_release(repo: &str) -> Result<ReleaseInfo, GithubError> {
-    let tag = latest_tag(repo)?;
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        if b[i] == b'%'
+            && let (Some(h), Some(l)) = (
+                b.get(i + 1).and_then(|c| hex(*c)),
+                b.get(i + 2).and_then(|c| hex(*c)),
+            )
+        {
+            out.push((h * 16 + l) as u8);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn atom(repo: &str) -> Result<String, GithubError> {
+    let mut c = curl();
+    c.arg(format!("https://github.com/{repo}/releases.atom"));
+    Ok(String::from_utf8_lossy(&run(c)?).into_owned())
+}
+
+/// `HEAD` on the release's `manifest.json`: the tag is pushed before the release is built and
+/// published, so a tag alone does not mean there is something to install.
+fn is_published(repo: &str, tag: &str) -> bool {
+    content_length(&format!(
+        "https://github.com/{repo}/releases/download/{tag}/manifest.json"
+    ))
+    .is_some()
+}
+
+/// The newest tag in `candidates` that `channel` accepts and that is actually published (the tag
+/// is pushed before the release exists, so walk down past unpublished ones); `stable` when none.
+fn newest_published(
+    repo: &str,
+    channel: Channel,
+    mut candidates: Vec<&str>,
+    stable: Option<&str>,
+) -> Option<String> {
+    while let Some(tag) = channel::resolve(channel, candidates.iter().copied(), None) {
+        if Some(tag.as_str()) == stable || is_published(repo, &tag) {
+            return Some(tag);
+        }
+        candidates.retain(|c| *c != tag);
+    }
+    stable.map(str::to_string)
+}
+
+/// The tag `channel` follows, without fetching the changelog (what update checks need). Stable
+/// is the `releases/latest` redirect alone. Beta and Alpha add the Atom feed; if the feed cannot
+/// be read they fall back to Stable.
+pub fn channel_tag(repo: &str, channel: Channel) -> Result<String, GithubError> {
+    let stable = latest_tag(repo);
+    if channel == Channel::Stable {
+        return stable;
+    }
+    let feed = atom(repo).map(|x| atom_tags(&x)).unwrap_or_default();
+    let mut candidates: Vec<&str> = feed.iter().map(String::as_str).collect();
+    candidates.extend(stable.as_deref().ok());
+    newest_published(repo, channel, candidates, stable.as_deref().ok())
+        .ok_or_else(|| stable.unwrap_err())
+}
+
+/// The section of `tag` in `sections` as a [`ReleaseInfo`].
+fn release_from_sections(
+    tag: &str,
+    sections: Vec<ReleaseInfo>,
+) -> Result<ReleaseInfo, GithubError> {
     let version = tag.trim_start_matches('v');
-    sections(repo, &changelog(repo, &tag)?)
+    sections
         .into_iter()
         .find(|r| r.version() == version)
         .ok_or_else(|| GithubError::Failed(format!("CHANGELOG.md at {tag} has no [{version}]")))
+}
+
+/// Every published release the channel's newest tag knows about, newest first: the sections of
+/// `CHANGELOG.md` at that tag, which carries the whole history (older tags may not exist here).
+pub fn releases(repo: &str, channel: Channel) -> Result<Vec<ReleaseInfo>, GithubError> {
+    Ok(sections(
+        repo,
+        &changelog(repo, &channel_tag(repo, channel)?)?,
+    ))
+}
+
+/// Newest release `channel` offers: the latest Stable for `Stable`, otherwise the newest
+/// published version the channel accepts (never older than the latest Stable).
+pub fn latest_release(repo: &str, channel: Channel) -> Result<ReleaseInfo, GithubError> {
+    let tag = channel_tag(repo, channel)?;
+    release_from_sections(&tag, sections(repo, &changelog(repo, &tag)?))
+}
+
+/// Releases in `(installed, latest]`, newest first (`installed == latest` keeps just that one:
+/// "what changed in the version I run"). A prerelease section is dropped when its own release is
+/// also in range: the stable section is the complete summary, its alphas and betas are history.
+pub fn in_range(all: Vec<ReleaseInfo>, installed: &str, latest: &str) -> Vec<ReleaseInfo> {
+    let (Some(from), Some(to)) = (channel::parse_tag(installed), channel::parse_tag(latest)) else {
+        return Vec::new();
+    };
+    let ord = channel::precedence;
+    let in_window: Vec<(semver::Version, ReleaseInfo)> = all
+        .into_iter()
+        .filter_map(|r| channel::parse_tag(&r.tag_name).map(|v| (v, r)))
+        .filter(|(v, _)| {
+            ord(v, &to).is_le()
+                && (ord(v, &from).is_gt() || ord(&from, &to).is_eq() && ord(v, &to).is_eq())
+        })
+        .collect();
+    let released: Vec<semver::Version> = in_window
+        .iter()
+        .filter(|(v, _)| v.pre.is_empty())
+        .map(|(v, _)| v.clone())
+        .collect();
+    in_window
+        .into_iter()
+        .filter(|(v, _)| {
+            v.pre.is_empty()
+                || !released
+                    .iter()
+                    .any(|r| (r.major, r.minor, r.patch) == (v.major, v.minor, v.patch))
+        })
+        .map(|(_, r)| r)
+        .collect()
+}
+
+/// Every channel as the CLI and the desktop show it for the install running `installed`, with
+/// what each one offers now. Network failures leave that channel's offer empty (the copy and
+/// the selection still render offline). Resolves the three channels concurrently.
+pub fn channel_views(
+    repo: &str,
+    installed: &semver::Version,
+    selected: Channel,
+) -> Vec<channel::ChannelView> {
+    // Beta and Alpha each read the feed; one fetch serves both, and Stable is the redirect.
+    let stable = latest_tag(repo).ok();
+    let feed = atom(repo).map(|x| atom_tags(&x)).unwrap_or_default();
+    let tags = |c: Channel| -> Option<String> {
+        let mut cand: Vec<&str> = feed.iter().map(String::as_str).collect();
+        cand.extend(stable.as_deref());
+        newest_published(repo, c, cand, stable.as_deref())
+    };
+    Channel::ALL
+        .into_iter()
+        .map(|c| channel::view(c, selected, installed, tags(c)))
+        .collect()
 }
 
 /// Download the release asset `name` of `tag` into `dest`.
@@ -258,6 +418,142 @@ mod tests {
             ("2.0.0", "", "")
         );
         assert!(sections("o/r", "no headings").is_empty());
+    }
+
+    fn infos(vs: &[&str]) -> Vec<ReleaseInfo> {
+        vs.iter()
+            .map(|v| ReleaseInfo {
+                tag_name: format!("v{v}"),
+                url: String::new(),
+                published_at: String::new(),
+                body: String::new(),
+            })
+            .collect()
+    }
+    fn versions(r: &[ReleaseInfo]) -> Vec<&str> {
+        r.iter().map(ReleaseInfo::version).collect()
+    }
+
+    #[test]
+    fn whats_new_range_keeps_only_the_range_newest_first() {
+        let all = || infos(&["1.0.2", "1.0.1", "1.0.0", "0.9.0"]);
+        assert_eq!(
+            versions(&in_range(all(), "1.0.0", "1.0.2")),
+            ["1.0.2", "1.0.1"]
+        );
+        assert_eq!(versions(&in_range(all(), "1.0.0", "1.0.1")), ["1.0.1"]);
+        assert_eq!(
+            versions(&in_range(all(), "1.0.2", "1.0.2")),
+            ["1.0.2"],
+            "what changed in the version I run"
+        );
+        assert!(in_range(all(), "garbage", "1.0.2").is_empty());
+    }
+
+    #[test]
+    fn whats_new_hides_prerelease_sections_whose_stable_is_in_range() {
+        // Stable section = complete summary since the last stable; its alphas/betas are noise.
+        let all = infos(&[
+            "1.5.0-alpha.1",
+            "1.4.0",
+            "1.4.0-rc.1",
+            "1.4.0-beta.2",
+            "1.4.0-beta.1",
+            "1.4.0-alpha.2",
+            "1.4.0-alpha.1",
+            "1.3.0",
+        ]);
+        assert_eq!(
+            versions(&in_range(all.clone(), "1.3.0", "1.4.0")),
+            ["1.4.0"]
+        );
+        // An alpha-channel user sees the stable summary plus the alpha that has no stable yet.
+        assert_eq!(
+            versions(&in_range(all.clone(), "1.3.0", "1.5.0-alpha.1")),
+            ["1.5.0-alpha.1", "1.4.0"]
+        );
+        // A beta user going to the next beta sees incremental sections: no stable exists yet.
+        assert_eq!(
+            versions(&in_range(all.clone(), "1.4.0-beta.1", "1.4.0-rc.1")),
+            ["1.4.0-rc.1", "1.4.0-beta.2"]
+        );
+        // ...and when the stable arrives, only the stable summary.
+        assert_eq!(versions(&in_range(all, "1.4.0-beta.2", "1.4.0")), ["1.4.0"]);
+    }
+
+    #[test]
+    fn whats_new_never_lists_a_downgrade_target_range() {
+        let all = infos(&["1.4.0", "1.3.0"]);
+        // installed 1.5.0-alpha.1 looking at stable 1.4.0: nothing is "new".
+        assert!(in_range(all, "1.5.0-alpha.1", "1.4.0").is_empty());
+    }
+
+    /// Real `releases.atom` responses with the HTML bodies elided (testdata/channels).
+    const ATLAS_ATOM: &str = include_str!("../../../testdata/channels/releases.atom");
+    const ZED_ATOM: &str = include_str!("../../../testdata/channels/zed-releases.atom");
+
+    #[test]
+    fn atom_tags_come_from_entry_links_in_feed_order() {
+        assert_eq!(
+            atom_tags(ATLAS_ATOM),
+            ["v1.3.0", "v1.2.1", "v1.1.2", "v1.1.1", "v1.1.0"]
+        );
+        // The feed-level <link rel="alternate" .../releases> is not an entry.
+        assert!(!atom_tags(ATLAS_ATOM).iter().any(|t| t.is_empty()));
+    }
+
+    #[test]
+    fn atom_keeps_prereleases_and_moving_tags_for_the_resolver_to_judge() {
+        let tags = atom_tags(ZED_ATOM);
+        assert_eq!(tags.len(), 10, "the feed's hard cap");
+        assert!(tags.contains(&"v1.24.2-pre".to_string()));
+        assert!(tags.contains(&"nightly".to_string()));
+    }
+
+    #[test]
+    fn atom_tags_are_percent_decoded() {
+        let xml = r#"<feed><entry><link rel="alternate" type="text/html" href="https://github.com/o/r/releases/tag/%40tauri-apps%2Fcli-v2.12.2"/></entry>
+            <entry><link rel="alternate" href="https://github.com/o/r/releases/tag/v1.0.0-beta.1"/></entry></feed>"#;
+        assert_eq!(atom_tags(xml), ["@tauri-apps/cli-v2.12.2", "v1.0.0-beta.1"]);
+    }
+
+    #[test]
+    fn atom_garbage_and_empty_feeds_give_no_tags() {
+        for xml in ["", "not xml", "<feed></feed>", "<entry>no link</entry>"] {
+            assert!(atom_tags(xml).is_empty(), "{xml:?}");
+        }
+    }
+
+    #[test]
+    fn a_tag_with_a_non_semver_name_never_resolves_for_any_channel() {
+        use crate::channel::{Channel, resolve};
+        let tags = atom_tags(ZED_ATOM);
+        // zed's `-pre` tags are real semver prereleases with an unknown label: offered nowhere.
+        for c in Channel::ALL {
+            assert_eq!(
+                resolve(c, tags.iter().map(String::as_str), Some("v1.23.3")).as_deref(),
+                Some("v1.23.3"),
+                "{c}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_changelog_section_is_an_error_naming_the_version() {
+        let e = release_from_sections("v1.4.0-beta.1", sections("o/r", MD)).unwrap_err();
+        assert!(e.to_string().contains("1.4.0-beta.1"), "{e}");
+    }
+
+    #[test]
+    fn prerelease_sections_parse_with_their_dates() {
+        let md =
+            "## [1.4.0-alpha.2] — 2026-10-14\n\n- b\n\n## [1.4.0-alpha.1] - 2026-10-13\n\n- a\n";
+        let r = release_from_sections("v1.4.0-alpha.2", sections("o/r", md)).unwrap();
+        assert_eq!(
+            (r.version(), r.published_at.as_str(), r.notes()),
+            ("1.4.0-alpha.2", "2026-10-14", "- b")
+        );
+        assert_eq!(r.url, "https://github.com/o/r/releases/tag/v1.4.0-alpha.2");
     }
 
     fn sh(script: &str) -> Command {

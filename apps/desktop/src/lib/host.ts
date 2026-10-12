@@ -1,8 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
+import { crumbs } from "#lib/errors/breadcrumbs.ts";
 
 /** Raw passthrough to `atlas hostd` (see crates/atlas-host/src/protocol.rs). */
-export const hostCall = <T = unknown>(cmd: string, args: Record<string, unknown> = {}) =>
-	invoke<T>("host_call", { cmd, args });
+export const hostCall = <T = unknown>(cmd: string, args: Record<string, unknown> = {}) => {
+	// Command name only: arguments can hold file contents and paths.
+	if (!/^(fs_read|pty_write)/.test(cmd)) crumbs.add(`host ${cmd}`);
+	return invoke<T>("host_call", { cmd, args }).catch((e) => {
+		crumbs.add(`host ${cmd} failed`);
+		throw e;
+	});
+};
 
 interface PtyScope {
 	worktree_id?: string;

@@ -1,11 +1,12 @@
 name: Bug report
 description: Something does not work the way the docs say it should.
-labels: [bug]
+labels: ["type: bug", "status: needs-triage"]
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for the report. **Security problems do not go here**: use [private vulnerability reporting](https://github.com/codeatlasdev/atlas/security/advisories/new).
+        Problems with an update, the installer or switching channels have their own form: [Release or update problem](https://github.com/codeatlasdev/atlas/issues/new?template=release_problem.yml).
         Please redact secrets from anything you paste.
   - type: textarea
     id: what
@@ -38,13 +39,41 @@ body:
         - other
     validations:
       required: true
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Release channel
+      description: Which channel you updated from. See [Versioning and release channels](https://github.com/codeatlasdev/atlas/blob/main/docs/versioning.md). `atlas update channel` prints it.
+      options:
+        - stable
+        - beta
+        - alpha
+        - built from source
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
       label: Output of `atlas version`
-      placeholder: "atlas 1.0.1 (macos aarch64)"
+      placeholder: "atlas 1.3.0 (macos aarch64)"
     validations:
       required: true
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Did this work before?
+      options:
+        - "Yes, it worked in an earlier version (say which below)"
+        - "No, it never worked"
+        - "Not sure"
+    validations:
+      required: true
+  - type: input
+    id: worked_in
+    attributes:
+      label: Last version where it worked
+      description: Only if you answered yes above.
+      placeholder: "1.2.1"
   - type: input
     id: os
     attributes:
@@ -58,3 +87,14 @@ body:
       label: Relevant logs
       description: Lines from `.logs/<service>.log`, `atlas dev --status`, or `atlas desktop debug logs`. A crash report (`crash-*.toml`) may contain private data; review it first.
       render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I checked that this still happens on the newest build of my channel (`atlas update --check`), or I am on it.
+          required: true
+        - label: I searched the [open issues](https://github.com/codeatlasdev/atlas/issues) and this is not a duplicate.
+          required: true
+        - label: I removed secrets and private data from everything I pasted.
+          required: true

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use atlas_core::channel::{self, Action, Channel};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -110,18 +111,78 @@ pub struct Release {
     url: String,
     published_at: String,
     notes: String,
-    /// Installed CLI is older than `version` (false when unknown or unparseable).
+    /// The channel this release was cut for (`stable`/`beta`/`alpha`; `stable` for a label
+    /// Atlas does not ship, which no channel offers anyway).
+    channel: String,
+    /// What installing `version` is for this app: `update`, `downgrade` or `none`.
+    action: Action,
+    /// `action == downgrade`: the offer is older than what runs (never installed on its own).
+    downgrade: bool,
+    /// Installed CLI is older than `version` (false when unknown, unparseable or not older).
     cli_behind: bool,
     /// This app is older than `version`.
     app_behind: bool,
+    /// Installed CLI is newer than `version`.
+    cli_ahead: bool,
+    /// This app is newer than `version`.
+    app_ahead: bool,
 }
 
-/// `latest > current` by semver (a pre-release sorts before its release); unparseable → false.
-fn behind(latest: &str, current: Option<&str>) -> bool {
-    use semver::Version;
-    match (Version::parse(latest), current.map(Version::parse)) {
-        (Ok(l), Some(Ok(c))) => l > c,
-        _ => false,
+/// What `offered` is relative to `installed`; unknown or unparseable → `None`.
+fn action_of(offered: &str, installed: Option<&str>) -> Action {
+    let (Some(o), Some(i)) = (
+        channel::parse_tag(offered),
+        installed.and_then(channel::parse_tag),
+    ) else {
+        return Action::None;
+    };
+    match channel::decide(&i, &o) {
+        channel::Decision::Upgrade => Action::Update,
+        channel::Decision::Ahead => Action::Downgrade,
+        channel::Decision::Current => Action::None,
+    }
+}
+
+/// `behind`/`ahead` flags of one component (only an upgrade is "behind").
+struct Flavor {
+    behind: bool,
+    ahead: bool,
+}
+
+impl Flavor {
+    fn of(a: Action) -> Self {
+        Self {
+            behind: a == Action::Update,
+            ahead: a == Action::Downgrade,
+        }
+    }
+}
+
+impl Release {
+    /// `info` as the app sees it given the installed CLI (when known) and app versions.
+    fn new(info: atlas_core::github::ReleaseInfo, cli: Option<&str>, app: &str) -> Self {
+        let version = info.version().to_string();
+        let (cli_f, app_f) = (
+            Flavor::of(action_of(&version, cli)),
+            Flavor::of(action_of(&version, Some(app))),
+        );
+        let action = action_of(&version, Some(app));
+        Self {
+            channel: channel::parse_tag(&version)
+                .and_then(|v| Channel::of_version(&v))
+                .unwrap_or_default()
+                .to_string(),
+            downgrade: action == Action::Downgrade,
+            action,
+            cli_behind: cli_f.behind,
+            cli_ahead: cli_f.ahead,
+            app_behind: app_f.behind,
+            app_ahead: app_f.ahead,
+            notes: info.notes().to_string(),
+            url: info.url,
+            published_at: info.published_at,
+            version,
+        }
     }
 }
 
@@ -188,23 +249,17 @@ pub async fn system_info() -> Result<SystemInfo, String> {
 /// Latest published release (public GitHub Releases API).
 #[tauri::command]
 pub async fn latest_release() -> Result<Release, String> {
-    let info = tauri::async_runtime::spawn_blocking(|| atlas_core::github::latest_release(REPO))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
-    let version = info.version().to_string();
+    let info = tauri::async_runtime::spawn_blocking(|| {
+        atlas_core::github::latest_release(REPO, channel::current())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     let cli = match atlas_bin() {
         Ok(bin) => cli_version(&bin).await,
         Err(_) => None,
     };
-    Ok(Release {
-        cli_behind: behind(&version, cli.as_deref()),
-        app_behind: behind(&version, Some(&app_version())),
-        version,
-        notes: info.notes().to_string(),
-        url: info.url,
-        published_at: info.published_at,
-    })
+    Ok(Release::new(info, cli.as_deref(), &app_version()))
 }
 
 /// Platform suffix of the release assets (`aarch64-apple-darwin`, ...), as `atlas update` names them.
@@ -252,32 +307,14 @@ pub struct ReleaseNotes {
     notes: String,
 }
 
-/// Releases (newest first) newer than `installed` and not newer than `latest`;
-/// `installed == latest` keeps just that one ("what changed in the version I run").
-fn in_range(
-    all: Vec<atlas_core::github::ReleaseInfo>,
-    installed: &str,
-    latest: &str,
-) -> Vec<atlas_core::github::ReleaseInfo> {
-    use semver::Version;
-    let (Ok(from), Ok(to)) = (Version::parse(installed), Version::parse(latest)) else {
-        return Vec::new();
-    };
-    all.into_iter()
-        .filter(|r| {
-            Version::parse(r.version())
-                .is_ok_and(|v| v <= to && (v > from || from == to && v == to))
-        })
-        .collect()
-}
-
 /// Release notes of every release in `(from, to]`, newest first (at most 10).
 #[tauri::command]
 pub async fn releases_between(from: String, to: String) -> Result<Vec<ReleaseNotes>, String> {
     const MAX: usize = 10;
     tauri::async_runtime::spawn_blocking(move || {
-        let all = atlas_core::github::releases(REPO).map_err(|e| e.to_string())?;
-        Ok(in_range(all, &from, &to)
+        let all =
+            atlas_core::github::releases(REPO, channel::current()).map_err(|e| e.to_string())?;
+        Ok(atlas_core::github::in_range(all, &from, &to)
             .into_iter()
             .take(MAX)
             .map(|info| ReleaseNotes {
@@ -348,17 +385,146 @@ fn bundle_stamp() -> Option<std::time::SystemTime> {
         .ok()
 }
 
+/// Every channel with the copy and what it offers this app right now (network; an offline
+/// check still returns the three cards, with empty offers).
+#[tauri::command]
+pub async fn update_channels() -> Result<Vec<channel::ChannelView>, String> {
+    let installed = semver::Version::parse(&app_version()).map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        atlas_core::github::channel_views(REPO, &installed, channel::current())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The three cards from copy alone (no network): what the UI shows while the live offers cannot
+/// be read. Nothing is offered, so every action is `none`.
+#[tauri::command]
+pub fn update_channels_offline() -> Vec<channel::ChannelView> {
+    let selected = channel::current();
+    Channel::ALL
+        .into_iter()
+        .map(|c| channel::view(c, selected, &semver::Version::new(0, 0, 0), None))
+        .collect()
+}
+
+/// The followed channel, the product stage and whether `ATLAS_UPDATE_CHANNEL` forces it.
+#[derive(Serialize)]
+pub struct ChannelState {
+    channel: Channel,
+    stage: String,
+    stage_note: String,
+    env_override: bool,
+}
+
+/// `override_` is the value of `ATLAS_UPDATE_CHANNEL`; an invalid one is ignored (as in atlas-core).
+fn channel_state_at(file: &Path, override_: Option<&str>) -> ChannelState {
+    ChannelState {
+        channel: channel::effective(override_, channel::read_from(file)),
+        stage: channel::stage().to_string(),
+        stage_note: channel::stage_note().to_string(),
+        env_override: override_.is_some_and(|s| s.parse::<Channel>().is_ok()),
+    }
+}
+
+fn env_channel() -> Option<String> {
+    std::env::var(channel::ENV).ok()
+}
+
+#[tauri::command]
+pub fn update_channel_get() -> ChannelState {
+    channel_state_at(&channel::file(), env_channel().as_deref())
+}
+
+/// Validate `name`, refuse under an active env override, persist into `file`.
+fn set_channel_at(file: &Path, name: &str, override_: Option<&str>) -> Result<Channel, String> {
+    let wanted: Channel = name.parse()?;
+    if override_.is_some_and(|s| s.parse::<Channel>().is_ok()) {
+        return Err(format!(
+            "The update channel is forced by {} in this environment; unset it to change the channel here",
+            channel::ENV
+        ));
+    }
+    channel::write_to(file, wanted).map_err(|e| format!("cannot save the update channel: {e}"))?;
+    Ok(wanted)
+}
+
+/// Persist the channel in the file the CLI shares (`~/.atlas/update-channel`).
+#[tauri::command]
+pub fn update_channel_set(channel: String) -> Result<ChannelState, String> {
+    let file = channel::file();
+    let over = env_channel();
+    set_channel_at(&file, &channel, over.as_deref())?;
+    Ok(channel_state_at(&file, over.as_deref()))
+}
+
+#[cfg(test)]
+fn release_sample(version: &str, cli: Option<&str>, app: &str) -> Release {
+    let info = atlas_core::github::ReleaseInfo {
+        tag_name: format!("v{version}"),
+        url: format!("https://github.com/codeatlasdev/atlas/releases/tag/v{version}"),
+        published_at: "2026-10-12".into(),
+        body: "### Added\n- A thing".into(),
+    };
+    Release::new(info, cli, app)
+}
+
+/// Deterministic sample of everything the channel UI deserializes, for the frontend contract
+/// test (`__fixtures__/channel-views.json`): produced by the real serializers.
+#[cfg(test)]
+fn fixture_views() -> serde_json::Value {
+    let installed = semver::Version::parse("1.3.0").unwrap();
+    let tag = |c: Channel| match c {
+        Channel::Stable => Some("v1.3.0".to_string()),
+        Channel::Beta => Some("v1.4.0-beta.2".to_string()),
+        Channel::Alpha => Some("v1.4.0-alpha.3".to_string()),
+    };
+    let views = |sel: Channel, inst: &semver::Version| -> Vec<_> {
+        Channel::ALL
+            .into_iter()
+            .map(|c| channel::view(c, sel, inst, tag(c)))
+            .collect()
+    };
+    let older = semver::Version::parse("1.5.0").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("update-channel");
+    channel::write_to(&file, Channel::Beta).unwrap();
+    serde_json::json!({
+        "installed": "1.3.0",
+        "views": views(Channel::Stable, &installed),
+        "ahead": views(Channel::Stable, &older),
+        "offline": Channel::ALL
+            .into_iter()
+            .map(|c| channel::view(c, Channel::Beta, &installed, None))
+            .collect::<Vec<_>>(),
+        "release": {
+            "update": release_sample("1.4.0-beta.2", Some("1.3.0"), "1.3.0"),
+            "downgrade": release_sample("1.3.0", Some("1.4.0"), "1.4.0"),
+            "none": release_sample("1.3.0", None, "1.3.0"),
+        },
+        "state": channel_state_at(&file, None),
+        "state_override": channel_state_at(&file, Some("alpha")),
+    })
+}
+
 /// `atlas update`: the CLI, then (via `atlas desktop --sync`) the installed app, rolling the
 /// CLI back when the app cannot follow. Returns whether this app's bundle changed on disk
-/// and needs a relaunch.
+/// and needs a relaunch. `downgrade` installs an older build the followed channel offers
+/// (explicit user choice; a plain update never goes down).
 #[tauri::command]
-pub async fn update_all(app: AppHandle) -> Result<bool, String> {
+pub async fn update_all(app: AppHandle, downgrade: Option<bool>) -> Result<bool, String> {
     #[cfg(debug_assertions)]
     if std::env::var_os("ATLAS_DEBUG_FAKE_VERSION").is_some() {
         return Err("Updates are disabled while ATLAS_DEBUG_FAKE_VERSION is set".into());
     }
     let before = bundle_stamp();
-    stream(&app, &["update"]).await?;
+    // The persisted channel is authoritative: `--channel` is never passed from here.
+    let args: &[&str] = if downgrade == Some(true) {
+        &["update", "--downgrade", "--yes"]
+    } else {
+        &["update"]
+    };
+    stream(&app, args).await?;
     Ok(before.is_some() && before != bundle_stamp())
 }
 
@@ -392,7 +558,7 @@ pub fn relaunch(app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallGuard, Progress, behind, parse_progress};
+    use super::{InstallGuard, Progress, parse_progress};
 
     #[test]
     fn progress_lines_parse_and_plain_lines_do_not() {
@@ -441,47 +607,147 @@ mod tests {
         InstallGuard::take().expect("free again after the first ends");
     }
 
+    use super::{Flavor, action_of, channel_state_at, fixture_views, set_channel_at};
+    use atlas_core::channel::{Action, Channel};
+
     #[test]
-    fn behind_compares_semver_with_prereleases() {
-        assert!(behind("0.5.9", Some("0.5.8")));
-        assert!(!behind("0.5.8", Some("0.5.8")));
-        assert!(!behind("0.5.7", Some("0.5.8")));
-        assert!(
-            behind("0.5.8", Some("0.5.8-rc.1")),
-            "release > its pre-release"
+    fn action_of_is_update_only_for_a_strictly_newer_offer() {
+        // (offered, installed) → action
+        let table = [
+            ("1.4.0", Some("1.3.0"), Action::Update),
+            ("1.3.0", Some("1.3.0"), Action::None),
+            ("1.3.0", Some("1.4.0"), Action::Downgrade),
+            // prereleases sort before their release
+            ("1.4.0", Some("1.4.0-rc.1"), Action::Update),
+            ("1.4.0-rc.1", Some("1.4.0"), Action::Downgrade),
+            ("1.4.0-alpha.10", Some("1.4.0-alpha.9"), Action::Update),
+            ("1.4.0-alpha.9", Some("1.4.0-alpha.10"), Action::Downgrade),
+            // build metadata is not precedence
+            ("1.3.0+b2", Some("1.3.0+b1"), Action::None),
+            // unknown installed or garbage → never an update
+            ("1.4.0", None, Action::None),
+            ("1.4.0", Some("garbage"), Action::None),
+            ("garbage", Some("1.3.0"), Action::None),
+        ];
+        for (offered, installed, want) in table {
+            assert_eq!(
+                action_of(offered, installed),
+                want,
+                "{offered} vs {installed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn flavor_only_upgrade_counts_as_behind() {
+        let f = Flavor::of(Action::Update);
+        assert!(f.behind && !f.ahead);
+        let f = Flavor::of(Action::Downgrade);
+        assert!(!f.behind && f.ahead);
+        let f = Flavor::of(Action::None);
+        assert!(!f.behind && !f.ahead);
+    }
+
+    #[test]
+    fn channel_set_rejects_bad_names_and_never_touches_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("update-channel");
+        for bad in ["", "nightly", "Stabl", "canary"] {
+            assert!(set_channel_at(&file, bad, None).is_err(), "{bad:?}");
+        }
+        assert!(!file.exists(), "a rejected name writes nothing");
+    }
+
+    #[test]
+    fn channel_set_persists_through_atlas_core_and_is_case_insensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("nested/update-channel");
+        assert_eq!(set_channel_at(&file, "Beta", None).unwrap(), Channel::Beta);
+        assert_eq!(atlas_core::channel::read_from(&file), Channel::Beta);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "beta\n");
+        assert_eq!(
+            set_channel_at(&file, "stable", None).unwrap(),
+            Channel::Stable
         );
-        assert!(!behind("0.5.8-rc.1", Some("0.5.8")));
-        assert!(behind("0.10.0", Some("0.9.9")), "numeric, not lexical");
+        assert_eq!(atlas_core::channel::read_from(&file), Channel::Stable);
     }
 
     #[test]
-    fn behind_is_false_when_unknown_or_unparseable() {
-        assert!(!behind("0.5.9", None));
-        assert!(!behind("garbage", Some("0.5.8")));
-        assert!(!behind("0.5.9", Some("garbage")));
+    fn channel_set_refuses_while_the_env_override_is_active() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("update-channel");
+        let err = set_channel_at(&file, "beta", Some("alpha")).unwrap_err();
+        assert!(err.contains("ATLAS_UPDATE_CHANNEL"), "{err}");
+        assert!(!file.exists(), "nothing is persisted under an override");
+        // an invalid override is ignored by atlas-core, so it does not block
+        assert_eq!(
+            set_channel_at(&file, "beta", Some("bogus")).unwrap(),
+            Channel::Beta
+        );
     }
 
     #[test]
-    fn in_range_keeps_only_the_range() {
-        use super::in_range;
-        let all = || {
-            ["1.0.2", "1.0.1", "1.0.0", "0.9.0"]
-                .map(|v| atlas_core::github::ReleaseInfo {
-                    tag_name: format!("v{v}"),
-                    url: String::new(),
-                    published_at: String::new(),
-                    body: String::new(),
-                })
-                .to_vec()
-        };
-        let v = |r: Vec<atlas_core::github::ReleaseInfo>| {
-            r.iter()
-                .map(|r| r.version().to_string())
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(v(in_range(all(), "1.0.0", "1.0.2")), ["1.0.2", "1.0.1"]);
-        assert_eq!(v(in_range(all(), "1.0.0", "1.0.1")), ["1.0.1"]);
-        assert_eq!(v(in_range(all(), "1.0.2", "1.0.2")), ["1.0.2"]);
-        assert!(in_range(all(), "garbage", "1.0.2").is_empty());
+    fn channel_state_reports_stored_channel_stage_and_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("update-channel");
+        atlas_core::channel::write_to(&file, Channel::Alpha).unwrap();
+        let st = channel_state_at(&file, None);
+        assert_eq!(st.channel, Channel::Alpha);
+        assert!(!st.env_override);
+        assert_eq!(st.stage, atlas_core::channel::stage());
+        assert_eq!(st.stage_note, atlas_core::channel::stage_note());
+        let st = channel_state_at(&file, Some("beta"));
+        assert_eq!(st.channel, Channel::Beta, "the override wins");
+        assert!(st.env_override);
+        assert!(
+            !channel_state_at(&file, Some("bogus")).env_override,
+            "invalid override is ignored"
+        );
+    }
+
+    #[test]
+    fn offline_cards_carry_the_copy_and_offer_nothing() {
+        let v = super::update_channels_offline();
+        assert_eq!(
+            v.iter().map(|c| c.channel).collect::<Vec<_>>(),
+            Channel::ALL
+        );
+        for c in &v {
+            assert!(c.offered.is_none() && c.tag.is_none());
+            assert_eq!(c.action, Action::None);
+            assert!(!c.promise.is_empty() && !c.switch_to.is_empty());
+        }
+    }
+
+    /// Contract with the frontend: `apps/desktop/src/lib/__fixtures__/channel-views.json` is the
+    /// REAL serialization of `ChannelView` (and the channel state). The TS test parses that file,
+    /// so a rename on either side fails a test. `UPDATE_FIXTURES=1` regenerates it.
+    #[test]
+    fn channel_views_fixture_is_the_real_serialization() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/desktop/src/lib/__fixtures__/channel-views.json");
+        // Tab-indented, as `prettier --check src` (useTabs) wants the committed file.
+        let mut buf = Vec::new();
+        let mut ser = serde_json::Serializer::with_formatter(
+            &mut buf,
+            serde_json::ser::PrettyFormatter::with_indent(b"\t"),
+        );
+        serde::Serialize::serialize(&fixture_views(), &mut ser).unwrap();
+        let fresh = String::from_utf8(buf).unwrap() + "\n";
+        if std::env::var_os("UPDATE_FIXTURES").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &fresh).unwrap();
+        }
+        let committed = std::fs::read_to_string(&path)
+            .expect("fixture missing: run with UPDATE_FIXTURES=1 to create it");
+        // Compare values, not bytes: whether `json!` keeps insertion order depends on which crates
+        // of the build enable serde_json's `preserve_order` (`cargo test -p atlas-desktop` and
+        // `cargo test --workspace` differ), and key order is not part of the contract.
+        let committed: serde_json::Value = serde_json::from_str(&committed).unwrap();
+        let fresh: serde_json::Value = serde_json::from_str(&fresh).unwrap();
+        assert_eq!(
+            committed, fresh,
+            "stale fixture: re-run with UPDATE_FIXTURES=1"
+        );
     }
 }

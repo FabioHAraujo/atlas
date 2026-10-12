@@ -17,6 +17,6 @@
   },
   {
     "title": "Project",
-    "items": ["architecture", "contributing", "release", "site"]
+    "items": ["architecture", "contributing", "release", "versioning", "deprecation", "supply-chain", "labels", "site"]
   }
 ]

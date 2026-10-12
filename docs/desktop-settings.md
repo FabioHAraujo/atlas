@@ -156,6 +156,7 @@ Every shortcut is a named command (`workspace::ToggleLeftDock`, `pane::SplitRigh
 |---|---|
 | `shell` | the shell whose environment is used for your projects, e.g. `"/opt/homebrew/bin/fish"`. Unset = your account's login shell. See [Desktop app › Shell environment](desktop.md#shell-environment) |
 | `updates` | auto-check switch, skipped version and what you have seen. Managed by the app |
+| _update channel_ | not a key: the channel is the one word in `~/.atlas/update-channel`, shared with the `atlas` CLI (`ATLAS_UPDATE_CHANNEL` overrides it per process). Choose it in Settings → General → Updates → _Update channel_. See [Desktop app › Updates](desktop.md#updates) |
 | `onboarding` | progress of the first-run tour and the checklist. Managed by the app |
 
 ## Related files in `~/.atlas/desktop/`

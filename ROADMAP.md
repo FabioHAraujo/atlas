@@ -1,12 +1,12 @@
 # Roadmap
 
-A short, honest list. It is a direction, not a promise; dates are not committed. Discuss or vote with a reaction in [Discussions](https://github.com/codeatlasdev/atlas/discussions).
+A short, honest list. It is a direction, not a promise; dates are not committed. Discuss it, or vote with a reaction, on the related [issue](https://github.com/codeatlasdev/atlas/issues).
 
 ## Now
 
 - **Open the project up**: public repository, CI on every pull request, DCO, contributor docs.
 - **Release trust**: Developer ID signing and notarization for `Atlas.app` and the CLI (today binaries are ad-hoc signed), build provenance attestations, an independent signature for updates.
-- **Stability of the public surfaces**: write down what is stable (`atlas.yaml`, CLI flags, MCP tools) and a breaking-change policy.
+- **Stability of the public surfaces**: the [versioning and channels policy](docs/versioning.md) and the [deprecation policy](docs/deprecation.md) are written; what is left is the tests that fail on an unintended break (the criteria are in the versioning policy).
 
 ## Next
 

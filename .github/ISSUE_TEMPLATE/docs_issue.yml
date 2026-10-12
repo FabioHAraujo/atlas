@@ -1,0 +1,41 @@
+name: Documentation problem
+description: A page is wrong, unclear, missing or out of date.
+labels: ["type: docs", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The docs live in [`docs/`](https://github.com/codeatlasdev/atlas/tree/main/docs) and every page on the website has an *Edit on GitHub* link: a pull request is welcome and usually faster than an issue.
+  - type: input
+    id: page
+    attributes:
+      label: Page or file
+      description: A URL on the website, or a path such as `docs/configuration.md`.
+      placeholder: "docs/configuration.md"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is wrong?
+      options:
+        - It is incorrect (does not match what Atlas does)
+        - It is unclear or confusing
+        - It is missing (a topic, a flag, an example)
+        - It is out of date
+        - A broken link or a typo
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What you read, what you expected, and the fix you would suggest if you have one.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Output of `atlas version`
+      description: Only if the page is about behavior that can differ between versions.
+      placeholder: "atlas 1.3.0 (macos aarch64)"

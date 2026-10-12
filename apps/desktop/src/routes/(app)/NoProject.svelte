@@ -3,7 +3,9 @@
 	import { FolderPlus } from "@lucide/svelte";
 	import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 	import { api } from "#lib/api.ts";
-	import { runCommand, shortcutFor } from "#lib/keymap.svelte.ts";
+	import { shortcutFor } from "#lib/keymap.svelte.ts";
+	import Hero from "#lib/onboarding/Hero.svelte";
+	import { welcome } from "#lib/onboarding/welcome.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
 
 	async function add() {
@@ -25,17 +27,7 @@
 			<Skeleton variant="text" rows={2} width={320} />
 		</div>
 	{:else if store.projects.length === 0}
-		<EmptyState
-			variant="hero"
-			icon={FolderPlus}
-			title="Welcome to Atlas"
-			description="Add a project with an atlas.yaml. Each git worktree gets its own stack, terminals and agents."
-		>
-			{#snippet actions()}
-				<Button onclick={add}>Add project…</Button>
-				<Button variant="ghost" onclick={() => runCommand("atlas::DiscoverProjects")}>Find projects</Button>
-			{/snippet}
-		</EmptyState>
+		<Hero onfinish={() => welcome.reset()} />
 	{:else}
 		<EmptyState
 			icon={FolderPlus}
@@ -54,6 +46,7 @@
 		height: 40px;
 	}
 	.empty {
+		position: relative;
 		flex: 1;
 		display: grid;
 		place-items: center;

@@ -13,6 +13,7 @@ import { main as preview } from "./preview.ts";
 import { main as publish } from "./publish.ts";
 import { main as release } from "./release.ts";
 import { renderCut } from "./render.ts";
+import { main as sounds } from "./sounds/index.ts";
 
 const HELP = `bun studio <command>
 
@@ -25,6 +26,7 @@ const HELP = `bun studio <command>
   publish <film> [--release vX.Y.Z]                  copy outputs into site/public/media with content hashes (+ gh release upload)
   release <version> [--voice] [--aspect …]           'What's new in vX' video from CHANGELOG.md
   check                                              typecheck, brand sync, film validation, HyperFrames lint, 1 s/scene smoke render
+  sounds [list|generate|pick] [id…] [--variants N]   the app's earcons: ElevenLabs sound effects -> trim/normalise -> apps/desktop/static/sounds
   films                                              list films
 `;
 
@@ -82,6 +84,8 @@ async function main(argv: string[]): Promise<void> {
 			return capture(rest);
 		case "bg":
 			return bg(rest);
+		case "sounds":
+			return sounds(rest);
 		case "publish":
 			return publish(rest);
 		case "release":

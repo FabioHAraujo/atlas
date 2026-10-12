@@ -3,12 +3,101 @@
 # Usage: bash <(curl -fsSL https://raw.githubusercontent.com/codeatlasdev/atlas/main/scripts/bootstrap.sh)
 #   or:  curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh   (same download + `atlas install`, without the agent prompts)
 #
-# Downloads the latest release, verifies its sha256, runs `atlas install`
+# Downloads the newest release of the chosen channel, verifies its sha256, runs `atlas install`
 # (binary to ~/.atlas/bin, PATH entry, bundled skills) and offers to wire up
 # any detected coding agent (omp, Claude Code, Codex).
+#
+# ATLAS_CHANNEL=stable|beta|alpha  pick the release channel (default: stable). An explicit
+#                                  value is remembered in ~/.atlas/update-channel, so
+#                                  `atlas update` keeps following it. See docs/versioning.md.
 set -euo pipefail
 
 REPO="codeatlasdev/atlas"
+
+# ── Channel selection (pure: no network, no output; sourced by the tests) ─────
+
+# select_tag CHANNEL STABLE_TAG < tags
+#   Reads candidate release tags, one per line (what releases.atom lists; junk allowed), and
+#   prints the one CHANNEL should install: the highest SemVer 2.0 precedence among the tags the
+#   channel accepts, with STABLE_TAG (the releases/latest redirect, may be empty) always a
+#   candidate so a channel is never worse than stable.
+#     stable accepts releases only; beta adds -beta.N and -rc.N; alpha adds -alpha.N.
+#   Prints nothing when there is no candidate or CHANNEL is unknown.
+#   `sort -V` is NOT used: it is not SemVer (it ranks 1.4.0-rc.1 above 1.4.0, and compares
+#   pre-release identifiers as text), so the comparison is done in awk. Same algorithm and
+#   vectors as atlas_core::channel::resolve (testdata/channels/resolve.json).
+select_tag() {
+  { cat; printf '%s\n' "${2:-}"; } | awk -v channel="$1" '
+    # a numeric identifier: digits, no leading zero (SemVer 2.0 §9)
+    function isnum(s) { return s ~ /^(0|[1-9][0-9]*)$/ }
+    # precedence of two pre-release strings: -1, 0, 1 (§11); empty pre-release is the highest
+    function cmppre(a, b,    x, y, na, nb, i, p, q) {
+      if (a == b) return 0
+      if (a == "") return 1
+      if (b == "") return -1
+      na = split(a, x, "."); nb = split(b, y, ".")
+      for (i = 1; i <= na && i <= nb; i++) {
+        p = x[i]; q = y[i]
+        if (p == q) continue
+        if (isnum(p) && isnum(q)) return (p + 0 < q + 0) ? -1 : 1
+        if (isnum(p)) return -1
+        if (isnum(q)) return 1
+        return (p < q) ? -1 : 1
+      }
+      return (na < nb) ? -1 : (na > nb) ? 1 : 0
+    }
+    # 1 when v is better than the best so far (precedence only: build metadata is ignored)
+    function better(a1, a2, a3, ap) {
+      if (!have) return 1
+      if (a1 + 0 != b1 + 0) return a1 + 0 > b1 + 0
+      if (a2 + 0 != b2 + 0) return a2 + 0 > b2 + 0
+      if (a3 + 0 != b3 + 0) return a3 + 0 > b3 + 0
+      return cmppre(ap, bp) > 0
+    }
+    BEGIN { have = 0 }
+    {
+      tag = $0
+      sub(/\r$/, "", tag)
+      v = tag
+      sub(/^v/, "", v)
+      sub(/\+.*/, "", v)                       # build metadata never counts
+      pre = ""
+      if (match(v, /-/)) { pre = substr(v, RSTART + 1); v = substr(v, 1, RSTART - 1) }
+      if (v !~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/) next
+      if (pre != "") {
+        n = split(pre, ids, ".")
+        ok = 1
+        for (i = 1; i <= n; i++) {
+          if (ids[i] !~ /^[0-9A-Za-z-]+$/) ok = 0
+          if (ids[i] ~ /^[0-9]+$/ && !isnum(ids[i])) ok = 0   # leading zero: invalid
+        }
+        if (!ok) next
+        label = ids[1]
+        if (label == "alpha") { if (channel != "alpha") next }
+        else if (label == "beta" || label == "rc") { if (channel != "alpha" && channel != "beta") next }
+        else next                                # unknown labels are offered nowhere
+      }
+      if (channel != "stable" && channel != "beta" && channel != "alpha") next
+      split(v, n3, ".")
+      if (better(n3[1], n3[2], n3[3], pre)) {
+        have = 1; b1 = n3[1]; b2 = n3[2]; b3 = n3[3]; bp = pre; best = tag
+      }
+    }
+    END { if (have) print best }
+  '
+}
+
+# Tags of the entries in a releases.atom feed (stdin), in feed order, percent-decoded enough
+# for SemVer tags: the part after `/releases/tag/` of every `href`.
+atom_tags() {
+  sed -n 's|.*href="[^"]*/releases/tag/\([^"]*\)".*|\1|p' | sed 's/%2B/+/g; s/%2b/+/g'
+}
+
+# The script is also sourced by scripts/test-bootstrap-channel.sh for the functions above.
+if [ "${ATLAS_BOOTSTRAP_SOURCE_ONLY:-}" = 1 ]; then
+  # shellcheck disable=SC2317 # `return` works when sourced, `exit` covers direct execution
+  return 0 2>/dev/null || exit 0
+fi
 
 # ── Output ────────────────────────────────────────────────────────────────────
 
@@ -53,11 +142,31 @@ ok "curl, tar, sha256 · $TARGET"
 
 step "Installing Atlas"
 
-meta="$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/releases/latest")" \
-  || die "Could not read the latest release of $REPO (is it published yet?). https://github.com/$REPO/releases"
-tag="$(printf '%s' "$meta" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+# The latest *stable* release is the target of the /releases/latest redirect: no API call, so
+# no 60 requests/hour rate limit.
+stable_tag="$(curl -fsSI --proto '=https' --tlsv1.2 -o /dev/null -w '%{redirect_url}' "https://github.com/$REPO/releases/latest" 2>/dev/null)" || stable_tag=""
+case "$stable_tag" in */releases/tag/*) stable_tag="${stable_tag##*/releases/tag/}" ;; *) stable_tag="" ;; esac
+
+CHANNEL="${ATLAS_CHANNEL:-stable}"
+case "$CHANNEL" in
+  stable|beta|alpha) ;;
+  *) die "unknown ATLAS_CHANNEL '$CHANNEL' (expected stable, beta or alpha)" ;;
+esac
+
+if [ "$CHANNEL" = stable ]; then
+  tag="$stable_tag"
+else
+  # releases.atom lists the 10 newest published releases, prereleases included. The stable tag
+  # is a candidate too, so beta/alpha are never worse than stable.
+  feed="$(curl -fsSL --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases.atom" 2>/dev/null)" || feed=""
+  tag="$(printf '%s\n' "$feed" | atom_tags | select_tag "$CHANNEL" "$stable_tag")"
+  [ -n "$feed" ] || warn "could not read the release feed; falling back to the latest stable"
+  [ -n "$tag" ] || tag="$stable_tag"
+fi
+[ -n "$tag" ] || die "Could not find a release of $REPO (is it published yet?). https://github.com/$REPO/releases"
 version="${tag#v}"
 case "$version" in *[!0-9A-Za-z._-]*|"") die "unexpected release tag '$tag'" ;; esac
+[ "$CHANNEL" = stable ] || info "channel: $CHANNEL → $tag"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -79,6 +188,14 @@ chmod +x "$TMP/atlas"
 # ── Install ───────────────────────────────────────────────────────────────────
 
 "$TMP/atlas" install
+
+# Remember an explicit channel so `atlas update` keeps following it (same file as the CLI).
+if [ -n "${ATLAS_CHANNEL:-}" ]; then
+  mkdir -p "$HOME/.atlas"
+  printf '%s\n' "$CHANNEL" > "$HOME/.atlas/update-channel.tmp"
+  mv "$HOME/.atlas/update-channel.tmp" "$HOME/.atlas/update-channel"
+  info "update channel: $CHANNEL (change it with: atlas update channel)"
+fi
 
 # ── Agent setup (omp, Claude Code, Codex) ─────────────────────────────────────
 

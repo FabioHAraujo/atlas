@@ -3,8 +3,14 @@ import { ws } from "#lib/stores/workspace.svelte.ts";
 import { requestGoto } from "#lib/symbols.ts";
 
 /** Open (or focus) a file tab in the worktree. `path` is relative to the worktree root; `line`/`col` (1-based) place the caret. */
-export function openFile(worktreeId: string, path: string, line?: number, col?: number) {
-	if (line) requestGoto(`${worktreeId}:${path}`, line, col);
+export function openFile(
+	worktreeId: string,
+	path: string,
+	line?: number,
+	col?: number,
+	end?: { line: number; col: number },
+) {
+	if (line) requestGoto(`${worktreeId}:${path}`, line, col, end?.line, end?.col);
 	ws.reveal(worktreeId, (t) => t.kind === "editor" && t.path === path, {
 		kind: "editor",
 		label: path.split("/").pop() ?? path,

@@ -2,6 +2,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "@codeatlasdev/ui";
 import { api, errText, type DiscoverDone } from "#lib/api.ts";
 import { addable, type Found } from "#lib/components/sidebar/discovery.ts";
+import { sound } from "#lib/sound/sound.svelte.ts";
+import { discoverySound } from "#lib/sound/triggers.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
 
 type ScanEvent =
@@ -87,7 +89,11 @@ class Discovery {
 		this.#unlisten = await listen<ScanEvent>("discover://event", (e) => this.#apply(e.payload));
 		try {
 			const done = await api.discover({ roots: this.roots, candidates: this.candidates });
-			if (run === this.#run) this.done = done;
+			if (run === this.#run) {
+				this.done = done;
+				const cue = discoverySound(done, this.addable.length, null);
+				if (cue) sound.play(cue);
+			}
 		} catch (e) {
 			if (run === this.#run) this.error = errText(e);
 		} finally {

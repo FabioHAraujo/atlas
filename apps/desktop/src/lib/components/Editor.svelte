@@ -24,6 +24,7 @@
 	import { readBlob } from "#lib/viewers/load.ts";
 	import { langForPath } from "#lib/viewers/lang.ts";
 	import ImageViewer from "#lib/viewers/ImageViewer.svelte";
+	import SvgPreview from "#lib/viewers/SvgPreview.svelte";
 	import PdfViewer from "#lib/viewers/PdfViewer.svelte";
 	import MediaViewer from "#lib/viewers/MediaViewer.svelte";
 	import MarkdownViewer from "#lib/viewers/MarkdownViewer.svelte";
@@ -137,13 +138,6 @@
 			phase = "binary";
 			return;
 		}
-		if (isSvg) {
-			media = {
-				blob: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: MIME.svg }),
-				url: "",
-			};
-			media.url = URL.createObjectURL(media.blob);
-		}
 		phase = "text";
 		await Promise.resolve();
 		mountEditor();
@@ -164,17 +158,6 @@
 			if (media?.url) URL.revokeObjectURL(media.url);
 		};
 	});
-
-	// Keep the SVG preview in sync with edits.
-	$effect(() => {
-		if (!isSvg || phase !== "text" || !rendered) return;
-		const blob = new Blob([text], { type: MIME.svg });
-		const url = URL.createObjectURL(blob);
-		const old = media?.url;
-		media = { blob, url };
-		if (old) setTimeout(() => URL.revokeObjectURL(old), 1000);
-	});
-
 	$effect(() => {
 		if (focused && showCm) view?.focus();
 	});
@@ -255,8 +238,8 @@
 		{:else}
 			<MediaViewer url={media.url} {path} size={fileSize} video={kind === "video"} />
 		{/if}
-	{:else if phase === "text" && isSvg && rendered && !changes && media}
-		<ImageViewer {...media} {path} size={fileSize} {focused} />
+	{:else if phase === "text" && isSvg && rendered && !changes}
+		<SvgPreview {text} {path} size={fileSize} {focused} />
 	{/if}
 	{#if changes}
 		<div class="fill"><DiffView {worktreeId} only={path} mode="working" /></div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Contain from "#lib/errors/Contain.svelte";
 	import DockResizer from "#lib/components/DockResizer.svelte";
 	import Explorer from "#lib/components/Explorer.svelte";
 	import PaneTree from "#lib/components/panes/PaneTree.svelte";
@@ -28,11 +29,21 @@
 {#snippet dockPanel(id: string, edge: "left" | "right")}
 	{#if edge === "right"}<DockResizer side="left" {edge} />{/if}
 	<div class="dock" style:width="{docks.leftSize}px">
-		{#if docks.leftPanel === "explorer"}<Explorer
-				worktreeId={id}
-			/>{:else if docks.leftPanel === "search"}<SearchPanel worktreeId={id} />{:else}<SourceControl
-				worktreeId={id}
-			/>{/if}
+		<Contain
+			where={docks.leftPanel === "explorer"
+				? "Explorer"
+				: docks.leftPanel === "search"
+					? "Search"
+					: "Source control"}
+			title="This panel hit an error"
+			hint="The rest of Atlas is unaffected."
+		>
+			{#if docks.leftPanel === "explorer"}<Explorer
+					worktreeId={id}
+				/>{:else if docks.leftPanel === "search"}<SearchPanel worktreeId={id} />{:else}<SourceControl
+					worktreeId={id}
+				/>{/if}
+		</Contain>
 	</div>
 	{#if edge === "left"}<DockResizer side="left" {edge} />{/if}
 {/snippet}

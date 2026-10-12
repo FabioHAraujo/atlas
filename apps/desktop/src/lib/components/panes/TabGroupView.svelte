@@ -31,6 +31,8 @@
 	import Config from "#lib/components/Config.svelte";
 	import { swipe } from "#lib/shell/swipe.ts";
 	import { tabSwipe } from "#lib/shell/gestures.ts";
+	import Contain from "#lib/errors/Contain.svelte";
+	import CrashProbe from "#lib/errors/CrashProbe.svelte";
 	import NewTabMenu from "./NewTabMenu.svelte";
 	import PaneNotice from "./PaneNotice.svelte";
 	import TerminalPane from "./TerminalPane.svelte";
@@ -178,27 +180,37 @@
 		<div class="body">
 			{#each tabs as t (t.id)}
 				<div class="pane" class:hidden={t.id !== g.activeTab}>
-					{#if t.chat && t.pty && !t.rawView && !ws.ended(t)}
-						<ChatTab tab={t} focused={focused && t.id === g.activeTab} />
-					{:else if t.kind === "terminal" && t.pty}
-						<TerminalPane {t} pty={t.pty} active={t.id === g.activeTab} {focused} />
-					{:else if t.kind === "editor" && t.path}
-						<Editor worktreeId={t.worktreeId} path={t.path} focused={focused && t.id === g.activeTab} />
-					{:else if t.kind === "diff"}
-						<DiffView worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
-					{:else if t.kind === "browser"}
-						<BrowserTab tab={t} visible={t.id === g.activeTab} />
-					{:else if t.kind === "pr"}
-						<PrTab worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
-					{:else if project && t.kind === "services"}
-						<Panel {project} />
-					{:else if project && t.kind === "logs"}
-						<Logs {project} worktreeId={t.worktreeId} />
-					{:else if project && t.kind === "config"}
-						<Config {project} />
-					{:else}
-						<PaneNotice>Nothing to show</PaneNotice>
-					{/if}
+					<Contain
+						where="Tab"
+						kind={t.kind}
+						file={t.path?.split("/").pop()}
+						title={`${label(t)} hit an error`}
+						hint="This tab stopped rendering. Your other tabs and terminals are unaffected."
+						close={pinned(t) ? undefined : () => ws.closeTab(t.id)}
+					>
+						<CrashProbe id={t.id} />
+						{#if t.chat && t.pty && !t.rawView && !ws.ended(t)}
+							<ChatTab tab={t} focused={focused && t.id === g.activeTab} />
+						{:else if t.kind === "terminal" && t.pty}
+							<TerminalPane {t} pty={t.pty} active={t.id === g.activeTab} {focused} />
+						{:else if t.kind === "editor" && t.path}
+							<Editor worktreeId={t.worktreeId} path={t.path} focused={focused && t.id === g.activeTab} />
+						{:else if t.kind === "diff"}
+							<DiffView worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
+						{:else if t.kind === "browser"}
+							<BrowserTab tab={t} visible={t.id === g.activeTab} />
+						{:else if t.kind === "pr"}
+							<PrTab worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
+						{:else if project && t.kind === "services"}
+							<Panel {project} />
+						{:else if project && t.kind === "logs"}
+							<Logs {project} worktreeId={t.worktreeId} />
+						{:else if project && t.kind === "config"}
+							<Config {project} />
+						{:else}
+							<PaneNotice>Nothing to show</PaneNotice>
+						{/if}
+					</Contain>
 				</div>
 			{/each}
 			{#if dropZone}<div class="drop {dropZone}"></div>{/if}

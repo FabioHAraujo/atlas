@@ -9,6 +9,7 @@ import { untrack } from "svelte";
 import { api, errText } from "#lib/api.ts";
 import { reconcile } from "#lib/browserSync.ts";
 import { host } from "#lib/host.ts";
+import { errors, startErrorHandler } from "#lib/errors/errors.svelte.ts";
 import { loadKeymap, register } from "#lib/keymap.svelte.ts";
 import { startCtl } from "#lib/ctl.ts";
 import { startMenu } from "#lib/menu.svelte.ts";
@@ -31,7 +32,18 @@ import { hooks, worktrees } from "#lib/stores/worktrees.svelte.ts";
 /** The live stores, shared with `ctl.ts` (HMR-safe) and, in debug builds, `atlas desktop debug eval`. */
 function exposeStores() {
 	const stores = { ws, store, agents, worktrees, api, host };
-	if ("__ATLAS_DEBUG__" in window) Object.assign(window, { __atlas: stores });
+	if ("__ATLAS_DEBUG__" in window) {
+		Object.assign(window, {
+			__atlas: {
+				...stores,
+				/** Make tab `id` throw on its next render (`on = false` heals it); exercises the error boundaries. */
+				crashTab: (id: string, on = true) => (on ? (errors.crashing[id] = true) : delete errors.crashing[id]),
+				/** Reject from a timer: no boundary can catch it, so it surfaces as the toast. */
+				throwLater: (msg = "Debug: uncaught error from a timer") =>
+					setTimeout(() => void Promise.reject(new Error(msg)), 0),
+			},
+		});
+	}
 	Object.assign(window, { __atlasCtlStores: stores });
 }
 
@@ -136,6 +148,7 @@ export function startSession(): () => void {
 	// The popover's sparklines need samples even with no Panel open.
 	const stopMetrics = metrics.start();
 	const stopEffects = $effect.root(syncEffects);
+	const stopErrors = startErrorHandler();
 	return () => {
 		unregister();
 		void stopMenu.then((f) => f());
@@ -145,6 +158,7 @@ export function startSession(): () => void {
 		ws.dispose();
 		agents.dispose();
 		stopFeel();
+		stopErrors();
 		stopTray();
 		stopMetrics();
 		stopEffects();

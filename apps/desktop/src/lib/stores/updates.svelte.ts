@@ -106,7 +106,7 @@ class Updates {
 				if (payload && shouldRecheck(this.prefs, this.checkedAt, Date.now())) void this.check();
 			}),
 		);
-		this.#timer = setInterval(() => {
+		this.#timer = window.setInterval(() => {
 			if (this.prefs.auto) void this.check();
 		}, CHECK_EVERY_MS);
 		await this.check();

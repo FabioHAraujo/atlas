@@ -3,9 +3,20 @@
 	import "@codeatlasdev/ui/styles/global.css";
 	import "@codeatlasdev/ui/styles/materials.css";
 	import "../../app.css";
-	import type { Snippet } from "svelte";
+	import { onMount, type Snippet } from "svelte";
+	import Contain from "#lib/errors/Contain.svelte";
+	import { startErrorHandler } from "#lib/errors/errors.svelte.ts";
 
 	let { children }: { children: Snippet } = $props();
+
+	// No toast stack in a popover this small: uncaught errors are logged (and deduped) only.
+	onMount(() => startErrorHandler("tray"));
 </script>
 
-{@render children()}
+<Contain
+	where="Menu bar popover"
+	title="The popover hit an error"
+	hint="Open Atlas from the Dock to keep working."
+>
+	{@render children()}
+</Contain>

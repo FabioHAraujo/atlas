@@ -7,6 +7,9 @@
 	import { ChevronLeft, ChevronRight } from "@lucide/svelte";
 	import { onMount, type Snippet } from "svelte";
 	import AskDialog from "#lib/components/AskDialog.svelte";
+	import CrashProbe from "#lib/errors/CrashProbe.svelte";
+	import Contain from "#lib/errors/Contain.svelte";
+	import ErrorToasts from "#lib/errors/ErrorToasts.svelte";
 	import CreatePrDialog from "#lib/components/CreatePrDialog.svelte";
 	import DevLine from "#lib/components/DevLine.svelte";
 	import NewWorktreeDialog from "#lib/components/NewWorktreeDialog.svelte";
@@ -52,14 +55,16 @@
 />
 
 {#snippet sidebar()}
-	<Sidebar
-		onJump={() => (palettes.jump = true)}
-		onAgent={(id) => {
-			store.selected = id;
-			ws.select(id);
-			void agents.launch(id);
-		}}
-	/>
+	<Contain where="Sidebar" title="The sidebar hit an error" hint="The workspace to the right still works.">
+		<Sidebar
+			onJump={() => (palettes.jump = true)}
+			onAgent={(id) => {
+				store.selected = id;
+				ws.select(id);
+				void agents.launch(id);
+			}}
+		/>
+	</Contain>
 {/snippet}
 
 <div
@@ -77,6 +82,7 @@
 		<div class="nav-chip nav-chip-next" aria-hidden="true"><ChevronRight size={18} /></div>
 		{#key shell.epoch}
 			<div class="space-view" data-dir={shell.direction}>
+				<CrashProbe id="app" />
 				{@render children()}
 			</div>
 		{/key}
@@ -102,3 +108,4 @@
 <AskDialog />
 <TabSwitcher />
 <Toaster />
+<ErrorToasts />

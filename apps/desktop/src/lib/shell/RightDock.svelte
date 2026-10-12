@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Contain from "#lib/errors/Contain.svelte";
 	import RightSidebar from "#lib/components/RightSidebar.svelte";
 	import DockResizer from "#lib/components/DockResizer.svelte";
 	import EdgePeek from "#lib/shell/EdgePeek.svelte";
@@ -12,13 +13,19 @@
 	let { zoomed = false }: { zoomed?: boolean } = $props();
 </script>
 
+{#snippet sidebar()}
+	<Contain where="Right sidebar" title="The sidebar hit an error" hint="The rest of Atlas is unaffected.">
+		<RightSidebar />
+	</Contain>
+{/snippet}
+
 {#if !zoomed}
 	{#if docks.right}
 		<DockResizer side="right" />
-		<div class="dock" style:width="{docks.rightSize}px"><RightSidebar /></div>
+		<div class="dock" style:width="{docks.rightSize}px">{@render sidebar()}</div>
 	{/if}
 	<EdgePeek edge="right" size={docks.rightSize} label="Right sidebar" active={!docks.right}>
-		<RightSidebar />
+		{@render sidebar()}
 	</EdgePeek>
 {/if}
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, Button } from "@codeatlasdev/ui";
+	import Contain from "#lib/errors/Contain.svelte";
 	import AgentsView from "#lib/components/AgentsView.svelte";
 	import ActivityDrawer from "#lib/panel/ActivityDrawer.svelte";
 	import { agents } from "#lib/stores/agents.svelte.ts";
@@ -14,7 +15,9 @@
 </script>
 
 {#if ws.view !== "worktree"}
-	<AgentsView mode={ws.view} />
+	<Contain where="Agents view" title="This view hit an error" hint="The rest of Atlas is unaffected.">
+		<AgentsView mode={ws.view} />
+	</Contain>
 {:else if !p}
 	<NoProject />
 {:else}
@@ -39,7 +42,13 @@
 
 	<div class="rule"></div>
 
-	<Workbench />
+	<Contain
+		where="Workbench"
+		title="The workspace hit an error"
+		hint="The sidebar and project header still work."
+	>
+		<Workbench />
+	</Contain>
 {/if}
 
 <ConfirmAction />

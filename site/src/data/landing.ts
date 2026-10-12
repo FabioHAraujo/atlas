@@ -1,11 +1,15 @@
 // Content and build-time data of the landing page (pages/index.astro keeps only the markup).
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { SITE } from "./site";
 
-/** `/media/<f>?v=<content hash>`: media is cached for 30 days, so a recut needs a new URL. */
-export const mediaUrl = (f: string) =>
-	`/media/${f}?v=${createHash("sha1").update(readFileSync(`public/media/${f}`)).digest("hex").slice(0, 10)}`;
+/** `/media/<f>?v=<content hash>`: media is cached for 30 days, so a recut needs a new URL.
+ * Videos are not in git (`scripts/fetch-media.sh`), so a fresh checkout builds without the hash. */
+export const mediaUrl = (f: string) => {
+	const p = `public/media/${f}`;
+	if (!existsSync(p)) return `/media/${f}`;
+	return `/media/${f}?v=${createHash("sha1").update(readFileSync(p)).digest("hex").slice(0, 10)}`;
+};
 
 export const FAQ = [
 	{ q: "How do I install it?", a: "Run `curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh`. It downloads the latest release, verifies its SHA-256 and installs `atlas` into `~/.atlas/bin`. Then `atlas desktop` installs the desktop app, or download the .dmg from the GitHub releases page." },

@@ -313,6 +313,7 @@ dependencies = [
  "dirs",
  "flate2",
  "hex",
+ "libc",
  "self-replace",
  "semver",
  "serde",

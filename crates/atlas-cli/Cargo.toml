@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 tokio = { workspace = true }
+libc = { workspace = true }
 crossterm = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }

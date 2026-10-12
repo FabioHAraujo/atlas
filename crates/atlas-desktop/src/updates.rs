@@ -150,43 +150,41 @@ pub struct ReleaseNotes {
     notes: String,
 }
 
-/// Tags (newest first, as GitHub lists them) newer than `installed` and not newer than `latest`.
-fn tags_between(tags: Vec<String>, installed: &str, latest: &str) -> Vec<String> {
+/// Releases (newest first) newer than `installed` and not newer than `latest`;
+/// `installed == latest` keeps just that one ("what changed in the version I run").
+fn in_range(
+    all: Vec<atlas_core::github::ReleaseInfo>,
+    installed: &str,
+    latest: &str,
+) -> Vec<atlas_core::github::ReleaseInfo> {
     use semver::Version;
     let (Ok(from), Ok(to)) = (Version::parse(installed), Version::parse(latest)) else {
         return Vec::new();
     };
-    tags.into_iter()
-        .filter(|t| Version::parse(t.trim_start_matches('v')).is_ok_and(|v| v > from && v <= to))
+    all.into_iter()
+        .filter(|r| {
+            Version::parse(r.version())
+                .is_ok_and(|v| v <= to && (v > from || from == to && v == to))
+        })
         .collect()
 }
 
-/// Release notes of every release in `(from, to]`, newest first (at most 10): the
-/// CHANGELOG sections published as release bodies. `from == to` yields just that release,
-/// so the sheet also works for "what changed in the version I run".
+/// Release notes of every release in `(from, to]`, newest first (at most 10).
 #[tauri::command]
 pub async fn releases_between(from: String, to: String) -> Result<Vec<ReleaseNotes>, String> {
     const MAX: usize = 10;
     tauri::async_runtime::spawn_blocking(move || {
-        let mut tags = if from == to {
-            vec![format!("v{to}")]
-        } else {
-            let listed = atlas_core::github::release_tags(REPO).map_err(|e| e.to_string())?;
-            tags_between(listed, &from, &to)
-        };
-        tags.truncate(MAX);
-        tags.iter()
-            .map(|tag| {
-                let info =
-                    atlas_core::github::release_by_tag(REPO, tag).map_err(|e| e.to_string())?;
-                Ok(ReleaseNotes {
-                    version: info.version().to_string(),
-                    notes: info.notes().to_string(),
-                    url: info.url,
-                    published_at: info.published_at,
-                })
+        let all = atlas_core::github::releases(REPO).map_err(|e| e.to_string())?;
+        Ok(in_range(all, &from, &to)
+            .into_iter()
+            .take(MAX)
+            .map(|info| ReleaseNotes {
+                version: info.version().to_string(),
+                notes: info.notes().to_string(),
+                url: info.url,
+                published_at: info.published_at,
             })
-            .collect()
+            .collect())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -305,16 +303,26 @@ mod tests {
     }
 
     #[test]
-    fn tags_between_keeps_only_the_range() {
-        use super::tags_between;
-        let tags = || {
-            ["v1.0.2", "v1.0.1", "v1.0.0", "v0.9.0", "nightly"]
-                .map(String::from)
+    fn in_range_keeps_only_the_range() {
+        use super::in_range;
+        let all = || {
+            ["1.0.2", "1.0.1", "1.0.0", "0.9.0"]
+                .map(|v| atlas_core::github::ReleaseInfo {
+                    tag_name: format!("v{v}"),
+                    url: String::new(),
+                    published_at: String::new(),
+                    body: String::new(),
+                })
                 .to_vec()
         };
-        assert_eq!(tags_between(tags(), "1.0.0", "1.0.2"), ["v1.0.2", "v1.0.1"]);
-        assert_eq!(tags_between(tags(), "1.0.0", "1.0.1"), ["v1.0.1"]);
-        assert!(tags_between(tags(), "1.0.2", "1.0.2").is_empty());
-        assert!(tags_between(tags(), "garbage", "1.0.2").is_empty());
+        let v = |r: Vec<atlas_core::github::ReleaseInfo>| {
+            r.iter()
+                .map(|r| r.version().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(v(in_range(all(), "1.0.0", "1.0.2")), ["1.0.2", "1.0.1"]);
+        assert_eq!(v(in_range(all(), "1.0.0", "1.0.1")), ["1.0.1"]);
+        assert_eq!(v(in_range(all(), "1.0.2", "1.0.2")), ["1.0.2"]);
+        assert!(in_range(all(), "garbage", "1.0.2").is_empty());
     }
 }

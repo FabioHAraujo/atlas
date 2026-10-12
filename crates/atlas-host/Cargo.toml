@@ -24,6 +24,10 @@ parking_lot = { workspace = true }
 portable-pty = "0.9"
 base64 = { workspace = true }
 notify = { workspace = true }
+atlas-lsp = { path = "../atlas-lsp" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

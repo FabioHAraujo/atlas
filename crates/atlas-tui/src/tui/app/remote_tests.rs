@@ -247,7 +247,7 @@ async fn footer_and_help_advertise_detach_only_when_attached() {
 async fn sessions_are_owner_only_with_a_clear_toast() {
     let mut cfg = config();
     cfg.actions.push(
-        serde_yaml::from_str("{ key: x, label: Shell, command: sh, session: true }").unwrap(),
+        serde_norway::from_str("{ key: x, label: Shell, command: sh, session: true }").unwrap(),
     );
     let (tx, rx) = mpsc::unbounded_channel();
     let mgr = ServiceManager::new(PathBuf::from("/tmp/atlas-attach-test"), &cfg, tx).into_mirror();
@@ -266,7 +266,7 @@ async fn sessions_are_owner_only_with_a_clear_toast() {
 async fn tunnel_key_is_explained_not_toggled_while_attached() {
     let mut cfg = config();
     cfg.tunnel = Some(
-        serde_yaml::from_str(
+        serde_norway::from_str(
             "{ ssh_host: h, local_port: 5400, remote_host: db, remote_port: 5432 }",
         )
         .unwrap(),

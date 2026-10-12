@@ -4,7 +4,7 @@ use super::*;
 use crate::config::ProjectConfig;
 
 fn cfg() -> ProjectConfig {
-    serde_yaml::from_str(
+    serde_norway::from_str(
         r#"
 name: demo
 services:

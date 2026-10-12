@@ -108,6 +108,30 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Space between lines of code, as a multiple of the font size.",
 		"buffer_line_height leading",
 	),
+	appearance(
+		"editor",
+		"Language servers",
+		"lsp-enable",
+		"Language servers",
+		"Completion, diagnostics, hover and go to definition from the language's server (downloaded on first use).",
+		"lsp enable_language_servers rust-analyzer gopls typescript intellisense autocomplete",
+	),
+	appearance(
+		"editor",
+		"Language servers",
+		"lsp-format-on-save",
+		"Format on save",
+		"Format the file with its language server every time it is saved.",
+		"format_on_save formatter prettier rustfmt",
+	),
+	appearance(
+		"editor",
+		"Language servers",
+		"lsp-inlay-hints",
+		"Inlay hints",
+		"Show inferred types and parameter names inline, dimmed.",
+		"inlay_hints types parameters",
+	),
 
 	appearance(
 		"interface",

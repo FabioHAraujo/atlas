@@ -21,7 +21,7 @@
 	let repoId = $derived(ws.worktree(worktreeId)?.repoId ?? null);
 	let project = $derived(store.projects.find((p) => p.id === repoId) ?? null);
 	/** File open in the focused pane, highlighted in the tree. */
-	let activePath = $derived(ws.tab(ws.focusedGroup(worktreeId).activeTab)?.path);
+	let activePath = $derived(ws.focusedTab(worktreeId)?.path);
 	let children = $state<Record<string, FsEntry[]>>({});
 	let expanded = $state<Record<string, boolean>>({ "": true });
 	let status = $state<Record<string, string>>({});

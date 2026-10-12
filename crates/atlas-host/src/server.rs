@@ -34,6 +34,14 @@ pub(crate) struct Hub {
     handed_off: Arc<Notify>,
     /// The locked pid file; its fd travels to the successor on upgrade.
     lock: std::fs::File,
+    /// Language servers (lazy: nothing runs until a document is opened).
+    pub(crate) lsp: atlas_lsp::Manager,
+    /// Live connections' outgoing queues: LSP pushes are broadcast to all of them.
+    subscribers: Mutex<HashMap<u64, Out>>,
+    /// Open LSP documents → the connection that opened them last. A connection that drops
+    /// without `lsp_close` has its documents closed, so idle servers can shut down; a document
+    /// re-opened by a reconnected client now belongs to the new connection.
+    pub(crate) lsp_docs: Mutex<HashMap<String, u64>>,
 }
 
 impl Hub {
@@ -76,7 +84,20 @@ impl Hub {
         });
     }
 
+    /// Stop every language server (graceful `shutdown`, then group kill). Called before an
+    /// `upgrade` exit, which skips destructors; clients re-open their documents.
+    pub(crate) async fn stop_lsp(&self) {
+        self.lsp.shutdown().await;
+    }
+
+    pub(crate) fn broadcast(&self, line: String) {
+        for tx in self.subscribers.lock().values() {
+            let _ = tx.send(line.clone());
+        }
+    }
+
     async fn kill_all(&self) {
+        self.lsp.shutdown().await;
         let mut set = tokio::task::JoinSet::new();
         let all: Vec<_> = self.sessions.lock().values().cloned().collect();
         for s in all {
@@ -203,6 +224,7 @@ pub async fn serve_with(dir: &Path, opts: ServeOpts) -> Result<()> {
             sessions.insert(id.to_string(), s);
         }
     }
+    let (lsp_tx, lsp_rx) = mpsc::channel(512);
     let hub = Arc::new(Hub {
         sessions: Mutex::new(sessions),
         scroll_dir,
@@ -213,7 +235,11 @@ pub async fn serve_with(dir: &Path, opts: ServeOpts) -> Result<()> {
         stop: Notify::new(),
         handed_off: Arc::new(Notify::new()),
         lock,
+        lsp: atlas_lsp::Manager::new(dir, atlas_lsp::Config::default(), lsp_tx),
+        subscribers: Mutex::new(HashMap::new()),
+        lsp_docs: Mutex::new(HashMap::new()),
     });
+    tokio::spawn(crate::lsp::pump(Arc::downgrade(&hub), lsp_rx));
     eprintln!(
         "atlas hostd {} listening on {} (pid {}{})",
         env!("CARGO_PKG_VERSION"),
@@ -247,6 +273,7 @@ pub async fn serve_with(dir: &Path, opts: ServeOpts) -> Result<()> {
                 // explicitly: open client connections and blocked reader threads must not
                 // keep a retired daemon alive, and nothing here may signal the children.
                 drop(listener);
+                hub.stop_lsp().await;
                 std::process::exit(0);
             }
         }
@@ -280,6 +307,7 @@ async fn conn(hub: Arc<Hub>, stream: UnixStream) {
         return;
     }
     let _ = tx.send(json!({"ok": true, "data": hub.info()}).to_string());
+    hub.subscribers.lock().insert(conn_id, tx.clone());
 
     let mut watchers: HashMap<String, notify::RecommendedWatcher> = HashMap::new();
     let mut attached: Vec<Arc<Session>> = Vec::new();
@@ -316,7 +344,11 @@ async fn conn(hub: Arc<Hub>, stream: UnixStream) {
                     Err("pty_attach_raw needs a fresh connection".into())
                 } else {
                     match hub.get(&pty) {
-                        Ok(s) => return raw(s, conn_id, replay, id, tx, writer, lines, buf).await,
+                        Ok(s) => {
+                            // A raw byte stream cannot carry JSON pushes.
+                            hub.subscribers.lock().remove(&conn_id);
+                            return raw(s, conn_id, replay, id, tx, writer, lines, buf).await;
+                        }
                         Err(e) => Err(e),
                     }
                 }
@@ -341,6 +373,8 @@ async fn conn(hub: Arc<Hub>, stream: UnixStream) {
     for s in attached {
         s.detach(conn_id);
     }
+    hub.subscribers.lock().remove(&conn_id);
+    crate::lsp::connection_closed(&hub, conn_id).await;
     drop(tx);
     let _ = writer.await;
 }
@@ -474,6 +508,16 @@ async fn handle(hub: &Hub, cmd: HostCmd, conn_id: u64) -> Result<Value, String> 
         HostCmd::FsRemove { path, recursive } => crate::fs::remove(&path, recursive),
         HostCmd::Info {} => Ok(hub.info()),
         HostCmd::Upgrade { exe } => crate::upgrade::run(hub, &exe).await,
+        lsp @ (HostCmd::LspOpen { .. }
+        | HostCmd::LspChange { .. }
+        | HostCmd::LspClose { .. }
+        | HostCmd::LspSave { .. }
+        | HostCmd::LspRequest { .. }
+        | HostCmd::LspCancel { .. }
+        | HostCmd::LspStatus {}
+        | HostCmd::LspApplyEditResult { .. }) => crate::lsp::handle(hub, lsp, conn_id)
+            .await
+            .unwrap_or_else(|| Err("not an lsp command".into())),
         HostCmd::PtyAttach { .. }
         | HostCmd::PtyAttachRaw { .. }
         | HostCmd::FsWatch { .. }

@@ -140,6 +140,35 @@ pub fn write_atomic(p: &Path, text: &str) -> Result<(), String> {
     std::fs::rename(&tmp, p).map_err(|e| format!("{}: {e}", p.display()))
 }
 
+/// What Atlas last saw of a checkout while it still existed. A deleted or moved project has no
+/// folder left to read, so this is what lets discovery recognize its new location.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Known {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<String>,
+}
+
+fn known_path() -> Result<PathBuf, String> {
+    dirs::home_dir()
+        .map(|h| h.join(".atlas/desktop/known.json"))
+        .ok_or_else(|| "cannot locate home directory".to_string())
+}
+
+/// Missing or unreadable file = nothing known (it is only a hint, never authoritative).
+pub fn load_known() -> std::collections::HashMap<String, Known> {
+    known_path()
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_known(map: &std::collections::HashMap<String, Known>) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(map).map_err(|e| e.to_string())?;
+    write_atomic(&known_path()?, &text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

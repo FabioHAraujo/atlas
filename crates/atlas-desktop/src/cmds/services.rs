@@ -71,7 +71,7 @@ mod tests {
     use super::*;
 
     fn svc(yaml: &str) -> config::ServiceDef {
-        serde_yaml::from_str(yaml).unwrap()
+        serde_norway::from_str(yaml).unwrap()
     }
 
     #[test]

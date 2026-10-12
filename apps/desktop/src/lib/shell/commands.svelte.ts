@@ -21,8 +21,12 @@ import {
 	toggleSidebar,
 } from "#lib/stores/docks.svelte.ts";
 import { openDiff } from "#lib/stores/files.svelte.ts";
+import { isHtml } from "#lib/stores/preview.ts";
+import { previewHtml } from "#lib/stores/preview.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
 import { worktrees } from "#lib/stores/worktrees.svelte.ts";
+import { lspCommands } from "#lib/lsp/commands.ts";
+import { loadSymbols } from "#lib/lsp/symbols.svelte.ts";
 import { saveAllEditors } from "#lib/symbols.ts";
 
 const hasWt = () => !!ws.selected;
@@ -100,7 +104,11 @@ function paletteCommands(): Command[] {
 		{
 			id: "outline::Toggle",
 			label: "Go to symbol…",
-			run: () => (palettes.symbols = true),
+			run: () => {
+				const v = activeEditor();
+				if (v) void loadSymbols(v);
+				palettes.symbols = true;
+			},
 			when: () => !!activeEditor(),
 		},
 	];
@@ -136,6 +144,19 @@ function tabCommands(): Command[] {
 			label: "New browser tab",
 			run: () => ws.openTab(ws.selected!.id, { kind: "browser", label: "Browser" }),
 			when: hasWt,
+		},
+		{
+			id: "atlas::PreviewHtml",
+			label: "Open HTML preview",
+			run: () => {
+				const w = ws.selected!;
+				void previewHtml(w.id, ws.tab(ws.focusedGroup(w.id).activeTab)!.path!);
+			},
+			when: () => {
+				const w = ws.selected;
+				const t = w && ws.tab(ws.focusedGroup(w.id).activeTab);
+				return t?.kind === "editor" && isHtml(t.path);
+			},
 		},
 		{ id: "pane::CloseActiveItem", label: "Close tab", run: () => void closeActive(), when: hasWt },
 		{
@@ -265,6 +286,7 @@ export function shellCommands(): Command[] {
 		},
 		...tabCommands(),
 		...projectCommands(),
+		...lspCommands(),
 		...numberedCommands(),
 	];
 }

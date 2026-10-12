@@ -241,7 +241,7 @@ fn test_palette_filter() {
 fn test_palette_actions_grouped_ungrouped_first_and_filterable_by_group() {
     let mut app = make_app();
     let mk = |key: char, label: &str, group: Option<&str>| -> crate::config::ActionConfig {
-        serde_yaml::from_str(&format!(
+        serde_norway::from_str(&format!(
             "key: '{key}'\nlabel: {label}\ncommand: echo\n{}",
             group.map(|g| format!("group: {g}\n")).unwrap_or_default()
         ))
@@ -475,7 +475,7 @@ fn test_copy_errors_empty() {
 
 /// App whose config comes from YAML, so tests exercise real parsing.
 fn app_from_yaml(yaml: &str) -> App {
-    let cfg: ProjectConfig = serde_yaml::from_str(yaml).unwrap();
+    let cfg: ProjectConfig = serde_norway::from_str(yaml).unwrap();
     let (tx, rx) = mpsc::unbounded_channel();
     let mgr = ServiceManager::new(PathBuf::from("/tmp"), &cfg, tx);
     let (_, events) = EventHandler::test_channel();

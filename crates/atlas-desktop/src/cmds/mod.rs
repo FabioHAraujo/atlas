@@ -7,6 +7,7 @@
 //! registry lookups they share.
 
 mod config_edit;
+mod discover;
 mod projects;
 mod services;
 mod setup;

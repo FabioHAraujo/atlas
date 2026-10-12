@@ -101,6 +101,8 @@ type RunnerEvent =
 const MAX_LOGS = 50_000;
 /** Same toast/alert at most once per this window. */
 const ALERT_EVERY_MS = 60_000;
+/** Window focus re-checks projects on disk at most this often. */
+const FOCUS_EVERY_MS = 5_000;
 const MAX_EVENTS = 200;
 let seq = 0;
 
@@ -186,6 +188,18 @@ class Store {
 		[...this.projects].sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name)),
 	);
 	current = $derived(this.projects.find((p) => p.id === this.selected) ?? null);
+	/** Local projects and worktrees whose folder (or atlas.yaml) is gone. */
+	missing = $derived(this.projects.filter((p) => p.missing));
+
+	#lastFocus = 0;
+
+	/** Window focus: re-check the disk, at most every few seconds (focus can flap). */
+	onFocus() {
+		const now = Date.now();
+		if (now - this.#lastFocus < FOCUS_EVERY_MS) return;
+		this.#lastFocus = now;
+		void this.refresh();
+	}
 
 	#started = false;
 	#unlistenChanged: UnlistenFn | null = null;
@@ -222,6 +236,8 @@ class Store {
 		const attached: Promise<unknown>[] = [];
 		for (const p of this.projects) {
 			if (!this.live[p.id]) this.live[p.id] = emptyLive();
+			// A missing checkout has nothing to watch or load; it is wired once it is found again.
+			if (p.missing) continue;
 			if (!this.#unlisten.has(p.id)) {
 				// Reserve the slot before awaiting: refresh() runs concurrently (init, focus, events).
 				const off = listen<RunnerEvent>(`project://${p.id}`, (e) => this.apply(p.id, e.payload));

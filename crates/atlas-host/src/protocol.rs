@@ -14,6 +14,16 @@
 //! - `upgrade {exe}`: live takeover. hostd starts `exe hostd --takeover`, hands it every live pty
 //!   master fd over a unix socket (`SCM_RIGHTS`) plus session state, and exits. Children keep
 //!   running; clients reconnect and reattach. See `handoff`.
+//! - `lsp_*` commands (cap `lsp`): language-server features. `lsp_open {path, language_id,
+//!   text, version}` → `{server, status, capabilities}` (`status`: ready|missing|disabled|
+//!   crashed; first open of a language may download its server); `lsp_change`, `lsp_close`,
+//!   `lsp_save`, `lsp_request {path, method, params, rid?}` (raw LSP result; `$/capabilities`
+//!   gives the server's capabilities), `lsp_cancel {id: rid}`, `lsp_status` → `{servers}`,
+//!   `lsp_apply_edit_result {id, applied}`. Pushes to every connection: `lsp_diagnostics
+//!   {path, version, diagnostics}`, `lsp_status {servers}` (full list on every change) and
+//!   `lsp_apply_edit {id, edit}`. Positions are UTF-16 and paths absolute. Language servers
+//!   are NOT handed over by `upgrade`: they die with the old daemon, so clients re-send
+//!   `lsp_open` for every open document after reconnecting.
 
 use std::collections::BTreeMap;
 
@@ -22,7 +32,7 @@ use serde_json::Value;
 
 pub const PROTO: u32 = 2;
 /// Capabilities reported by `info`; the desktop gates features on these.
-pub const CAPS: &[&str] = &["pty_attach_raw", "upgrade"];
+pub const CAPS: &[&str] = &["pty_attach_raw", "upgrade", "lsp"];
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -201,6 +211,47 @@ pub enum HostCmd {
         exe: String,
     },
     Shutdown {},
+    /// Open (or re-open after a reconnect) a document for language-server features.
+    LspOpen {
+        path: String,
+        language_id: String,
+        text: String,
+        #[serde(default)]
+        version: i64,
+    },
+    /// LSP `contentChanges` (incremental, UTF-16 positions), applied in order.
+    LspChange {
+        path: String,
+        version: i64,
+        changes: Vec<Value>,
+    },
+    LspClose {
+        path: String,
+    },
+    LspSave {
+        path: String,
+        #[serde(default)]
+        text: Option<String>,
+    },
+    /// Raw LSP request on the document's server; `$/capabilities` returns the server's
+    /// capabilities. `rid` names the call for `lsp_cancel`.
+    LspRequest {
+        path: String,
+        method: String,
+        #[serde(default)]
+        params: Value,
+        #[serde(default)]
+        rid: Option<String>,
+    },
+    LspCancel {
+        id: String,
+    },
+    LspStatus {},
+    /// The client's answer to a pushed `lsp_apply_edit`.
+    LspApplyEditResult {
+        id: String,
+        applied: bool,
+    },
 }
 
 /// Build a response line.

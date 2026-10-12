@@ -55,7 +55,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 atlas-term = { path = "../atlas-term" }
 
 [dev-dependencies]
-serde_yaml = { workspace = true }
+serde_norway = { workspace = true }
 
 [lints]
 workspace = true

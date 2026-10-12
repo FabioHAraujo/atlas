@@ -1,0 +1,180 @@
+/** Keyboard-driven LSP actions on an editor view: definition, references, rename, format, code actions. */
+import { toast } from "@codeatlasdev/ui";
+import { indentUnit } from "@codemirror/language";
+import type { EditorView } from "@codemirror/view";
+import { promptDialog } from "#lib/stores/ask.svelte.ts";
+import { envOf, posParams, type Location } from "#lib/lsp/context.ts";
+import { applyWorkspaceEdit } from "#lib/lsp/apply.ts";
+import {
+	editsToChanges,
+	offsetToPos,
+	rangeToOffsets,
+	uriToPath,
+	type Range,
+	type TextEdit,
+	type WorkspaceEdit,
+} from "#lib/lsp/convert.ts";
+import type { LspDiagnostic } from "#lib/lsp/client.svelte.ts";
+
+interface LspLocation {
+	uri: string;
+	range: Range;
+}
+interface LspLocationLink {
+	targetUri: string;
+	targetSelectionRange: Range;
+	targetRange: Range;
+}
+
+const toLocation = (l: LspLocation | LspLocationLink): Location => {
+	const link = "targetUri" in l;
+	const r = link ? l.targetSelectionRange : l.range;
+	return { path: uriToPath(link ? l.targetUri : l.uri), line: r.start.line, character: r.start.character };
+};
+
+async function locate(view: EditorView, method: string, label: string) {
+	const env = envOf(view);
+	if (!env?.doc.open) return toast.info("No language server for this file");
+	const res = await env.doc.request<LspLocation | LspLocationLink | (LspLocation | LspLocationLink)[]>(
+		method,
+		posParams(view, env),
+	);
+	const list = (Array.isArray(res) ? res : res ? [res] : []).map(toLocation);
+	if (list.length === 0) return toast.info(`No ${label} found`);
+	if (list.length === 1) env.openAt(list[0].path, { line: list[0].line, character: list[0].character });
+	else env.showLocations(label[0].toUpperCase() + label.slice(1) + "s", list);
+}
+
+export const goToDefinition = (view: EditorView) => locate(view, "textDocument/definition", "definition");
+export const goToTypeDefinition = (view: EditorView) =>
+	locate(view, "textDocument/typeDefinition", "type definition");
+export const goToImplementation = (view: EditorView) =>
+	locate(view, "textDocument/implementation", "implementation");
+
+export async function findReferences(view: EditorView) {
+	const env = envOf(view);
+	if (!env?.doc.open) return toast.info("No language server for this file");
+	const res = await env.doc.request<LspLocation[]>("textDocument/references", {
+		...posParams(view, env),
+		context: { includeDeclaration: true },
+	});
+	const doc = view.state.doc;
+	const list = (res ?? []).map((r) => {
+		const loc = toLocation(r);
+		// Same-file hits get their source line; other files would need a read per result.
+		if (loc.path === env.doc.path && loc.line < doc.lines) loc.preview = doc.line(loc.line + 1).text.trim();
+		return loc;
+	});
+	if (list.length === 0) return toast.info("No references found");
+	env.showLocations(`References (${list.length})`, list);
+}
+
+export async function renameSymbol(view: EditorView) {
+	const env = envOf(view);
+	if (!env?.doc.open) return toast.info("No language server for this file");
+	const p = posParams(view, env);
+	const rp = env.doc.caps?.renameProvider;
+	let current = "";
+	if (typeof rp === "object" && rp?.prepareProvider) {
+		const prep = await env.doc.request<Range | { range: Range; placeholder?: string } | null>(
+			"textDocument/prepareRename",
+			p,
+		);
+		if (!prep) return toast.info("Nothing to rename here");
+		const range = "range" in prep ? prep.range : prep;
+		current = "placeholder" in prep && prep.placeholder ? prep.placeholder : "";
+		if (!current) {
+			const [f, t] = rangeToOffsets(view.state.doc, range);
+			current = view.state.sliceDoc(f, t);
+		}
+	} else {
+		const w = view.state.wordAt(view.state.selection.main.head);
+		current = w ? view.state.sliceDoc(w.from, w.to) : "";
+	}
+	const name = await promptDialog("Rename symbol", { value: current, confirmLabel: "Rename" });
+	if (!name || name === current) return;
+	const edit = await env.doc.request<WorkspaceEdit | null>("textDocument/rename", { ...p, newName: name });
+	if (!edit) return toast.info("The server returned no changes");
+	const r = await applyWorkspaceEdit(edit);
+	if (r.applied) toast.success(`Renamed in ${r.files} file${r.files === 1 ? "" : "s"}`);
+	else toast.error(`Rename failed: ${r.error}`);
+}
+
+/** Format the document (or the selection when there is one) with the server's formatter. */
+export async function formatDocument(view: EditorView, quiet = false): Promise<boolean> {
+	const env = envOf(view);
+	if (!env?.doc.open || !env.doc.caps?.documentFormattingProvider) {
+		if (!quiet) toast.info("No formatter for this file");
+		return false;
+	}
+	const sel = view.state.selection.main;
+	const options = {
+		tabSize: view.state.tabSize,
+		insertSpaces: !view.state.facet(indentUnit).startsWith("\t"),
+	};
+	const textDocument = posParams(view, env, 0).textDocument;
+	const edits = sel.empty
+		? await env.doc.request<TextEdit[] | null>("textDocument/formatting", { textDocument, options })
+		: await env.doc.request<TextEdit[] | null>("textDocument/rangeFormatting", {
+				textDocument,
+				options,
+				range: { start: offsetToPos(view.state.doc, sel.from), end: offsetToPos(view.state.doc, sel.to) },
+			});
+	if (!edits?.length) return true;
+	view.dispatch({ changes: editsToChanges(view.state.doc, edits), userEvent: "input.format" });
+	return true;
+}
+
+// --- Code actions -----------------------------------------------------------------------------
+
+export interface CodeAction {
+	title: string;
+	kind?: string;
+	isPreferred?: boolean;
+	disabled?: { reason: string };
+	edit?: WorkspaceEdit;
+	command?: { command: string; title: string; arguments?: unknown[] };
+	data?: unknown;
+	diagnostics?: LspDiagnostic[];
+}
+
+/** Code actions for a range; `only` filters kinds (`quickfix`, `refactor`, `source`). */
+export async function codeActionsAt(
+	view: EditorView,
+	from: number,
+	to: number,
+	diagnostics: LspDiagnostic[] = [],
+	only?: string[],
+): Promise<CodeAction[]> {
+	const env = envOf(view);
+	if (!env?.doc.open || !env.doc.caps?.codeActionProvider) return [];
+	const doc = view.state.doc;
+	const res = await env.doc.request<(CodeAction | { command: string; title: string })[]>(
+		"textDocument/codeAction",
+		{
+			textDocument: posParams(view, env, 0).textDocument,
+			range: { start: offsetToPos(doc, from), end: offsetToPos(doc, to) },
+			context: { diagnostics, only, triggerKind: 1 },
+		},
+	);
+	return (res ?? [])
+		.map(
+			(a) =>
+				("command" in a && typeof a.command === "string" ? { title: a.title, command: a } : a) as CodeAction,
+		)
+		.filter((a) => !a.disabled);
+}
+
+export async function runCodeAction(view: EditorView, action: CodeAction) {
+	const env = envOf(view);
+	if (!env) return;
+	let a = action;
+	if (!a.edit && !a.command && env.doc.caps?.codeActionProvider) {
+		a = (await env.doc.request<CodeAction>("codeAction/resolve", action)) ?? action;
+	}
+	if (a.edit) {
+		const r = await applyWorkspaceEdit(a.edit);
+		if (!r.applied) return void toast.error(`${a.title} failed: ${r.error}`);
+	}
+	if (a.command) await env.doc.request("workspace/executeCommand", a.command).catch(() => {});
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Switch } from "@codeatlasdev/ui";
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
 	import FontRows from "./FontRows.svelte";
 	import Group from "./Group.svelte";
@@ -43,6 +44,42 @@
 if (answer !== 42) throw new Error("not yet");</pre>
 		{/snippet}
 	</FontRows>
+</Group>
+
+<Group title="Language servers">
+	<Row
+		id="lsp-enable"
+		label="Language servers"
+		description="Completion, diagnostics, hover and go to definition from the language's server (downloaded on first use)."
+	>
+		<Switch
+			aria-label="Language servers"
+			checked={p.enable_language_servers}
+			onchange={(v) => savePref("enable_language_servers", v)}
+		/>
+	</Row>
+	<Row
+		id="lsp-format-on-save"
+		label="Format on save"
+		description="Format the file with its language server every time it is saved."
+	>
+		<Switch
+			aria-label="Format on save"
+			checked={p.format_on_save}
+			onchange={(v) => savePref("format_on_save", v)}
+		/>
+	</Row>
+	<Row
+		id="lsp-inlay-hints"
+		label="Inlay hints"
+		description="Show inferred types and parameter names inline, dimmed."
+	>
+		<Switch
+			aria-label="Inlay hints"
+			checked={p.inlay_hints.enabled}
+			onchange={(v) => savePref("inlay_hints", { enabled: v })}
+		/>
+	</Row>
 </Group>
 
 <style>

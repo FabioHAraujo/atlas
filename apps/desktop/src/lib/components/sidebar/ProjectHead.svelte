@@ -35,6 +35,8 @@
 <div
 	class="project"
 	class:current={active}
+	class:missing={!!r.missing}
+	title={r.missing ? `Not found: ${r.root}` : undefined}
 	class:selected={active && solo && ws.view === "worktree" && store.selected === r.id}
 	class:unread={w?.unread}
 	style:--c={shell.accent(r.id)}
@@ -67,26 +69,33 @@
 	{/if}
 	<span class="ico">
 		<ProjectIcon id={r.id} size={20} ring={active} />
-		<i class="dot {health(r, live)}" class:pulse={r.running} title={r.running ? "Running" : "Stopped"}></i>
+		<i
+			class="dot {r.missing ? 'off' : health(r, live)}"
+			class:pulse={r.running}
+			title={r.running ? "Running" : "Stopped"}
+		></i>
 	</span>
 	<span class="pname">{r.name}</span>
+	{#if r.missing}<span class="gone">Not found</span>{/if}
 	{#if r.host}<span class="chip">{r.host.replace(/^ssh:/, "")}</span>{/if}
 	{#if r.pinned}<Pin size={10} class="pin" />{/if}
 	<span class="meta">
 		{#if r.running}<span class="count">{up}/{live?.services.length || r.services_total}</span>{/if}
 		{#if !active && kids.length}<span class="count">{kids.length + 1} wt</span>{/if}
 	</span>
-	<button
-		class="hover-btn"
-		aria-label="New worktree"
-		title="New worktree"
-		onclick={(e) => {
-			e.stopPropagation();
-			worktrees.newDialog = { open: true, repoId: r.id };
-		}}
-	>
-		<Plus size={13} />
-	</button>
+	{#if !r.missing}
+		<button
+			class="hover-btn"
+			aria-label="New worktree"
+			title="New worktree"
+			onclick={(e) => {
+				e.stopPropagation();
+				worktrees.newDialog = { open: true, repoId: r.id };
+			}}
+		>
+			<Plus size={13} />
+		</button>
+	{/if}
 	<DropdownMenu align="end">
 		{#snippet trigger()}
 			<span class="hover-btn" aria-label="Project menu"><Ellipsis size={13} /></span>
@@ -131,6 +140,20 @@
 	}
 	.project.unread .pname {
 		font-weight: 750;
+	}
+	/* Gone from disk: dimmed, still selectable so its recovery view can open. */
+	.project.missing .pname,
+	.project.missing .ico {
+		opacity: 0.5;
+	}
+	.gone {
+		flex: none;
+		font-size: 10px;
+		padding: 0 5px;
+		border-radius: 4px;
+		white-space: nowrap;
+		color: var(--dot-warn);
+		background: color-mix(in oklab, var(--dot-warn) 14%, transparent);
 	}
 	.twist {
 		display: inline-grid;

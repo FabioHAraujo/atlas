@@ -14,6 +14,7 @@ import { worktreeFiles, openFile } from "#lib/stores/files.svelte.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
 import { worktrees } from "#lib/stores/worktrees.svelte.ts";
+import { lspSymbols } from "#lib/lsp/symbols.svelte.ts";
 import { outline } from "#lib/symbols.ts";
 import { goTab, goWorktree, recentWorktrees, wtLabel } from "#lib/shell/navigate.ts";
 
@@ -155,7 +156,12 @@ export function fileItems(): PaletteItem[] {
 export function symbolItems(): PaletteItem[] {
 	const view = activeEditor();
 	if (!view) return [];
-	return outline(view.state).map((s, i) => ({
+	// Language-server symbols (with containers) when the server answered, else the syntax tree's.
+	const symbols =
+		lspSymbols.view === view && lspSymbols.list
+			? lspSymbols.list.map((s) => ({ ...s, kind: s.container ? `${s.kind} in ${s.container}` : s.kind }))
+			: outline(view.state);
+	return symbols.map((s, i) => ({
 		id: `${i}`,
 		group: "Symbols",
 		label: s.name,

@@ -1,0 +1,39 @@
+[package]
+name = "atlas-lsp"
+version = "1.1.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+readme = "../../README.md"
+description = "Language-server layer behind `atlas hostd`: registry, installer, JSON-RPC client and manager"
+
+# Scriptable fake language server for the manager's behavior tests (never installed).
+[[bin]]
+name = "fake-lsp"
+path = "src/bin/fake-lsp.rs"
+test = false
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+libc = { workspace = true }
+parking_lot = { workspace = true }
+tar = "0.4"
+flate2 = { workspace = true }
+sha2 = "0.11"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

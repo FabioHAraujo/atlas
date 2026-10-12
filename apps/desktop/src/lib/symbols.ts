@@ -12,6 +12,9 @@ export const editors = new Map<string, EditorView>();
 /** Each live editor's save (writes the document if it changed), by the same key. */
 export const savers = new Map<string, () => Promise<void>>();
 
+/** Worktree-relative path and absolute worktree root of each live editor, by the same key (used by Format). */
+export const editorFiles = new WeakMap<EditorView, { path: string; root: string }>();
+
 /**
  * ⌘S: save the editor `key` (the focused pane's) now. `false` when there is none, so the
  * caller can say "Nothing to save" instead of silently doing nothing.
@@ -50,8 +53,14 @@ export function requestGoto(key: string, line: number, col?: number) {
 }
 
 /** Called by Editor.svelte right after it registers `view`. */
-export function registerEditor(key: string, view: EditorView, save?: () => Promise<void>) {
+export function registerEditor(
+	key: string,
+	view: EditorView,
+	save?: () => Promise<void>,
+	file?: { path: string; root: string },
+) {
 	editors.set(key, view);
+	if (file) editorFiles.set(view, file);
 	if (save) savers.set(key, save);
 	const want = pendingGoto.get(key);
 	if (want) {

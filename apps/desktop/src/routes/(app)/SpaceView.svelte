@@ -7,6 +7,7 @@
 	import Contain from "#lib/errors/Contain.svelte";
 	import ActivityDrawer from "#lib/panel/ActivityDrawer.svelte";
 	import ConfirmAction from "./ConfirmAction.svelte";
+	import MissingProject from "./MissingProject.svelte";
 	import ProjectHeader from "./ProjectHeader.svelte";
 	import Workbench from "./Workbench.svelte";
 	import { agents } from "#lib/stores/agents.svelte.ts";
@@ -16,7 +17,9 @@
 	let p = $derived(space.project);
 </script>
 
-{#if p}
+{#if p?.missing}
+	<MissingProject {p} />
+{:else if p}
 	<ProjectHeader {p} />
 	{#if space.current}<ActivityDrawer projectId={p.id} />{/if}
 

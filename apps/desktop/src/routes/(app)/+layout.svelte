@@ -14,6 +14,7 @@
 	import DevLine from "#lib/components/DevLine.svelte";
 	import NewWorktreeDialog from "#lib/components/NewWorktreeDialog.svelte";
 	import Palette from "#lib/components/Palette.svelte";
+	import LspPicker from "#lib/lsp/LspPicker.svelte";
 	import Settings from "#lib/components/Settings.svelte";
 	import Sidebar from "#lib/components/Sidebar.svelte";
 	import UpdatedCard from "#lib/components/UpdatedCard.svelte";
@@ -50,7 +51,7 @@
 	onkeydown={onKeydown}
 	onkeydowncapture={onKeydownCapture}
 	onkeyup={onKeyup}
-	onfocus={() => store.refresh()}
+	onfocus={() => store.onFocus()}
 	onblur={cancelSwitcher}
 />
 
@@ -98,6 +99,7 @@
 <CreatePrDialog />
 <Palette bind:open={palettes.files} placeholder="Go to file" items={fileItems} />
 <Palette bind:open={palettes.symbols} placeholder="Go to symbol in file" items={symbolItems} />
+<LspPicker />
 <Settings />
 <WhatsNew />
 <UpdatedCard />

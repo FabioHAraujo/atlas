@@ -2,6 +2,7 @@
 	/** The "…" menu of a project head or worktree row. */
 	import { DropdownMenuItem } from "@codeatlasdev/ui";
 	import { api } from "#lib/api.ts";
+	import { locateProject, removeProject } from "./projects.ts";
 	import { identities } from "#lib/stores/identity.svelte.ts";
 	import { promptDialog } from "#lib/stores/ask.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
@@ -29,16 +30,22 @@
 	}
 </script>
 
-<DropdownMenuItem onclick={() => openTerminal(p.id)}>New terminal</DropdownMenuItem>
-<DropdownMenuItem onclick={() => onAgent?.(p.id)}>New agent</DropdownMenuItem>
-<DropdownMenuItem onclick={toggleStack}>
-	{p.running ? "Stop stack" : "Start stack"}
-</DropdownMenuItem>
-<DropdownMenuItem onclick={() => store.run("ed", () => api.openEditor(p.id))}>Open in editor</DropdownMenuItem
->
-<DropdownMenuItem onclick={() => store.run("reveal", () => api.reveal(p.id))}
-	>Reveal in Finder</DropdownMenuItem
->
+{#if p.missing}
+	<DropdownMenuItem onclick={() => locateProject(p.id)}>Locate…</DropdownMenuItem>
+	<DropdownMenuItem onclick={() => removeProject(p.id)}>Remove from Atlas</DropdownMenuItem>
+{:else}
+	<DropdownMenuItem onclick={() => openTerminal(p.id)}>New terminal</DropdownMenuItem>
+	<DropdownMenuItem onclick={() => onAgent?.(p.id)}>New agent</DropdownMenuItem>
+	<DropdownMenuItem onclick={toggleStack}>
+		{p.running ? "Stop stack" : "Start stack"}
+	</DropdownMenuItem>
+	<DropdownMenuItem onclick={() => store.run("ed", () => api.openEditor(p.id))}
+		>Open in editor</DropdownMenuItem
+	>
+	<DropdownMenuItem onclick={() => store.run("reveal", () => api.reveal(p.id))}
+		>Reveal in Finder</DropdownMenuItem
+	>
+{/if}
 <DropdownMenuItem onclick={() => store.run("pin", () => api.pin(p.id, !p.pinned))}>
 	{p.pinned ? "Unpin" : "Pin to top"}
 </DropdownMenuItem>

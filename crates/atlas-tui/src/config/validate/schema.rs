@@ -1,7 +1,7 @@
 //! Schema-driven unknown-key detection for atlas.yaml / atlas.local.yaml.
 
 use serde_json::Value as Json;
-use serde_yaml::Value as Yaml;
+use serde_norway::Value as Yaml;
 
 use super::{ConfigError, suggest};
 use crate::config::loader::LocalOverride;

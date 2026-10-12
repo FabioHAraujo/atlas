@@ -1,5 +1,24 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Found } from "#lib/components/sidebar/discovery.ts";
 import type { Identity } from "#lib/shell/identity.ts";
+
+export interface DiscoverArgs {
+	/** Extra folders besides the defaults (absolute or `~/…`). */
+	roots?: string[];
+	/** Scan only `roots`. */
+	only_roots?: boolean;
+	/** Also report git roots without atlas.yaml. */
+	candidates?: boolean;
+	depth?: number;
+}
+
+export interface DiscoverDone {
+	roots: string[];
+	dirs: number;
+	unreadable: number;
+	elapsed_ms: number;
+	cancelled: boolean;
+}
 
 export interface ProjectView {
 	id: string;
@@ -20,6 +39,10 @@ export interface ProjectView {
 	host: string | null;
 	/** User-chosen icon and color; null = automatic. */
 	identity: Identity | null;
+	/** The checkout is gone from this machine (null = present, or an SSH project). */
+	missing: "root" | "config" | null;
+	/** `origin` URL last seen while the project existed (set when missing). */
+	last_remote: string | null;
 }
 
 export interface WorktreeProgress {
@@ -135,7 +158,12 @@ export const api = {
 	/** `null` (or an empty identity) goes back to the automatic icon and color. */
 	setIdentity: (id: string, identity: Identity | null) =>
 		invoke<void>("projects_set_identity", { id, identity }),
-	discover: () => invoke<string[]>("projects_discover"),
+	discover: (args: DiscoverArgs = {}) => invoke<DiscoverDone>("projects_discover", { args }),
+	discoverCancel: () => invoke<void>("projects_discover_cancel"),
+	relink: (id: string, root: string) => invoke<ProjectView>("projects_relink", { id, root }),
+	removeMissing: () => invoke<number>("projects_remove_missing"),
+	findMoved: (id: string) => invoke<Found | null>("projects_find_moved", { id }),
+	initProject: (dir: string) => invoke<ProjectView>("project_init", { dir }),
 	start: (id: string, profiles: string[] = [], services: string[] = []) =>
 		invoke<void>("stack_start", { id, services, profiles }),
 	stop: (id: string) => invoke<void>("stack_stop", { id }),

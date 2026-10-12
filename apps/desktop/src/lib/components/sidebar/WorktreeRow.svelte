@@ -45,6 +45,8 @@
 		class:multi={sidebar.multi[p.id]}
 		class:unread={w?.unread}
 		class:main={!p.parent}
+		class:missing={!!p.missing}
+		title={p.missing ? `Not found: ${p.root}` : undefined}
 		role="button"
 		tabindex="0"
 		onmouseenter={() => (sidebar.hovered = p.id)}
@@ -63,6 +65,7 @@
 				PR #{w.linkedPr}{v ? ` · ${v.state.toLowerCase()}` : ""}
 			</span>
 		{/if}
+		{#if p.missing}<span class="chip warn">Not found</span>{/if}
 		{#if p.port_offset}<span class="chip">+{p.port_offset}</span>{/if}
 		{#if p.parent && p.pinned}<Pin size={11} class="pin" />{/if}
 		<span class="meta">
@@ -91,6 +94,14 @@
 	}
 	.item.unread .name {
 		font-weight: 750;
+	}
+	.item.missing .name,
+	.item.missing .glyph {
+		opacity: 0.5;
+	}
+	.chip.warn {
+		color: var(--dot-warn);
+		background: color-mix(in oklab, var(--dot-warn) 14%, transparent);
 	}
 	.item.multi {
 		box-shadow: inset 0 0 0 1px var(--ca-brand-main);

@@ -14,7 +14,8 @@ Seven crates, all `publish = false`, in one Cargo workspace (`cargo metadata --n
 | Path | Crate | Role | Depends on (workspace) |
 |---|---|---|---|
 | `crates/atlas-core` | `atlas-core` | shared domain types, paths (`~/.atlas`), GitHub release helpers | none |
-| `crates/atlas-host` | `atlas-host` | `atlas hostd`: PTYs, one-shot exec, file access and scrollback behind a unix socket, plus the client and the live upgrade | none |
+| `crates/atlas-host` | `atlas-host` | `atlas hostd`: PTYs, one-shot exec, file access and scrollback behind a unix socket, plus the client and the live upgrade | `atlas-lsp` |
+| `crates/atlas-lsp` | `atlas-lsp` | language servers behind hostd: server registry and root detection, verified installer (rust-analyzer, gopls, npm servers, managed Node.js), JSON-RPC client, per-root manager with idle shutdown and crash restart | none |
 | `crates/atlas-term` | `atlas-term` | the GPU terminal without Tauri: VT state (on `alacritty_terminal`), the wgpu/Metal renderer, fonts, inline images, key encoding | none |
 | `crates/atlas-tui` | `atlas-tui` | a library: config loading and validation, the runtime (manager, scheduler, health, process supervision, logs), the TUI (ratatui), the runner, the control socket and the MCP server | `atlas-core` |
 | `crates/atlas-skills` | `atlas-skills` | the agent skills compiled into the binary and their installer | `atlas-core` |
@@ -82,6 +83,8 @@ Other top-level directories:
 ### hostd
 
 `atlas hostd` outlives the app so terminals survive quits, crashes and updates. After an app update the daemon is older than the app; protocol 2+ daemons are replaced live (the new process receives every PTY master over `SCM_RIGHTS`, along with the session state and the lock). Details in [Desktop › Architecture](desktop.md#architecture).
+
+Language servers run inside hostd too (`atlas-lsp`), so editors on SSH projects get the same IDE features as local ones. `lsp_*` commands open documents and forward LSP requests; diagnostics, status and `workspace/applyEdit` come back as pushes. Servers start on the first open of a language, are shared per (server, project root), stop 5 minutes after the last document closes, and restart on a crash (at most 3 times a minute). A server already on `PATH` (rustup, `~/go/bin`) wins; otherwise it is downloaded once into `~/.atlas/lsp/<server>/<version>/` with its checksum verified (rust-analyzer from GitHub releases, gopls through `go install`, the rest through npm with a managed Node.js when the system one is missing or too old). Logs: `~/.atlas/lsp/logs/<server>.log`. A live `upgrade` does not hand language servers over: they end with the old daemon and the app re-opens its documents after reconnecting.
 
 ### The GPU terminal
 

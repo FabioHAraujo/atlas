@@ -261,7 +261,7 @@ mod tests {
     };
 
     fn action(key: char, label: &str, group: Option<&str>) -> ActionConfig {
-        serde_yaml::from_str(&format!(
+        serde_norway::from_str(&format!(
             "key: '{key}'\nlabel: {label}\ncommand: echo\n{}",
             group.map(|g| format!("group: {g}\n")).unwrap_or_default()
         ))

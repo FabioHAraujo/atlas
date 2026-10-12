@@ -147,6 +147,17 @@ class Workspace {
 		return this.doc.groups[this.doc.groups.length - 1];
 	}
 
+	/** Active tab of the focused group, without creating anything: safe inside `$derived`. */
+	focusedTab(worktreeId: string): Tab | undefined {
+		const l = this.doc.layouts[worktreeId];
+		if (!l) return undefined;
+		const id = this.doc.focusedGroup[worktreeId];
+		const g = this.group(
+			id && (leaves(l).includes(id) || id === this.doc.bottomGroup[worktreeId]) ? id : leaves(l)[0],
+		);
+		return g ? this.tab(g.activeTab) : undefined;
+	}
+
 	focusedGroup(worktreeId: string): TabGroup {
 		this.ensureLayout(worktreeId);
 		const id = this.doc.focusedGroup[worktreeId];

@@ -108,3 +108,15 @@ test("activateNth follows the focused pane order, ⌘9 the last", () => {
 	ws.activateNth(W, 5);
 	expect(ws.tab(ws.focusedGroup(W).activeTab).kind).toBe("logs");
 });
+
+test("focusedTab is a pure read: a worktree without a layout yields nothing and creates nothing (state_unsafe_mutation in $derived)", () => {
+	fresh();
+	ws.doc.layouts = {};
+	const groups = ws.doc.groups.length;
+	expect(ws.focusedTab(W)).toBeUndefined();
+	expect(ws.doc.layouts[W]).toBeUndefined();
+	expect(ws.doc.groups.length).toBe(groups);
+	ws.select(W);
+	const t = ws.openTab(W, { kind: "editor", label: "a", path: "a.ts" });
+	expect(ws.focusedTab(W)?.id).toBe(t.id);
+});

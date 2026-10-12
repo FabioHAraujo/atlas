@@ -7,6 +7,7 @@ members = [
     "crates/atlas-skills",
     "crates/atlas-desktop",
     "crates/atlas-host",
+    "crates/atlas-lsp",
     "crates/atlas-term",
 ]
 # `cargo build|test` without `--workspace` skips the macOS-only GUI crates (Tauri/WebKit, Metal),
@@ -17,6 +18,7 @@ default-members = [
     "crates/atlas-cli",
     "crates/atlas-skills",
     "crates/atlas-host",
+    "crates/atlas-lsp",
 ]
 
 [workspace.package]
@@ -33,7 +35,7 @@ categories = ["development-tools", "command-line-utilities"]
 tokio = { version = "1.53", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
+serde_norway = "0.9"
 clap = { version = "4.6", features = ["derive"] }
 tracing = "0.1"
 thiserror = "2.0"

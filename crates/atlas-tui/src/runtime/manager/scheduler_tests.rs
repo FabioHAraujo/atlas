@@ -20,7 +20,7 @@ fn svc(cmd: &str) -> ServiceDef {
 
 fn deps(pairs: &[(&str, &str)]) -> Option<DependsOn> {
     let yaml: String = pairs.iter().map(|(n, c)| format!("{n}: {c}\n")).collect();
-    Some(serde_yaml::from_str(&yaml).unwrap())
+    Some(serde_norway::from_str(&yaml).unwrap())
 }
 
 fn manager(

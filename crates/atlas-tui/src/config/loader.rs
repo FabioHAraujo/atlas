@@ -37,28 +37,28 @@ pub fn load_checked(
 
     let base_content =
         std::fs::read_to_string(&config_path).context("Failed to read atlas.yaml")?;
-    let base_value: serde_yaml::Value =
-        serde_yaml::from_str(&base_content).context("Failed to parse atlas.yaml")?;
+    let base_value: serde_norway::Value =
+        serde_norway::from_str(&base_content).context("Failed to parse atlas.yaml")?;
     errors.extend(validate::unknown_keys(
         &base_value,
         validate::Target::Project,
         CONFIG_FILE,
     ));
     let mut config: ProjectConfig =
-        serde_yaml::from_value(base_value).map_err(|e| anyhow::anyhow!("{CONFIG_FILE}: {e}"))?;
+        serde_norway::from_value(base_value).map_err(|e| anyhow::anyhow!("{CONFIG_FILE}: {e}"))?;
 
     let local_path = root_dir.join(LOCAL_CONFIG_FILE);
     if local_path.exists() {
         let local_content =
             std::fs::read_to_string(&local_path).context("Failed to read atlas.local.yaml")?;
-        let local_value: serde_yaml::Value =
-            serde_yaml::from_str(&local_content).context("Failed to parse atlas.local.yaml")?;
+        let local_value: serde_norway::Value =
+            serde_norway::from_str(&local_content).context("Failed to parse atlas.local.yaml")?;
         errors.extend(validate::unknown_keys(
             &local_value,
             validate::Target::Local,
             LOCAL_CONFIG_FILE,
         ));
-        let local: LocalOverride = serde_yaml::from_value(local_value)
+        let local: LocalOverride = serde_norway::from_value(local_value)
             .map_err(|e| anyhow::anyhow!("{LOCAL_CONFIG_FILE}: {e}"))?;
         merge_local(&mut config, local);
     }

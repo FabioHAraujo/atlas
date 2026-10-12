@@ -1,0 +1,249 @@
+/**
+ * One pure mapping from a file path to everything the editor needs to know about it:
+ * the syntax language (source mode), the optional rich ("eye") view, and its label.
+ * Name first (Dockerfile, .env.local, Makefile), then the longest dotted suffix.
+ */
+
+/** Rich views, one component each under `lib/viewers/rich/`. Markdown/SVG predate this and keep their own viewers. */
+export type RichView =
+	| "env"
+	| "package-json"
+	| "dockerfile"
+	| "compose"
+	| "makefile"
+	| "justfile"
+	| "atlas"
+	| "manifest"
+	| "tsconfig"
+	| "workflow"
+	| "table"
+	| "tree"
+	| "ignore"
+	| "license"
+	| "codeowners"
+	| "editorconfig"
+	| "procfile"
+	| "notebook";
+
+export interface FileType {
+	/** Stable id, also the key under which the rich/source choice is remembered. */
+	id: string;
+	/** Syntax-highlighting language name (see `loadLanguage`), `null` = plain text. */
+	lang: string | null;
+	/** Rich view toggled with the Eye button, when this file type has one. */
+	view?: RichView;
+	/** Human label shown in tooltips (`Dockerfile`, `package.json`). */
+	label: string;
+	/** File name handed to the file-icon resolver (material-icon-theme). */
+	icon: string;
+}
+
+const T = (id: string, label: string, lang: string | null, view?: RichView, icon?: string): FileType => ({
+	id,
+	label,
+	lang,
+	view,
+	icon: icon ?? id,
+});
+
+/** Exact (lower-cased) base names. */
+const BY_NAME: Record<string, FileType> = {
+	"package.json": T("package-json", "package.json", "json", "package-json", "package.json"),
+	"composer.json": T("composer", "composer.json", "json", "manifest", "composer.json"),
+	"tsconfig.json": T("tsconfig", "tsconfig.json", "jsonc", "tsconfig", "tsconfig.json"),
+	"jsconfig.json": T("tsconfig", "jsconfig.json", "jsonc", "tsconfig", "jsconfig.json"),
+	"cargo.toml": T("cargo", "Cargo.toml", "toml", "manifest", "Cargo.toml"),
+	"pyproject.toml": T("pyproject", "pyproject.toml", "toml", "manifest", "pyproject.toml"),
+	"go.mod": T("go-mod", "go.mod", "go-mod", "manifest", "go.mod"),
+	"go.sum": T("go-sum", "go.sum", null, undefined, "go.sum"),
+	"cargo.lock": T("lock", "Cargo.lock", "toml", undefined, "Cargo.lock"),
+	"atlas.yaml": T("atlas", "atlas.yaml", "yaml", "atlas", "atlas.yaml"),
+	"atlas.yml": T("atlas", "atlas.yml", "yaml", "atlas", "atlas.yaml"),
+	"atlas.local.yaml": T("atlas", "atlas.local.yaml", "yaml", "atlas", "atlas.yaml"),
+	"atlas.local.yml": T("atlas", "atlas.local.yml", "yaml", "atlas", "atlas.yaml"),
+	"docker-compose.yml": T("compose", "Compose file", "yaml", "compose", "docker-compose.yml"),
+	"docker-compose.yaml": T("compose", "Compose file", "yaml", "compose", "docker-compose.yml"),
+	"compose.yml": T("compose", "Compose file", "yaml", "compose", "docker-compose.yml"),
+	"compose.yaml": T("compose", "Compose file", "yaml", "compose", "docker-compose.yml"),
+	containerfile: T("dockerfile", "Containerfile", "dockerfile", "dockerfile", "Dockerfile"),
+	makefile: T("makefile", "Makefile", "makefile", "makefile", "Makefile"),
+	gnumakefile: T("makefile", "Makefile", "makefile", "makefile", "Makefile"),
+	justfile: T("justfile", "Justfile", "justfile", "justfile", "justfile"),
+	".justfile": T("justfile", "Justfile", "justfile", "justfile", "justfile"),
+	procfile: T("procfile", "Procfile", "procfile", "procfile", "Procfile"),
+	codeowners: T("codeowners", "CODEOWNERS", "gitignore", "codeowners", "CODEOWNERS"),
+	".editorconfig": T("editorconfig", ".editorconfig", "properties", "editorconfig", ".editorconfig"),
+	".gitignore": T("ignore", ".gitignore", "gitignore", "ignore", ".gitignore"),
+	".dockerignore": T("ignore", ".dockerignore", "gitignore", "ignore", ".dockerignore"),
+	".gitattributes": T("gitattributes", ".gitattributes", "gitignore", undefined, ".gitattributes"),
+	".npmrc": T("rc", ".npmrc", "properties", undefined, ".npmrc"),
+	".yarnrc": T("rc", ".yarnrc", "properties", undefined, ".yarnrc"),
+	".nvmrc": T("rc", ".nvmrc", null, undefined, ".nvmrc"),
+	".node-version": T("rc", ".node-version", null, undefined, ".nvmrc"),
+	".tool-versions": T("rc", ".tool-versions", "properties", undefined, ".tool-versions"),
+	".prettierrc": T("json", ".prettierrc", "json", "tree", ".prettierrc"),
+	".eslintrc": T("json", ".eslintrc", "json", "tree", ".eslintrc"),
+	".babelrc": T("json", ".babelrc", "json", "tree", ".babelrc"),
+	"nginx.conf": T("nginx", "nginx.conf", "nginx", undefined, "nginx.conf"),
+	"cmakelists.txt": T("cmake", "CMakeLists.txt", "cmake", undefined, "CMakeLists.txt"),
+	jenkinsfile: T("groovy", "Jenkinsfile", "groovy", undefined, "Jenkinsfile"),
+	gemfile: T("ruby", "Gemfile", "ruby", undefined, "Gemfile"),
+	rakefile: T("ruby", "Rakefile", "ruby", undefined, "Rakefile"),
+	vagrantfile: T("ruby", "Vagrantfile", "ruby", undefined, "Vagrantfile"),
+	brewfile: T("ruby", "Brewfile", "ruby", undefined, "Brewfile"),
+	podfile: T("ruby", "Podfile", "ruby", undefined, "Podfile"),
+	dockerfile: T("dockerfile", "Dockerfile", "dockerfile", "dockerfile", "Dockerfile"),
+	license: T("license", "License", null, "license", "LICENSE"),
+	licence: T("license", "License", null, "license", "LICENSE"),
+	copying: T("license", "License", null, "license", "LICENSE"),
+	unlicense: T("license", "License", null, "license", "LICENSE"),
+	notice: T("text", "Notice", null, undefined, "NOTICE"),
+	".env": T("env", ".env", "env", "env", ".env"),
+	".envrc": T("shell", ".envrc", "shell", undefined, ".envrc"),
+	"bun.lock": T("lock", "bun.lock", "jsonc", undefined, "bun.lock"),
+	"flake.lock": T("lock", "flake.lock", "json", "tree", "flake.lock"),
+};
+
+/** Longest-suffix extensions (`d.ts` before `ts`). */
+const BY_EXT: Record<string, FileType> = {
+	json: T("json", "JSON", "json", "tree", "file.json"),
+	jsonc: T("jsonc", "JSON with comments", "jsonc", "tree", "file.jsonc"),
+	json5: T("json5", "JSON5", "jsonc", "tree", "file.json5"),
+	yaml: T("yaml", "YAML", "yaml", "tree", "file.yaml"),
+	yml: T("yaml", "YAML", "yaml", "tree", "file.yml"),
+	toml: T("toml", "TOML", "toml", "tree", "file.toml"),
+	csv: T("csv", "CSV", "csv", "table", "file.csv"),
+	tsv: T("tsv", "TSV", "csv", "table", "file.tsv"),
+	ipynb: T("notebook", "Jupyter notebook", "json", "notebook", "file.ipynb"),
+	env: T("env", "Environment file", "env", "env", ".env"),
+	dockerfile: T("dockerfile", "Dockerfile", "dockerfile", "dockerfile", "Dockerfile"),
+	mk: T("makefile", "Makefile", "makefile", "makefile", "Makefile"),
+	just: T("justfile", "Justfile", "justfile", "justfile", "justfile"),
+	lock: T("lock", "Lockfile", "yaml", undefined, "file.lock"),
+	ini: T("ini", "INI", "properties", undefined, "file.ini"),
+	cfg: T("ini", "Config", "properties", undefined, "file.cfg"),
+	conf: T("ini", "Config", "properties", undefined, "file.conf"),
+	properties: T("properties", "Properties", "properties", undefined, "file.properties"),
+	proto: T("proto", "Protocol Buffers", "protobuf", undefined, "file.proto"),
+	graphql: T("graphql", "GraphQL", "graphql", undefined, "file.graphql"),
+	gql: T("graphql", "GraphQL", "graphql", undefined, "file.gql"),
+	prisma: T("prisma", "Prisma schema", "prisma", undefined, "file.prisma"),
+	sql: T("sql", "SQL", "sql", undefined, "file.sql"),
+	tf: T("terraform", "Terraform", "hcl", undefined, "file.tf"),
+	tfvars: T("terraform", "Terraform vars", "hcl", undefined, "file.tfvars"),
+	hcl: T("hcl", "HCL", "hcl", undefined, "file.hcl"),
+	sh: T("shell", "Shell script", "shell", undefined, "file.sh"),
+	bash: T("shell", "Bash script", "shell", undefined, "file.bash"),
+	zsh: T("shell", "Zsh script", "shell", undefined, "file.zsh"),
+	fish: T("fish", "Fish script", "shell", undefined, "file.fish"),
+	ps1: T("powershell", "PowerShell", "powershell", undefined, "file.ps1"),
+	psm1: T("powershell", "PowerShell", "powershell", undefined, "file.psm1"),
+	lua: T("lua", "Lua", "lua", undefined, "file.lua"),
+	rb: T("ruby", "Ruby", "ruby", undefined, "file.rb"),
+	java: T("java", "Java", "java", undefined, "file.java"),
+	kt: T("kotlin", "Kotlin", "kotlin", undefined, "file.kt"),
+	kts: T("kotlin", "Kotlin script", "kotlin", undefined, "file.kts"),
+	swift: T("swift", "Swift", "swift", undefined, "file.swift"),
+	c: T("c", "C", "c", undefined, "file.c"),
+	h: T("c", "C header", "c", undefined, "file.h"),
+	cpp: T("cpp", "C++", "cpp", undefined, "file.cpp"),
+	cc: T("cpp", "C++", "cpp", undefined, "file.cc"),
+	cxx: T("cpp", "C++", "cpp", undefined, "file.cxx"),
+	hpp: T("cpp", "C++ header", "cpp", undefined, "file.hpp"),
+	cs: T("csharp", "C#", "csharp", undefined, "file.cs"),
+	dart: T("dart", "Dart", "dart", undefined, "file.dart"),
+	ex: T("elixir", "Elixir", "elixir", undefined, "file.ex"),
+	exs: T("elixir", "Elixir script", "elixir", undefined, "file.exs"),
+	vue: T("vue", "Vue", "vue", undefined, "file.vue"),
+	svelte: T("svelte", "Svelte", "svelte", undefined, "file.svelte"),
+	astro: T("astro", "Astro", "astro", undefined, "file.astro"),
+	log: T("log", "Log", "log", undefined, "file.log"),
+	diff: T("diff", "Diff", "diff", undefined, "file.diff"),
+	patch: T("diff", "Patch", "diff", undefined, "file.patch"),
+	http: T("http", "HTTP requests", "http", undefined, "file.http"),
+	rest: T("http", "HTTP requests", "http", undefined, "file.rest"),
+	xml: T("xml", "XML", "xml", undefined, "file.xml"),
+	plist: T("plist", "Property list", "xml", undefined, "file.plist"),
+	xsd: T("xml", "XML schema", "xml", undefined, "file.xsd"),
+	ts: T("ts", "TypeScript", "typescript", undefined, "file.ts"),
+	tsx: T("tsx", "TSX", "tsx", undefined, "file.tsx"),
+	mts: T("ts", "TypeScript", "typescript", undefined, "file.mts"),
+	cts: T("ts", "TypeScript", "typescript", undefined, "file.cts"),
+	js: T("js", "JavaScript", "javascript", undefined, "file.js"),
+	mjs: T("js", "JavaScript", "javascript", undefined, "file.mjs"),
+	cjs: T("js", "JavaScript", "javascript", undefined, "file.cjs"),
+	jsx: T("jsx", "JSX", "jsx", undefined, "file.jsx"),
+	rs: T("rust", "Rust", "rust", undefined, "file.rs"),
+	go: T("go", "Go", "go", undefined, "file.go"),
+	py: T("python", "Python", "python", undefined, "file.py"),
+	pyi: T("python", "Python stub", "python", undefined, "file.pyi"),
+	php: T("php", "PHP", "php", undefined, "file.php"),
+	html: T("html", "HTML", "html", undefined, "file.html"),
+	htm: T("html", "HTML", "html", undefined, "file.htm"),
+	css: T("css", "CSS", "css", undefined, "file.css"),
+	scss: T("scss", "SCSS", "scss", undefined, "file.scss"),
+	sass: T("sass", "Sass", "sass", undefined, "file.sass"),
+	less: T("less", "Less", "less", undefined, "file.less"),
+	md: T("markdown", "Markdown", "markdown", undefined, "file.md"),
+	markdown: T("markdown", "Markdown", "markdown", undefined, "file.md"),
+	mdx: T("markdown", "MDX", "markdown", undefined, "file.mdx"),
+	txt: T("text", "Text", null, undefined, "file.txt"),
+};
+
+const TEXT: FileType = T("text", "Text", null, undefined, "file.txt");
+
+const WORKFLOW = T("workflow", "GitHub Actions workflow", "yaml", "workflow", "file.yml");
+const ACTION = T("workflow", "GitHub Action", "yaml", "workflow", "file.yml");
+
+/** Dotfile / Dockerfile-family patterns that need more than a plain lookup. */
+function byPattern(name: string, path: string): FileType | undefined {
+	if (name.startsWith("dockerfile.") || name.endsWith(".dockerfile") || name.startsWith("containerfile."))
+		return BY_NAME.dockerfile;
+	if (name.startsWith(".env.") || name.endsWith(".env")) return BY_NAME[".env"];
+	if (/^\.[a-z0-9._-]*ignore$/.test(name)) return BY_NAME[".gitignore"];
+	if (/^licen[cs]e[-_.]/.test(name) && !/\.(js|ts|json|svg|png|html|css)$/.test(name)) return BY_NAME.license;
+	if (/^(docker-)?compose[.-].*\.ya?ml$/.test(name)) return BY_NAME["compose.yaml"];
+	if (/^atlas\.[a-z0-9-]+\.ya?ml$/.test(name)) return BY_NAME["atlas.yaml"];
+	if (/(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/.test(path)) return WORKFLOW;
+	if (/(^|\/)\.github\/(actions\/[^/]+\/)?action\.ya?ml$/.test(path) || /^action\.ya?ml$/.test(name))
+		return ACTION;
+	if (/^nginx.*\.conf$/.test(name)) return BY_NAME["nginx.conf"];
+	if (/^tsconfig\..+\.json$/.test(name)) return BY_NAME["tsconfig.json"];
+	if (/^\.(zshrc|bashrc|bash_profile|zprofile|profile|zshenv)$/.test(name))
+		return T("shell", name, "shell", undefined, "file.sh");
+	return undefined;
+}
+
+/** Everything the editor needs to know about a file, from its path alone. */
+export function fileType(path: string): FileType {
+	const name = (path.split("/").pop() ?? path).toLowerCase();
+	const hit = BY_NAME[name] ?? byPattern(name, path);
+	if (hit) return hit;
+	for (let dot = name.indexOf("."); dot !== -1; dot = name.indexOf(".", dot + 1)) {
+		const ext = BY_EXT[name.slice(dot + 1)];
+		if (ext) return ext;
+	}
+	return TEXT;
+}
+
+/** Rich views that open as the default (they read better than raw source); every other rich view starts in source. */
+export const RICH_DEFAULT_VIEWS: Record<RichView, boolean> = {
+	env: true,
+	"package-json": true,
+	dockerfile: true,
+	compose: true,
+	makefile: true,
+	justfile: true,
+	atlas: true,
+	manifest: true,
+	tsconfig: false,
+	workflow: true,
+	table: true,
+	tree: false,
+	ignore: false,
+	license: false,
+	codeowners: true,
+	editorconfig: false,
+	procfile: true,
+	notebook: true,
+};

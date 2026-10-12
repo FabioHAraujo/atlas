@@ -10,6 +10,11 @@ export interface Prefs {
 	buffer_line_height: number;
 	ui_font_family: string;
 	ui_font_size: number;
+	/** Language servers (completion, diagnostics, go to definition…) in the editor. */
+	enable_language_servers: boolean;
+	/** Format with the language server when saving. */
+	format_on_save: boolean;
+	inlay_hints: { enabled: boolean };
 	terminal: {
 		/** xterm.js only; the GPU terminal uses its bundled JetBrains Mono. */
 		font_family: string;
@@ -45,6 +50,9 @@ export const DEFAULT_PREFS: Prefs = {
 	buffer_line_height: 1.55,
 	ui_font_family: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif',
 	ui_font_size: 13,
+	enable_language_servers: true,
+	format_on_save: false,
+	inlay_hints: { enabled: true },
 	terminal: {
 		font_family: "SF Mono, Menlo, ui-monospace, monospace",
 		font_size: 12.5,

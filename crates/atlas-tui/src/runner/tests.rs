@@ -13,7 +13,7 @@ use crate::runtime::manager::{ManagerEvent, ServiceManager};
 use crate::runtime::service::ServiceState;
 
 fn cfg() -> ProjectConfig {
-    serde_yaml::from_str(
+    serde_norway::from_str(
         r#"
 name: demo
 services:

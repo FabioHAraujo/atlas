@@ -93,7 +93,7 @@ mod tests {
     use super::*;
 
     fn cfg(yaml: &str) -> config::ProjectConfig {
-        serde_yaml::from_str(&format!("name: t\nservices: {{}}\n{yaml}")).unwrap()
+        serde_norway::from_str(&format!("name: t\nservices: {{}}\n{yaml}")).unwrap()
     }
 
     #[test]

@@ -828,7 +828,7 @@ async fn session_host_line(host_mode: &str, svc_env: &[(&str, &str)]) -> Option<
         .env
         .extend(svc_env.iter().map(|(k, v)| (k.to_string(), v.to_string())));
     cfg.actions = vec![
-        serde_yaml::from_str(&format!(
+        serde_norway::from_str(&format!(
             "key: m\nlabel: Mob\ncommand: 'echo TAURI=$TAURI_DEV_HOST ATLAS=$ATLAS_DEV_HOST'\nsession: true\nplatform: ios\nhost_mode: {host_mode}\n"
         ))
         .unwrap(),
@@ -884,7 +884,7 @@ async fn session_exits_emits_session_ended() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut cfg = one_service_cfg("sleep 30", None);
     cfg.actions = vec![
-        serde_yaml::from_str("key: q\nlabel: Quick\ncommand: 'true'\nsession: true\n").unwrap(),
+        serde_norway::from_str("key: q\nlabel: Quick\ncommand: 'true'\nsession: true\n").unwrap(),
     ];
     let mut mgr = ServiceManager::new(dir.path().to_path_buf(), &cfg, tx);
     mgr.run_session('q').await.unwrap();

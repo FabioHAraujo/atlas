@@ -9,6 +9,7 @@ mod debug;
 mod git;
 mod host;
 mod live;
+mod live_server;
 mod menu;
 mod registry;
 mod remote;
@@ -59,6 +60,11 @@ macro_rules! handlers {
             cmds::projects_pin,
             cmds::projects_set_identity,
             cmds::projects_discover,
+            cmds::projects_discover_cancel,
+            cmds::projects_relink,
+            cmds::projects_remove_missing,
+            cmds::projects_find_moved,
+            cmds::project_init,
             cmds::stack_start,
             cmds::stack_stop,
             cmds::service_cmd,
@@ -106,6 +112,9 @@ macro_rules! handlers {
             remote::ssh_forwards,
             remote::projects_add_remote,
             menu::menu_sync,
+            live_server::live_open,
+            live_server::live_touch,
+            live_server::live_stop,
             browser::browser_open,
             browser::browser_bounds,
             browser::browser_park,
@@ -217,6 +226,10 @@ fn main() {
             app.manage(menu::Items::default());
             app.set_menu(menu::build(&handle)?)?;
             app.manage(live::LiveHub::new(&handle));
+            app.manage(cmds::Discovery::default());
+            let servers = std::sync::Arc::new(live_server::LiveServers::default());
+            servers.start_reaper();
+            app.manage(servers);
             app.manage(std::sync::Arc::new(host::HostHub::default()));
             host::start(&handle);
             app.manage(std::sync::Arc::new(agent::hooks::AgentHub::default()));

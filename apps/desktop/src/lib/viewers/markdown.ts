@@ -40,7 +40,7 @@ export function resolveRelative(dir: string, rel: string): string {
  * Render markdown to HTML. Relative image sources become `data-src` (resolved to the file's
  * directory) so the viewer can load them through hostd; code blocks are syntax highlighted.
  */
-export function renderMarkdown(text: string, dir: string): string {
+export function renderMarkdown(text: string, dir: string, untrusted = false): string {
 	const m = new Marked({
 		async: false,
 		gfm: true,
@@ -54,6 +54,13 @@ export function renderMarkdown(text: string, dir: string): string {
 				if (ABSOLUTE.test(href)) return `<img src="${esc(href)}" alt="${esc(alt)}"${t}>`;
 				return `<img data-src="${esc(resolveRelative(dir, decodeURI(href)))}" alt="${esc(alt)}"${t}>`;
 			},
+			// Language-server docs are third-party text: raw HTML shows as text, images are dropped and
+			// links are inert (the tooltip is not a browser).
+			...(untrusted && {
+				html: ({ text: raw }: Tokens.HTML | Tokens.Tag) => esc(raw),
+				image: ({ text: alt }: Tokens.Image) => esc(alt),
+				link: ({ text: label }: Tokens.Link) => esc(label),
+			}),
 		},
 	});
 	return m.parse(text) as string;

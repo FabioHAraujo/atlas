@@ -11,6 +11,14 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
 	"cmd-j": "workspace::ToggleBottomDock",
 	"alt-cmd-y": "workspace::ToggleAllDocks",
 	"shift-escape": "workspace::ToggleZoom",
+	// Language server (the focused editor): F-keys as in Zed/VS Code
+	f12: "editor::GoToDefinition",
+	"alt-f12": "editor::GoToTypeDefinition",
+	"cmd-f12": "editor::GoToImplementation",
+	"shift-f12": "editor::FindAllReferences",
+	f2: "editor::Rename",
+	"alt-shift-f": "editor::Format",
+	"cmd-.": "editor::ToggleCodeActions",
 	// Go anywhere
 	"cmd-shift-p": "command_palette::Toggle",
 	"cmd-k": "atlas::Jump",
@@ -50,6 +58,7 @@ export const DEFAULT_KEYMAP: Record<string, string> = {
 	"cmd-l": "atlas::Logs",
 	"cmd-e": "atlas::Config",
 	"cmd-shift-d": "git::Diff",
+	"cmd-shift-v": "atlas::PreviewHtml",
 	"cmd-shift-r": "atlas::RestartService",
 	"cmd-/": "atlas::Help",
 	// Worktrees and spaces

@@ -1,7 +1,14 @@
 <script lang="ts">
 	/** Left sidebar: filter, fixed views, the active project and the collapsible list of the others. */
 	import { IconButton, Kbd, Skeleton, Spinner } from "@codeatlasdev/ui";
-	import { Bot, ChevronRight, LayoutDashboard, PanelLeftClose } from "@lucide/svelte";
+	import {
+		Bot,
+		ChevronRight,
+		LayoutDashboard,
+		PanelLeftClose,
+		RefreshCw,
+		TriangleAlert,
+	} from "@lucide/svelte";
 	import { onMount } from "svelte";
 	import IdentityDialog from "#lib/components/IdentityDialog.svelte";
 	import SearchField from "#lib/components/SearchField.svelte";
@@ -21,12 +28,10 @@
 	import ProjectHead from "./sidebar/ProjectHead.svelte";
 	import SidebarFooter from "./sidebar/SidebarFooter.svelte";
 	import WorktreeRow from "./sidebar/WorktreeRow.svelte";
-	import { addProject, discover } from "./sidebar/projects.ts";
+	import { addProject, refreshProjects, removeAllMissing, showDiscover } from "./sidebar/projects.ts";
 	import { sidebar } from "./sidebar/state.svelte.ts";
 
 	let { onJump, onAgent }: { onJump?: () => void; onAgent?: (worktreeId: string) => void } = $props();
-
-	let discoverDialog: DiscoverDialog | undefined = $state();
 
 	let repos = $derived(store.sorted.filter((p) => !p.parent));
 	let activeRepo = $derived(repos.find((r) => r.id === shell.activeId) ?? null);
@@ -45,9 +50,11 @@
 	/** Any row survives the filter (drives the "no match" hint). */
 	let visible = $derived(repos.some(sidebar.repoMatches));
 
-	async function showDiscover() {
-		const paths = await discover();
-		if (paths.length) discoverDialog?.show(paths);
+	let refreshing = $state(false);
+	async function refresh() {
+		refreshing = true;
+		await refreshProjects();
+		refreshing = false;
 	}
 
 	function onkeydown(e: KeyboardEvent) {
@@ -73,6 +80,13 @@
 				label: "Find projects on this machine",
 				run: () => void showDiscover(),
 			},
+			{ id: "atlas::RefreshProjects", label: "Refresh projects", run: () => void refresh() },
+			{
+				id: "atlas::RemoveMissingProjects",
+				label: "Remove missing projects",
+				run: () => void removeAllMissing(),
+				when: () => store.missing.length > 0,
+			},
 		]),
 	);
 </script>
@@ -92,6 +106,21 @@
 					onclick={toggleSidebar}
 				>
 					<PanelLeftClose size={15} />
+				</IconButton>
+			{/snippet}
+		</Tip>
+		<Tip label="Refresh projects" command="atlas::RefreshProjects" side="bottom">
+			{#snippet child(props)}
+				<IconButton
+					{...props}
+					class="refresh-btn"
+					variant="text"
+					size="sm"
+					aria-label="Refresh projects"
+					disabled={refreshing}
+					onclick={refresh}
+				>
+					{#if refreshing}<Spinner size={13} />{:else}<RefreshCw size={14} />{/if}
 				</IconButton>
 			{/snippet}
 		</Tip>
@@ -119,6 +148,14 @@
 			{/snippet}
 		</Tip>
 	</div>
+	{#if store.missing.length}
+		<div class="missing-bar" role="status">
+			<TriangleAlert size={13} />
+			<span>{store.missing.length} not found</span>
+			<button onclick={refresh}>Refresh</button>
+			<button onclick={removeAllMissing}>Remove all</button>
+		</div>
+	{/if}
 	<nav class="list">
 		<button class="item fixed" class:active={ws.view === "agents"} onclick={() => (ws.view = "agents")}>
 			<Bot size={13} /><span class="name">Agents</span>
@@ -182,7 +219,7 @@
 
 <DeleteDialog />
 <IdentityDialog />
-<DiscoverDialog bind:this={discoverDialog} />
+<DiscoverDialog />
 
 <style>
 	.sidebar {
@@ -202,13 +239,41 @@
 		padding-right: 10px;
 	}
 	/* Hidden until the sidebar is hovered, like Arc's chrome. */
-	.drag :global(.hide-btn) {
+	.drag :global(.hide-btn),
+	.drag :global(.refresh-btn) {
 		opacity: 0;
 		transition: opacity var(--dur) var(--ease);
 	}
 	.sidebar:hover .drag :global(.hide-btn),
-	.drag :global(.hide-btn:focus-visible) {
+	.sidebar:hover .drag :global(.refresh-btn),
+	.drag :global(.hide-btn:focus-visible),
+	.drag :global(.refresh-btn:focus-visible) {
 		opacity: 1;
+	}
+	.missing-bar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0 8px 4px;
+		padding: 5px 8px;
+		border-radius: 8px;
+		font-size: 11.5px;
+		color: var(--dot-warn);
+		background: color-mix(in oklab, var(--dot-warn) 12%, transparent);
+	}
+	.missing-bar span {
+		flex: 1;
+	}
+	.missing-bar button {
+		border: 0;
+		padding: 0;
+		background: none;
+		font: inherit;
+		color: var(--ca-text-secondary);
+	}
+	.missing-bar button:hover {
+		color: var(--ca-text-primary);
+		text-decoration: underline;
 	}
 	.filter {
 		display: flex;

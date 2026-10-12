@@ -8,6 +8,7 @@ pub mod client;
 mod exec;
 mod fs;
 pub mod handoff;
+mod lsp;
 pub mod paths;
 pub mod protocol;
 mod pty;

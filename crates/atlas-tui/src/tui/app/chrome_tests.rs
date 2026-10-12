@@ -187,7 +187,8 @@ fn palette_scrolls_to_keep_selection_visible() {
 fn palette_fuzzy_matches_and_actions_before_generated_entries() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(dir.path(), &["api", "web"]);
-    cfg.actions = vec![serde_yaml::from_str("key: c\nlabel: Run checks\ncommand: echo\n").unwrap()];
+    cfg.actions =
+        vec![serde_norway::from_str("key: c\nlabel: Run checks\ncommand: echo\n").unwrap()];
     let mut app = app_with(dir.path(), cfg);
     app.manager.update_state("api", ServiceState::Running);
     app.manager.update_state("web", ServiceState::Running);
@@ -342,7 +343,7 @@ fn footer_never_overlaps_operation_and_drops_hints_instead() {
 fn confirm_modal_lists_paused_services() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(dir.path(), &["web", "api"]);
-    cfg.actions = vec![serde_yaml::from_str(
+    cfg.actions = vec![serde_norway::from_str(
         "key: d\nlabel: Reset DB\ncommand: echo\nconfirm: Wipe the db?\npause_services: [web, api]\n",
     )
     .unwrap()];

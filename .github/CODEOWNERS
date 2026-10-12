@@ -1,0 +1,12 @@
+# Review routing. Later matches win; see GOVERNANCE.md.
+*                       @mvilacad
+/crates/                @mvilacad
+/apps/desktop/          @mvilacad
+/site/                  @mvilacad
+/studio/                @mvilacad
+/docs/                  @mvilacad
+/skills/                @mvilacad
+/.github/               @mvilacad
+/scripts/               @mvilacad
+/LICENSE-*              @mvilacad
+/SECURITY.md            @mvilacad

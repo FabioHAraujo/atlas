@@ -1,0 +1,63 @@
+/** Workspace persistence: load the saved doc, autosave it (debounced), follow hostd events. */
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { toast } from "@codeatlasdev/ui";
+import { errText } from "#lib/api.ts";
+import { emptyDoc, type Doc } from "#lib/stores/workspaceTypes.ts";
+
+const SAVE_DEBOUNCE_MS = 300;
+
+/** What persistence needs from the store (its reactive doc and host-sync state). */
+interface Target {
+	doc: Doc;
+	loaded: boolean;
+	titles: Record<string, string>;
+	exited: Record<string, number | null>;
+	hostError: string | null;
+	syncPtys(): Promise<void>;
+}
+
+export class WorkspacePersist {
+	#saveTimer: number | undefined;
+	#unlisten: UnlistenFn[] = [];
+
+	constructor(private ws: Target) {}
+
+	async init() {
+		const ws = this.ws;
+		this.#unlisten.push(
+			await listen<{ ev: string; pty?: string; title?: string; code?: number | null }>(
+				"host://event",
+				(e) => {
+					const p = e.payload;
+					if (p.ev === "pty_title" && p.pty) ws.titles[p.pty] = p.title ?? "";
+					if (p.ev === "pty_exit" && p.pty) ws.exited[p.pty] = p.code ?? null;
+				},
+			),
+			await listen<string>("host://error", (e) => (ws.hostError = e.payload)),
+			await listen("host://reconnected", () => {
+				ws.hostError = null;
+				void ws.syncPtys();
+			}),
+		);
+		const raw = await invoke<Doc | null>("workspace_load");
+		ws.doc = { ...emptyDoc(), ...(raw ?? {}) };
+		ws.loaded = true;
+		await ws.syncPtys();
+		$effect.root(() => {
+			$effect(() => {
+				const snapshot = JSON.stringify(ws.doc);
+				clearTimeout(this.#saveTimer);
+				this.#saveTimer = window.setTimeout(() => {
+					invoke("workspace_save", { doc: JSON.parse(snapshot) }).catch((e) => toast.error(errText(e)));
+				}, SAVE_DEBOUNCE_MS);
+			});
+		});
+	}
+
+	dispose() {
+		this.#unlisten.forEach((u) => u());
+		this.#unlisten = [];
+	}
+}

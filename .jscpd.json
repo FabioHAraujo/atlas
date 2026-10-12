@@ -1,0 +1,26 @@
+{
+  "minTokens": 50,
+  "minLines": 5,
+  "format": ["rust", "typescript", "javascript", "svelte", "astro"],
+  "ignore": [
+    "**/target/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/gen/**",
+    "**/.svelte-kit/**",
+    "**/.astro/**",
+    "**/.build/**",
+    "**/.cache/**",
+    "**/icon-data/**",
+    "**/*.lock",
+    "**/*.woff2",
+    "**/*_tests.rs",
+    "**/tests/**",
+    "site/public/**",
+    "site/src/lib/atlas-shiki-theme.json",
+    "studio/assets/**"
+  ],
+  "reporters": ["console"],
+  "threshold": 1.5
+}

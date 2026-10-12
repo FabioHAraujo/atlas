@@ -1,0 +1,105 @@
+<script lang="ts">
+	import DockResizer from "#lib/components/DockResizer.svelte";
+	import Explorer from "#lib/components/Explorer.svelte";
+	import PaneTree from "#lib/components/panes/PaneTree.svelte";
+	import TabGroupView from "#lib/components/panes/TabGroupView.svelte";
+	import SourceControl from "#lib/components/SourceControl.svelte";
+	import Welcome from "#lib/components/Welcome.svelte";
+	import SearchPanel from "#lib/search/SearchPanel.svelte";
+	import RightDock from "#lib/shell/RightDock.svelte";
+	import { docks } from "#lib/stores/docks.svelte.ts";
+	import { prefs } from "#lib/stores/prefs.svelte.ts";
+	import { leaves, ws } from "#lib/stores/workspace.svelte.ts";
+	import { untrack } from "svelte";
+
+	let wt = $derived(ws.selected);
+	let layout = $derived(wt ? ws.doc.layouts[wt.id] : undefined);
+	let bottomId = $derived(wt ? ws.doc.bottomGroup[wt.id] : undefined);
+	// The bottom dock's group exists whenever the dock is shown.
+	$effect(() => {
+		const id = wt?.id;
+		if (docks.bottom && id) untrack(() => ws.bottomGroup(id));
+	});
+
+	/** No tab in the main pane tree (the bottom dock has its own group). */
+	let empty = $derived(!!layout && leaves(layout).every((id) => !ws.group(id)?.order.length));
+</script>
+
+{#snippet dockPanel(id: string, edge: "left" | "right")}
+	{#if edge === "right"}<DockResizer side="left" {edge} />{/if}
+	<div class="dock" style:width="{docks.leftSize}px">
+		{#if docks.leftPanel === "explorer"}<Explorer
+				worktreeId={id}
+			/>{:else if docks.leftPanel === "search"}<SearchPanel worktreeId={id} />{:else}<SourceControl
+				worktreeId={id}
+			/>{/if}
+	</div>
+	{#if edge === "left"}<DockResizer side="left" {edge} />{/if}
+{/snippet}
+
+<section class="body">
+	{#if wt && layout}
+		{#key wt.id}
+			{#if prefs.value.project_panel.dock === "left" && docks.left && !docks.zoomed}
+				{@render dockPanel(wt.id, "left")}
+			{/if}
+			<div class="center">
+				<div class="tree" class:centered={docks.centered && !docks.zoomed}>
+					{#if empty}
+						<Welcome worktreeId={wt.id} />
+					{:else if docks.zoomed}
+						<TabGroupView groupId={ws.focusedGroup(wt.id).id} />
+					{:else}
+						<PaneTree {layout} worktreeId={wt.id} />
+					{/if}
+				</div>
+				{#if docks.bottom && !docks.zoomed && bottomId}
+					<DockResizer side="bottom" />
+					<div class="bottom" style:height="{docks.bottomSize}px">
+						<TabGroupView groupId={bottomId} />
+					</div>
+				{/if}
+			</div>
+			{#if prefs.value.project_panel.dock === "right" && docks.left && !docks.zoomed}
+				{@render dockPanel(wt.id, "right")}
+			{/if}
+			<RightDock zoomed={docks.zoomed} />
+		{/key}
+	{/if}
+</section>
+
+<style>
+	.body {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+	}
+	.center {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.tree {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+	}
+	/* Zed's centered layout: the panes keep a readable width on wide windows. */
+	.tree.centered {
+		width: 100%;
+		max-width: 1200px;
+		margin: 0 auto;
+	}
+	.bottom {
+		flex: none;
+		display: flex;
+		min-height: 0;
+	}
+	.dock {
+		flex: none;
+		display: flex;
+		min-width: 0;
+		min-height: 0;
+	}
+</style>

@@ -1,0 +1,65 @@
+<script lang="ts">
+	import { Button, Kbd } from "@codeatlasdev/ui";
+	import { Compass, Keyboard, ListChecks } from "@lucide/svelte";
+	import { shortcutFor } from "#lib/keymap.svelte.ts";
+	import { updates } from "#lib/stores/updates.svelte.ts";
+	import { progress } from "./checklist.ts";
+	import FeatureText from "./FeatureText.svelte";
+	import { onboarding } from "./state.svelte.ts";
+
+	let p = $derived(progress(onboarding.state));
+
+	/** Settings is a dialog over the app: close it first so the tour can spotlight the UI. */
+	function run(fn: () => void) {
+		updates.open = false;
+		setTimeout(fn, 180);
+	}
+</script>
+
+<div class="list">
+	<div class="item" data-setting="tour">
+		<FeatureText icon={Compass} title="Guided tour">
+			A two-minute walk through spaces, the header, the side panel and search.
+		</FeatureText>
+		<Button variant="glass" size="sm" onclick={() => run(() => onboarding.startTour())}>Take the tour</Button>
+	</div>
+	<div class="item" data-setting="help-keys">
+		<FeatureText icon={Keyboard} title="Shortcut cheat sheet">
+			Every key in one searchable list. Open it anywhere with <Kbd>{shortcutFor("atlas::Help") ?? "?"}</Kbd>
+			anywhere.
+		</FeatureText>
+		<Button variant="glass" size="sm" onclick={() => run(() => (onboarding.helpOpen = true))}>
+			Open cheat sheet
+		</Button>
+	</div>
+	<div class="item" data-setting="checklist">
+		<FeatureText icon={ListChecks} title="Getting started checklist">
+			{p.done} of {p.total} first steps done{onboarding.state.checklist.dismissed
+				? ". The card is hidden."
+				: "."}
+		</FeatureText>
+		{#if onboarding.state.checklist.dismissed}
+			<Button variant="glass" size="sm" onclick={() => run(() => void onboarding.showChecklist())}
+				>Show the card</Button
+			>
+		{/if}
+		<Button variant="ghost" size="sm" onclick={() => run(() => void onboarding.restart())}>Start over</Button>
+	</div>
+</div>
+
+<style>
+	.list {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px;
+		border-radius: 11px;
+		background: var(--ca-surface-raised);
+		box-shadow: 0 0 0 0.5px var(--ca-outline-subtle);
+	}
+</style>

@@ -1,0 +1,12 @@
+---
+// The nav's link items, rendered in both the desktop bar and the phone menu sheet.
+export interface Props {
+	links: { href: string; label: string; active?: boolean }[];
+}
+const { links } = Astro.props;
+---
+{links.map((l) => (
+	<li>
+		<a href={l.href} aria-current={l.active ? "page" : undefined} rel={l.href.startsWith("http") ? "noopener" : undefined}>{l.label}</a>
+	</li>
+))}

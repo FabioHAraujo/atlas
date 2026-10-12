@@ -1,0 +1,57 @@
+# ── Rust ────────────────────────────────────────────────────────────────────
+target/
+*.profraw
+*.profdata
+lcov.info
+coverage/
+cobertura.xml
+
+# ── JS / web tooling ────────────────────────────────────────────────────────
+node_modules/
+.turbo/
+*.tsbuildinfo
+dist/
+.svelte-kit/
+.astro/
+.wrangler/
+
+# ── Secrets and machine-local config ────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+
+# ── Atlas runtime (written by `atlas dev`, in this repo and in demo/) ───────
+.atlas/
+.logs/
+
+# ── Agent / tool state ──────────────────────────────────────────────────────
+.agents/
+graphify-out/
+.act/
+
+# ── OS and editors ──────────────────────────────────────────────────────────
+.DS_Store
+*.dSYM/
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# ── Generated assets ────────────────────────────────────────────────────────
+*.icns.iconset/
+
+# ── Site: heavy media is not in git ─────────────────────────────────────────
+# scripts/fetch-media.sh downloads these from the live site; posters, stills, vtt and json stay tracked.
+site/public/media/*.mp4
+site/public/media/*.webm
+site/public/media/demo.gif
+
+# ── Film studio and demo recordings (studio/AGENTS.md) ──────────────────────
+studio/.cache/
+studio/.build/
+studio/out/
+demo/.out/

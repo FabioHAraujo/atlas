@@ -1,0 +1,364 @@
+<script lang="ts">
+	import {
+		X,
+		SquareTerminal,
+		LayoutGrid,
+		ScrollText,
+		FileCode2,
+		Bot,
+		Zap,
+		FileText,
+		FileDiff,
+		GitPullRequest,
+		Globe,
+	} from "@lucide/svelte";
+	import { ws, type Tab } from "#lib/stores/workspace.svelte.ts";
+	import { pinned } from "#lib/stores/tabs.ts";
+	import { store } from "#lib/stores/projects.svelte.ts";
+	import AgentGlyph from "#lib/components/AgentGlyph.svelte";
+	import { agents } from "#lib/stores/agents.svelte.ts";
+	import { host } from "#lib/host.ts";
+	import { quick } from "#lib/stores/quick.svelte.ts";
+	import { shortcutFor } from "#lib/keymap.svelte.ts";
+	import Panel from "#lib/panel/Panel.svelte";
+	import Editor from "#lib/components/Editor.svelte";
+	import DiffView from "#lib/components/DiffView.svelte";
+	import PrTab from "#lib/components/PrTab.svelte";
+	import BrowserTab from "#lib/components/BrowserTab.svelte";
+	import ChatTab from "#lib/components/ChatTab.svelte";
+	import Logs from "#lib/components/Logs.svelte";
+	import { fileIcon } from "#lib/icons.ts";
+	import Config from "#lib/components/Config.svelte";
+	import { swipe } from "#lib/shell/swipe.ts";
+	import { tabSwipe } from "#lib/shell/gestures.ts";
+	import NewTabMenu from "./NewTabMenu.svelte";
+	import PaneNotice from "./PaneNotice.svelte";
+	import TerminalPane from "./TerminalPane.svelte";
+
+	let { groupId }: { groupId: string } = $props();
+	let g = $derived(ws.group(groupId));
+	let tabs = $derived((g?.order ?? []).map((id) => ws.tab(id)).filter((t): t is Tab => !!t));
+	let active = $derived(ws.tab(g?.activeTab));
+	let focused = $derived(!!g && ws.doc.focusedGroup[g.worktreeId] === groupId);
+	let w = $derived(ws.worktree(g?.worktreeId));
+	let project = $derived(store.projects.find((p) => p.id === w?.repoId));
+	let dropZone = $state<"right" | "bottom" | "center" | null>(null);
+	let renaming = $state<string | null>(null);
+
+	const ICONS = {
+		terminal: SquareTerminal,
+		services: LayoutGrid,
+		logs: ScrollText,
+		config: FileCode2,
+		editor: FileText,
+		diff: FileDiff,
+		pr: GitPullRequest,
+		browser: Globe,
+	} as const;
+
+	function label(t: Tab) {
+		if (t.customLabel) return t.label;
+		// Tabs saved before the Services tab became the project Panel keep their old stored label.
+		if (t.kind === "services") return "Panel";
+		const title = t.pty ? ws.titles[t.pty] : "";
+		return title || t.label;
+	}
+
+	function onDragOver(e: DragEvent) {
+		if (!e.dataTransfer?.types.includes("atlas/tab")) {
+			if (active?.pty && e.dataTransfer?.types.includes("text/plain")) e.preventDefault();
+			return;
+		}
+		e.preventDefault();
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		dropZone = e.clientX > r.right - 24 ? "right" : e.clientY > r.bottom - 24 ? "bottom" : "center";
+	}
+
+	function onDrop(e: DragEvent) {
+		const file = e.dataTransfer?.getData("text/plain");
+		if (file && !e.dataTransfer?.types.includes("atlas/tab") && active?.pty) {
+			e.preventDefault();
+			void host.ptyWrite(active.pty, `'${file.replace(/'/g, "'\\''")}' `);
+			return;
+		}
+		const id = e.dataTransfer?.getData("atlas/tab");
+		const zone = dropZone;
+		dropZone = null;
+		if (!id) return;
+		e.preventDefault();
+		if (zone === "right") ws.split(groupId, "h", id);
+		else if (zone === "bottom") ws.split(groupId, "v", id);
+		else ws.moveTab(id, groupId);
+	}
+</script>
+
+{#if g}
+	<div
+		class="group"
+		class:focused
+		role="group"
+		onpointerdown={() => ws.focusGroup(groupId)}
+		ondragover={onDragOver}
+		ondragleave={() => (dropZone = null)}
+		ondrop={onDrop}
+	>
+		<div
+			class="strip"
+			data-gesture-zone
+			use:swipe={tabSwipe(
+				() => g?.order ?? [],
+				() => g?.activeTab ?? undefined,
+			)}
+		>
+			{#each tabs as t (t.id)}
+				{@const Icon = ICONS[t.kind as keyof typeof ICONS] ?? SquareTerminal}
+				<div
+					class="tab"
+					class:on={t.id === g.activeTab}
+					class:pinned={pinned(t)}
+					role="tab"
+					tabindex="0"
+					aria-selected={t.id === g.activeTab}
+					aria-label={pinned(t) ? `${label(t)} (always open)` : undefined}
+					title={pinned(t) ? `${label(t)} · always open` : undefined}
+					draggable={!pinned(t)}
+					ondragstart={(e) => e.dataTransfer?.setData("atlas/tab", t.id)}
+					onclick={() => ws.activate(t.id)}
+					onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), ws.activate(t.id))}
+					onauxclick={(e) => e.button === 1 && ws.closeTab(t.id)}
+					ondblclick={() => !pinned(t) && (renaming = t.id)}
+				>
+					{#if t.agent}<AgentGlyph
+							state={agents.status[t.id]?.state ?? "idle"}
+						/>{:else if t.kind === "editor" && t.path}<span class="ico"
+							>{@html fileIcon(t.path.split("/").pop() ?? t.label)}</span
+						>{:else}<Icon size={13} />{/if}
+					{#if renaming === t.id}
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							class="rename"
+							autofocus
+							value={label(t)}
+							onblur={() => (renaming = null)}
+							onkeydown={(e) => {
+								if (e.key === "Enter") {
+									const v = (e.currentTarget as HTMLInputElement).value.trim();
+									if (v) {
+										t.label = v;
+										t.customLabel = true;
+									}
+									renaming = null;
+								} else if (e.key === "Escape") renaming = null;
+							}}
+						/>
+					{:else if !pinned(t)}
+						<span class="label">{label(t)}</span>
+					{/if}
+					{#if !pinned(t)}
+						<button
+							class="x"
+							aria-label="Close tab"
+							title="Close tab {shortcutFor('pane::CloseActiveItem') ?? ''}"
+							onclick={(e) => (e.stopPropagation(), ws.closeTab(t.id))}
+						>
+							<X size={12} />
+						</button>
+					{/if}
+				</div>
+			{/each}
+			<NewTabMenu {groupId} onrename={(id) => (renaming = id)} />
+			{#each quick.for(w?.repoId) as q (q.id)}
+				<button class="quick" title={q.command} onclick={() => w && quick.run(q, w.id, groupId)}>
+					{#if q.kind === "prompt"}<Bot size={12} />{:else}<Zap size={12} />{/if}
+					{q.label}
+				</button>
+			{/each}
+			<div class="fill" data-tauri-drag-region></div>
+		</div>
+		<div class="body">
+			{#each tabs as t (t.id)}
+				<div class="pane" class:hidden={t.id !== g.activeTab}>
+					{#if t.chat && t.pty && !t.rawView && !ws.ended(t)}
+						<ChatTab tab={t} focused={focused && t.id === g.activeTab} />
+					{:else if t.kind === "terminal" && t.pty}
+						<TerminalPane {t} pty={t.pty} active={t.id === g.activeTab} {focused} />
+					{:else if t.kind === "editor" && t.path}
+						<Editor worktreeId={t.worktreeId} path={t.path} focused={focused && t.id === g.activeTab} />
+					{:else if t.kind === "diff"}
+						<DiffView worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
+					{:else if t.kind === "browser"}
+						<BrowserTab tab={t} visible={t.id === g.activeTab} />
+					{:else if t.kind === "pr"}
+						<PrTab worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
+					{:else if project && t.kind === "services"}
+						<Panel {project} />
+					{:else if project && t.kind === "logs"}
+						<Logs {project} worktreeId={t.worktreeId} />
+					{:else if project && t.kind === "config"}
+						<Config {project} />
+					{:else}
+						<PaneNotice>Nothing to show</PaneNotice>
+					{/if}
+				</div>
+			{/each}
+			{#if dropZone}<div class="drop {dropZone}"></div>{/if}
+		</div>
+	</div>
+{/if}
+
+<style>
+	.group {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		min-height: 0;
+	}
+	.strip {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		height: 32px;
+		padding: 0 6px;
+		border-bottom: 0.5px solid var(--ca-outline-subtle);
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+	.ico {
+		display: inline-flex;
+		flex-shrink: 0;
+	}
+	.ico :global(svg) {
+		width: 16px;
+		height: 16px;
+	}
+	.tab {
+		transition:
+			background 120ms ease-out,
+			color 120ms ease-out;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 24px;
+		max-width: 220px;
+		padding: 0 4px 0 8px;
+		border-radius: 6px;
+		font-size: 12px;
+		color: var(--ca-text-secondary);
+		cursor: default;
+		flex-shrink: 0;
+	}
+	.tab.pinned {
+		width: 28px;
+		padding: 0;
+		justify-content: center;
+	}
+	.tab:hover {
+		background: var(--ca-action-hover);
+	}
+	.tab.on {
+		color: var(--ca-text-primary);
+		background: var(--ca-action-selected, var(--ca-action-hover));
+	}
+	.group:not(.focused) .tab.on {
+		background: var(--ca-action-hover);
+	}
+	/* Zed `active_pane_modifiers`: set from settings (`--atlas-pane-*`). */
+	.group:not(.focused) {
+		opacity: var(--atlas-pane-inactive-opacity, 1);
+	}
+	.group.focused {
+		box-shadow: inset 0 0 0 var(--atlas-pane-active-border, 0) var(--ca-brand-main);
+	}
+	.label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.rename {
+		font: inherit;
+		width: 120px;
+	}
+	.x {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		border: 0;
+		border-radius: 4px;
+		background: none;
+		color: inherit;
+		opacity: 0.6;
+		transition:
+			opacity 120ms ease-out,
+			background 120ms ease-out;
+	}
+	.tab:not(:hover):not(.on):not(:focus-within) .x {
+		opacity: 0;
+	}
+	.x:hover {
+		opacity: 1;
+		background: var(--ca-action-hover);
+	}
+	.quick {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: 22px;
+		padding: 0 8px;
+		border: 0.5px solid var(--ca-outline-subtle);
+		border-radius: 6px;
+		background: none;
+		font: inherit;
+		font-size: 11.5px;
+		color: var(--ca-text-secondary);
+		flex-shrink: 0;
+	}
+	.quick:hover {
+		color: var(--ca-text-primary);
+		background: var(--ca-action-hover);
+	}
+	.fill {
+		flex: 1;
+		align-self: stretch;
+	}
+	.body {
+		position: relative;
+		flex: 1;
+		display: flex;
+		min-height: 0;
+	}
+	.pane {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		min-height: 0;
+	}
+	.pane.hidden {
+		display: none;
+	}
+	.drop {
+		position: absolute;
+		pointer-events: none;
+		background: color-mix(in oklab, var(--ca-brand-main) 18%, transparent);
+		border: 1px solid var(--ca-brand-main);
+		border-radius: 6px;
+	}
+	.drop.center {
+		inset: 4px;
+	}
+	.drop.right {
+		top: 4px;
+		bottom: 4px;
+		right: 4px;
+		width: 50%;
+	}
+	.drop.bottom {
+		left: 4px;
+		right: 4px;
+		bottom: 4px;
+		height: 50%;
+	}
+</style>

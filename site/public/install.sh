@@ -27,10 +27,16 @@ case "$os-$arch" in
     ;;
 esac
 
-meta="$(curl -fsSL --proto '=https' --tlsv1.2 -H 'Accept: application/vnd.github+json' \
-  "https://api.github.com/repos/$REPO/releases/latest")" \
-  || die "could not read the latest release: https://github.com/$REPO/releases"
-tag="$(printf '%s' "$meta" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+# Latest tag: the API first; unauthenticated calls are rate limited (60/h per IP), so fall back to
+# the /releases/latest redirect, which is not.
+tag="$(curl -fsSL --proto '=https' --tlsv1.2 -H 'Accept: application/vnd.github+json' \
+  "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+  | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)" || tag=""
+if [ -z "$tag" ]; then
+  tag="$(curl -fsSI --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases/latest" 2>/dev/null \
+    | tr -d '\r' | sed -n 's|^[Ll]ocation:.*/releases/tag/\(.*\)$|\1|p' | head -n 1)" || tag=""
+fi
+[ -n "$tag" ] || die "could not find the latest release: https://github.com/$REPO/releases"
 version="${tag#v}"
 case "$version" in
   "" | *[!0-9A-Za-z._-]*) die "unexpected release tag '$tag'" ;;

@@ -65,6 +65,7 @@ const ts = (i: number) => `22:12:${String(10 + (i % 50)).padStart(2, "0")}`;
 					<DownloadLinks />
 				</div>
 				<p class="ask-h">Open source, MIT or Apache-2.0. Prebuilt for macOS on Apple silicon.</p>
+				<p class="ask-h alpha"><b>Alpha:</b> it works and we use it daily, but expect bugs and breaking changes. <a href="https://github.com/codeatlasdev/atlas/issues/new">Report what breaks</a>.</p>
 			</div>
 		</div>
 
@@ -170,6 +171,9 @@ const ts = (i: number) => `22:12:${String(10 + (i % 50)).padStart(2, "0")}`;
 	.ask { margin-top: clamp(0.9rem, 2.6svh, 1.8rem); max-width: min(36rem, 100%); min-width: 0; scroll-margin-top: 6rem; }
 	.ctas { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.7rem; }
 	.ask-h { margin: 0.7rem 0 0; font-weight: 600; font-size: 0.9rem; color: var(--fg-2); }
+	.ask-h.alpha { margin-top: 0.35rem; font-weight: 500; font-size: 0.82rem; display: block !important; }
+	.ask-h.alpha b { color: var(--warn, #f1fa8c); }
+	.ask-h.alpha a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 
 	.board { display: grid; grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr); gap: 12px; min-width: 0; min-height: 0; align-items: stretch; max-height: 100%; }
 	.pane { border-radius: 10px; overflow: hidden; background: #0a0b3d; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.2), 0 30px 60px -28px rgb(2 4 50 / 0.9); min-height: 0; }

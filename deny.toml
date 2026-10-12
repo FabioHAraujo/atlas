@@ -4,6 +4,7 @@ version = 2
 # upgrade them ourselves. Re-evaluate when bumping tauri.
 ignore = [
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error via glib-macros (tauri -> tray-icon -> gtk, Linux-only); no fix available upstream" },
+    { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml via serde_yaml (config parsing); main already moved to serde_norway, ships in the next minor. Hotfix 1.1.2 only." },
 ]
 
 [licenses]

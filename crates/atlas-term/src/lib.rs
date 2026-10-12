@@ -11,5 +11,5 @@ pub mod vt;
 
 pub use alacritty_terminal::index::Side;
 pub use alacritty_terminal::selection::SelectionType;
-pub use render::{Renderer, Stats};
+pub use render::{FontResolution, FontSpec, Renderer, Stats};
 pub use vt::{Frame, HyperlinkCell, ImageDraw, SearchStat, Vt, VtEvent};

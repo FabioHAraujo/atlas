@@ -6,7 +6,7 @@
 	import { uid, ws, type DiffComment } from "#lib/stores/workspace.svelte.ts";
 	import { agents } from "#lib/stores/agents.svelte.ts";
 	import DiffTable, { type Draft } from "./diff/DiffTable.svelte";
-	import { highlightFile, type ThemedToken } from "./diff/highlight.ts";
+	import { highlightFile } from "./diff/highlight.ts";
 
 	let {
 		worktreeId,
@@ -29,7 +29,7 @@
 	let loading = $state(true);
 	let selected = $state<string | null>(null);
 	let wrap = $state(false);
-	let tokens = $state<Record<string, ThemedToken[][]>>({});
+	let tokens = $state<Record<string, string[]>>({});
 	let draft = $state<Draft | null>(null);
 	let commits = $state<string[]>([]);
 	let fileEls: Record<string, HTMLElement> = {};
@@ -322,14 +322,16 @@
 	}
 	.added .st,
 	.untracked .st {
-		color: var(--ca-semantic-success);
+		color: var(--atlas-vcs-added, var(--ca-semantic-success));
 	}
-	.modified .st,
+	.modified .st {
+		color: var(--atlas-vcs-modified, var(--ca-semantic-warning));
+	}
 	.renamed .st {
-		color: var(--ca-semantic-warning);
+		color: var(--atlas-vcs-renamed, var(--ca-semantic-info));
 	}
 	.deleted .st {
-		color: var(--ca-semantic-error, #d33);
+		color: var(--atlas-vcs-deleted, var(--ca-semantic-error));
 	}
 	.dot {
 		width: 6px;

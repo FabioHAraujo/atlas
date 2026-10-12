@@ -3,7 +3,6 @@
 	import { Check, MessageSquarePlus } from "@lucide/svelte";
 	import type { DiffHunk } from "#lib/api.ts";
 	import type { DiffComment } from "#lib/stores/workspace.svelte.ts";
-	import { tokenStyle, type ThemedToken } from "./highlight.ts";
 
 	export interface Draft {
 		path: string;
@@ -23,8 +22,8 @@
 	}: {
 		path: string;
 		hunk: DiffHunk;
-		/** Highlighted tokens per line of this hunk, once shiki resolved. */
-		tokens: ThemedToken[][] | undefined;
+		/** Highlighted HTML per line of this hunk, once the grammar resolved. */
+		tokens: string[] | undefined;
 		comments: DiffComment[];
 		draft: Draft | null;
 		onsave: () => void;
@@ -40,7 +39,7 @@
 		{#each hunk.lines as l, li (li)}
 			{@const side = l.kind === "del" ? "old" : "new"}
 			{@const no = side === "old" ? l.old_no : l.new_no}
-			{@const toks = tokens?.[li]}
+			{@const html = tokens?.[li]}
 			<tr class={l.kind}>
 				<td class="no">{l.old_no ?? ""}</td>
 				<td class="no">{l.new_no ?? ""}</td>
@@ -57,8 +56,7 @@
 				</td>
 				<td class="code mono">
 					<span class="sign">{l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "}</span
-					>{#if toks}{#each toks as t, ti (ti)}<span style={tokenStyle(t)}>{t.content}</span
-							>{/each}{:else}{l.text}{/if}
+					>{#if html !== undefined}{@html html}{:else}{l.text}{/if}
 				</td>
 			</tr>
 			{#each notesAt(side, no) as c (c.id)}
@@ -134,14 +132,22 @@
 	}
 	.sign {
 		user-select: none;
-		color: var(--ca-text-disabled);
 		padding-right: 4px;
 	}
 	tr.add {
-		background: color-mix(in oklab, var(--ca-semantic-success) 12%, transparent);
+		background: color-mix(in oklab, var(--atlas-vcs-added, var(--ca-semantic-success)) 14%, transparent);
+	}
+	tr.add .sign {
+		color: var(--atlas-vcs-added, var(--ca-semantic-success));
 	}
 	tr.del {
-		background: color-mix(in oklab, var(--ca-semantic-error, #d33) 12%, transparent);
+		background: color-mix(in oklab, var(--atlas-vcs-deleted, var(--ca-semantic-error)) 14%, transparent);
+	}
+	tr.del .sign {
+		color: var(--atlas-vcs-deleted, var(--ca-semantic-error));
+	}
+	tr.ctx .sign {
+		color: var(--ca-text-disabled);
 	}
 	.note-row td {
 		padding: 4px 10px 4px 110px;

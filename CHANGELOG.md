@@ -4,6 +4,20 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new); release channels (stable/beta) come once Atlas is stable.
 
+## [Unreleased]
+
+### Added
+
+- **Dracula is the default theme**, with its official light variant **Alucard** for light mode. Colors, the ANSI table, the UI palette and the syntax scope mapping follow the [Dracula specification](https://draculatheme.com/spec) exactly; one theme now styles the whole app: editor, terminal, diffs, logs, Markdown, language-server popups, git colors and scrollbars. You keep your own choice: only people still on the old default move over.
+- **Dracula Pro** (dark) built from the palette in your own Ghostty config, plus **Use your Ghostty theme**: Atlas reads `~/.config/ghostty/config` (including `theme =`, `config-file =` and the Ghostty app's bundled themes) and imports its colors, font and cursor settings.
+- **A theme system you can fully customize.** Any partial theme is completed automatically (surfaces, borders, accents and syntax derived from a few colors, with readable contrast). Import Ghostty configs, iTerm2 `.itermcolors`, VS Code themes and Base16 schemes, export as JSON or a Ghostty config, and drop files into `~/.atlas/themes/` (reloaded live). The terminal can use its own theme, font family (any installed font, including variable fonts such as Fira Code), thicken, cursor colors, selection colors and padding.
+- **Theme picker** in Settings → Appearance with a live preview of every theme (hover to try it, click to keep it), and ⌘K commands: `Theme: <name>`, `Theme: Next/Previous`, `Terminal theme: …`.
+
+### Changed
+
+- Diff hunks and the Config diff preview are highlighted with the editor's own colors, so they follow the theme.
+- The `theme` setting is now `{ v: 2, mode, light, dark, terminal }`; older values are read as before.
+
 ## [1.1.2] — 2026-10-12
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

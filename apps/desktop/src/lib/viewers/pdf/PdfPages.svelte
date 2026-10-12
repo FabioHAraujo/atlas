@@ -143,12 +143,15 @@
 		background: color-mix(in oklab, var(--space-accent, var(--ca-brand-main)) 40%, transparent);
 	}
 	.tl :global(mark.hit) {
-		background: color-mix(in oklab, #ffd60a 55%, transparent);
+		background: var(--cm-search-match, color-mix(in oklab, var(--ca-semantic-warning) 35%, transparent));
 		color: transparent;
 		border-radius: 2px;
 	}
 	.tl :global(mark.hit.cur) {
-		background: color-mix(in oklab, #ff9f0a 75%, transparent);
-		outline: 1.5px solid #ff9f0a;
+		background: var(
+			--cm-search-match-active,
+			color-mix(in oklab, var(--ca-semantic-warning) 65%, transparent)
+		);
+		outline: 1.5px solid var(--ca-semantic-warning);
 	}
 </style>

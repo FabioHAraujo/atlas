@@ -16,8 +16,10 @@ export interface Prefs {
 	format_on_save: boolean;
 	inlay_hints: { enabled: boolean };
 	terminal: {
-		/** xterm.js only; the GPU terminal uses its bundled JetBrains Mono. */
+		/** CSS font list, used by both renderers. The GPU terminal takes the first installed family (variable fonts included), else its bundled JetBrains Mono. */
 		font_family: string;
+		/** GPU terminal: heavier glyph rendering (Ghostty `font-thicken`); xterm uses weights 500/700. */
+		font_thicken: boolean;
 		font_size: number;
 		cursor_shape: "block" | "bar" | "underline" | "hollow";
 		blinking: boolean;
@@ -34,6 +36,9 @@ export interface Prefs {
 		option_as_alt: "both" | "left" | "right" | "none";
 		/** GPU terminal: a click on the prompt moves the cursor there (needs shell integration; Ghostty `cursor-click-to-move`). */
 		click_to_move: boolean;
+		/** Terminal inset in pt (Ghostty `window-padding-x/y`); the margin is painted with the terminal background. */
+		padding_x: number;
+		padding_y: number;
 	};
 	project_panel: {
 		dock: "left" | "right";
@@ -55,6 +60,7 @@ export const DEFAULT_PREFS: Prefs = {
 	inlay_hints: { enabled: true },
 	terminal: {
 		font_family: "SF Mono, Menlo, ui-monospace, monospace",
+		font_thicken: false,
 		font_size: 12.5,
 		cursor_shape: "block",
 		blinking: false,
@@ -65,6 +71,8 @@ export const DEFAULT_PREFS: Prefs = {
 		copy_on_select: true,
 		option_as_alt: "both",
 		click_to_move: true,
+		padding_x: 10,
+		padding_y: 6,
 	},
 	project_panel: { dock: "left", file_icons: true, folder_icons: true, indent_size: 12 },
 	active_pane_modifiers: { border_size: 0, inactive_opacity: 1 },
@@ -96,6 +104,8 @@ const RANGES: Record<string, [number, number]> = {
 	ui_font_size: [9, 24],
 	"terminal.font_size": [6, 48],
 	"terminal.minimum_contrast": [1, 21],
+	"terminal.padding_x": [0, 64],
+	"terminal.padding_y": [0, 64],
 	"terminal.max_scroll_history_lines": [0, 100_000],
 	"project_panel.indent_size": [4, 40],
 	"active_pane_modifiers.border_size": [0, 8],

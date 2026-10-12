@@ -211,7 +211,7 @@
 	.k {
 		font-weight: 550;
 		flex: none;
-		color: var(--cm-syn-property, var(--rv-acc));
+		color: var(--cm-syn-property, var(--cm-fg, var(--ca-text-primary)));
 	}
 	.v {
 		min-width: 0;
@@ -225,10 +225,14 @@
 		color: var(--cm-syn-string, var(--rv-ok));
 	}
 	.v.t-number,
-	.v.t-boolean,
-	.v.t-null,
 	.v.t-date {
 		color: var(--cm-syn-number, var(--rv-warn));
+	}
+	.v.t-boolean {
+		color: var(--cm-syn-boolean, var(--rv-warn));
+	}
+	.v.t-null {
+		color: var(--cm-syn-constant, var(--rv-warn));
 	}
 	.v.c {
 		color: var(--ca-text-disabled);

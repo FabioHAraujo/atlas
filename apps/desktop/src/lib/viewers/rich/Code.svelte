@@ -31,9 +31,9 @@
 	.rv-ic {
 		font-family: var(--mono);
 		font-size: 11.5px;
-		color: var(--cm-fg, inherit);
+		color: var(--cm-fg, var(--ca-text-primary));
 	}
 	pre {
-		color: var(--cm-fg, var(--ca-text-secondary));
+		color: var(--cm-fg, var(--ca-text-primary));
 	}
 </style>

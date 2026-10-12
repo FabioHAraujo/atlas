@@ -44,3 +44,12 @@ test("terminal keyboard and mouse settings: defaults follow Ghostty, bad values 
 	]);
 	expect(resolvePrefs({ terminal: { option_as_alt: "meta" } }).terminal.option_as_alt).toBe("both");
 });
+
+test("terminal font and padding: defaults, valid values, out-of-range fall back", () => {
+	const d = resolvePrefs({}).terminal;
+	expect([d.font_thicken, d.padding_x, d.padding_y]).toEqual([false, 10, 6]);
+	const p = resolvePrefs({ terminal: { font_thicken: true, padding_x: 12, padding_y: 64 } }).terminal;
+	expect([p.font_thicken, p.padding_x, p.padding_y]).toEqual([true, 12, 64]);
+	const bad = resolvePrefs({ terminal: { font_thicken: "yes", padding_x: -1, padding_y: 65 } }).terminal;
+	expect([bad.font_thicken, bad.padding_x, bad.padding_y]).toEqual([false, 10, 6]);
+});

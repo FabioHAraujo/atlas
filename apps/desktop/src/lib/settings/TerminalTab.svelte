@@ -4,6 +4,7 @@
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
 	import { themes } from "#lib/stores/theme.svelte.ts";
 	import type { Prefs } from "#lib/prefs.ts";
+	import { ANSI_VARS } from "#lib/ansi.ts";
 	import { hostCall } from "#lib/host.ts";
 	import { confirmDialog } from "#lib/stores/ask.svelte.ts";
 	import Group from "./Group.svelte";
@@ -31,7 +32,12 @@
 	let colors = $derived(themes.terminal);
 	let bg = $derived(colors?.bg ?? "var(--ca-surface-sunken)");
 	let fg = $derived(colors?.fg ?? "var(--ca-text-primary)");
-	const ansi = (i: number, fallback: string) => colors?.ansi16[i] ?? `var(--ansi-${fallback})`;
+	let cursor = $derived(colors?.cursor ?? fg);
+	let selBg = $derived(colors?.selectionBg ?? "var(--ca-surface-selected)");
+	let selFg = $derived(colors?.selectionFg ?? fg);
+	/** Palette slot 0–15: the terminal theme's color, else the app's `--ansi-*` variable. */
+	const ansi = (i: number) => colors?.ansi16[i] ?? `var(${ANSI_VARS[i]})`;
+	const ANSI_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7];
 </script>
 
 <Group title="Renderer">
@@ -57,7 +63,7 @@
 	<Row
 		id="term-font"
 		label="Terminal font"
-		description="Font used by the classic terminal. The fast terminal always uses JetBrains Mono."
+		description="Font families in order, like a CSS list. The first one installed wins; the fast terminal falls back to JetBrains Mono. Variable fonts work."
 		stack
 	>
 		<TextInput
@@ -74,6 +80,17 @@
 			unit="px"
 			value={t.font_size}
 			onchange={(v) => save({ font_size: v })}
+		/>
+	</Row>
+	<Row
+		id="font-thicken"
+		label="Thicken glyphs"
+		description="Draw text slightly heavier. Helps thin fonts on dark backgrounds."
+	>
+		<Switch
+			aria-label="Thicken glyphs"
+			checked={t.font_thicken}
+			onchange={(v) => save({ font_thicken: v })}
 		/>
 	</Row>
 	<Row
@@ -117,13 +134,55 @@
 	</Row>
 	<Row label="Preview">
 		{#snippet below()}
-			<pre class="term" style="background: {bg}; color: {fg}; font-size: {t.font_size}px"><span
-					style="color: {ansi(2, 'green')}">~/atlas</span
-				> <span style="color: {ansi(4, 'blue')}">main</span> $ bun run dev<span
-					class="cur {t.cursor_shape}"
-					class:blink={t.blinking}
-					style="--cur: {fg}"></span></pre>
+			<div
+				class="term"
+				style="background: {bg}; color: {fg}; font-family: {t.font_family}; font-size: {t.font_size}px; font-weight: {t.font_thicken
+					? 500
+					: 400}; padding: {t.padding_y}px {t.padding_x}px"
+			>
+				<div>
+					<span style="color: {ansi(2)}">~/atlas</span>
+					<span style="color: {ansi(4)}">main</span>
+					$ bun run
+					<span class="sel" style="background: {selBg}; color: {selFg}">dev</span>
+					<span class="cur {t.cursor_shape}" class:blink={t.blinking} style="--cur: {cursor}"></span>
+				</div>
+				{#each [0, 8] as base (base)}
+					<div class="strip">
+						{#each ANSI_SLOTS as i (i)}
+							<span style="background: {ansi(base + i)}"></span>
+						{/each}
+					</div>
+				{/each}
+			</div>
 		{/snippet}
+	</Row>
+</Group>
+
+<Group title="Padding">
+	<Row
+		id="term-padding-x"
+		label="Horizontal padding"
+		description="Space left and right of the text. The margin uses the terminal background."
+	>
+		<NumInput
+			label="Horizontal padding"
+			unit="pt"
+			value={t.padding_x}
+			onchange={(v) => save({ padding_x: v })}
+		/>
+	</Row>
+	<Row
+		id="term-padding-y"
+		label="Vertical padding"
+		description="Space above and below the text. The margin uses the terminal background."
+	>
+		<NumInput
+			label="Vertical padding"
+			unit="pt"
+			value={t.padding_y}
+			onchange={(v) => save({ padding_y: v })}
+		/>
 	</Row>
 </Group>
 
@@ -215,12 +274,21 @@
 	}
 	.term {
 		margin: 0;
-		padding: 10px 12px;
 		border-radius: 8px;
-		font-family: ui-monospace, "SF Mono", Menlo, monospace;
 		line-height: 1.4;
 		box-shadow: 0 0 0 0.5px var(--ca-outline-subtle);
 		overflow: hidden;
+	}
+	.sel {
+		padding: 0 2px;
+	}
+	.strip {
+		display: flex;
+		height: 8px;
+		margin-top: 6px;
+	}
+	.strip span {
+		flex: 1;
 	}
 	.cur {
 		display: inline-block;

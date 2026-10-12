@@ -14,6 +14,7 @@ stated.
 | [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (`material-icon-theme` npm) | File-type icons in the desktop explorer and tabs (SVGs are bundled at build time by `apps/desktop/scripts/gen-icons.ts`) | MIT | `apps/desktop` build |
 | [pdf.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist` npm) | PDF viewer; CMaps, standard fonts and ICC profiles are served same-origin from the bundle (`apps/desktop/scripts/pdfjs-assets.ts`) | Apache-2.0 | `apps/desktop` build |
 | [Atom One](https://github.com/atom/atom/tree/master/packages/one-dark-ui) color palette | The "One Dark" / "One Light" desktop themes reuse its colors | MIT | `apps/desktop/src/lib/themes/one.json` |
+| [Dracula Theme](https://draculatheme.com/spec) color specification (Dracula Classic, Alucard Classic) | The "Dracula" and "Alucard" desktop themes (default), and the scope mapping used by "Dracula Pro" | MIT, © 2023 Dracula Theme ([license](https://github.com/dracula/dracula-theme/blob/main/LICENSE)) | `apps/desktop/src/lib/themes/dracula.json`, `dracula-pro.json` |
 
 The OFL requires that the font software is not sold on its own and that its
 license text accompanies redistributions; both hold (the text ships in the repo

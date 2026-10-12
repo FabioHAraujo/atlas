@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use super::{Face, Font, Slot, face_ref};
+use super::{Face, Font, Slot};
 use crate::colors::Rgba;
 use crate::vt::{Frame, GlyphCell};
 
@@ -327,7 +327,7 @@ impl TextLayout {
         match self.font.text_face(g.ch, g.style) {
             Some(Face::Mono(_)) => false,
             Some(face) => {
-                if let Some(id) = face_ref(face).map(|f| f.charmap().map(g.ch))
+                if let Some(id) = self.font.face(face).map(|f| f.font.charmap().map(g.ch))
                     && let Some(s) = self.font.glyph_id(face, id)
                 {
                     push(out, s, g.col as f32 * cw, 0.0, base, g.fg);
@@ -346,13 +346,19 @@ impl TextLayout {
         let [cw, _] = self.font.cell;
         let base = self.font.baseline;
         let face = Face::Mono(style & 3);
-        let Some(fr) = face_ref(face) else { return };
-        // Alphanumeric-only runs never ligate (probed over every ASCII 2/3-gram of the four
-        // faces) and carry no marks: map through the cmap and skip the shaper.
-        if self.run.bytes().all(|b| b.is_ascii_alphanumeric()) {
-            let cm = fr.charmap();
-            for (n, ch) in self.run.chars().enumerate() {
-                if let Some(s) = self.font.glyph_id(face, cm.map(ch)) {
+        // Alphanumeric-only runs never ligate in the bundled faces (probed over every ASCII
+        // 2/3-gram) and carry no marks: map through the cmap and skip the shaper. A system
+        // font may ligate letters, so only the bundled font takes this shortcut.
+        if self.font.is_bundled() && self.run.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            let Some(fr) = self.font.face(face) else {
+                return;
+            };
+            let cm = fr.font.charmap();
+            self.shaped.clear();
+            self.shaped
+                .extend(self.run.chars().map(|ch| (0, cm.map(ch), 0.0)));
+            for n in 0..self.shaped.len() {
+                if let Some(s) = self.font.glyph_id(face, self.shaped[n].1) {
                     let col = self.run_cols[n];
                     push(out, s, col as f32 * cw, 0.0, base, self.run_fgs[n]);
                 }
@@ -366,11 +372,14 @@ impl TextLayout {
         self.shaped.clear();
         {
             let shaped = &mut self.shaped;
-            let mut shaper = self
-                .font
-                .shaper
-                .builder(fr)
-                .size(self.font.ppem)
+            let ppem = self.font.ppem();
+            let Some((ctx, fr)) = self.font.shaping(face) else {
+                return;
+            };
+            let mut shaper = ctx
+                .builder(fr.font)
+                .size(ppem)
+                .normalized_coords(fr.coords)
                 .features(&feats)
                 .build();
             shaper.add_str(&self.run);

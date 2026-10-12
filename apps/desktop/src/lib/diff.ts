@@ -1,4 +1,4 @@
-/** Line diff (LCS) as unified-ish text for shiki's `diff` grammar, with 3 lines of context. */
+/** Line diff (LCS) as unified-ish text (`+ `/`- `/`  ` line prefixes), with 3 lines of context. */
 export function diff(a: string, b: string): string {
 	const x = a.split("\n");
 	const y = b.split("\n");

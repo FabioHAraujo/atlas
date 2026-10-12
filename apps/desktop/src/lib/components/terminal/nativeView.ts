@@ -4,12 +4,14 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { toast } from "@codeatlasdev/ui";
 import { errText } from "#lib/api.ts";
 import { gpu } from "#lib/stores/gpu.svelte.ts";
 import { prefs } from "#lib/stores/prefs.svelte.ts";
 import { themes } from "#lib/stores/theme.svelte.ts";
 import { overlayOpen } from "../nativeSlot.ts";
+import { fontCandidates, insetRect } from "./fonts.ts";
 
 /** Theme color as #rrggbb (the kit uses oklch; a canvas normalizes any CSS color). */
 function hex(el: Element, cssVar: string, fallback: string): string {
@@ -21,11 +23,21 @@ function hex(el: Element, cssVar: string, fallback: string): string {
 	return "#" + [r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("");
 }
 
+/** Terminal background (#rrggbb): the theme's, else the surface; also paints the DOM slot behind the padding. */
+export function termBg(el: Element): string {
+	return themes.terminal?.bg ?? hex(el, "--ca-surface-base", "#111111");
+}
+
 function termColors(el: Element) {
+	const t = themes.terminal;
 	return {
-		fg: themes.terminal?.fg ?? hex(el, "--ca-text-primary", "#e6e6e6"),
-		bg: themes.terminal?.bg ?? hex(el, "--ca-surface-base", "#111111"),
-		ansi16: themes.terminal?.ansi16,
+		fg: t?.fg ?? hex(el, "--ca-text-primary", "#e6e6e6"),
+		bg: termBg(el),
+		ansi16: t?.ansi16,
+		cursor: t?.cursor ?? undefined,
+		cursor_text: t?.cursorText ?? undefined,
+		selection_bg: t?.selectionBg ?? undefined,
+		selection_fg: t?.selectionFg ?? undefined,
 		min_contrast: prefs.value.terminal.minimum_contrast,
 	};
 }
@@ -34,12 +46,31 @@ export function termPrefs() {
 	const t = prefs.value.terminal;
 	return {
 		font_size: t.font_size,
+		font_family: fontCandidates(t.font_family),
+		font_thicken: t.font_thicken,
 		scrollback: t.max_scroll_history_lines,
 		cursor_shape: t.cursor_shape,
 		cursor_blink: t.blinking,
 		osc52: t.osc52,
 		ligatures: t.ligatures,
 	};
+}
+
+/** Requested font lists already announced, so one font change toasts once however many tabs react. */
+const announcedFonts: Record<string, true> = {};
+let fontListening = false;
+
+/** Toast once per distinct requested list when the renderer fell back from the font the user asked for. */
+export function listenFontFallback() {
+	if (fontListening) return;
+	fontListening = true;
+	void listen<{ tab: string; requested: string[]; resolved: string }>("term://font", (e) => {
+		const { requested, resolved } = e.payload;
+		const key = requested.join("\n");
+		if (!requested.length || announcedFonts[key]) return;
+		announcedFonts[key] = true;
+		toast.info(`Font "${requested[0]}" is not installed for the fast terminal; using ${resolved}.`);
+	});
 }
 
 export class NativeView {
@@ -64,13 +95,10 @@ export class NativeView {
 		if (!area || this.#failed) return;
 		const { tab, pty } = this.ids();
 		const r = area.getBoundingClientRect();
-		const rect = { x: r.left, y: r.top, w: r.width, h: r.height };
+		const { padding_x: px, padding_y: py } = prefs.value.terminal;
+		const rect = insetRect(r, px, py);
 		// The native view sits above the webview: park it under dialogs/palette.
-		const show =
-			this.visible() &&
-			r.width > 0 &&
-			r.height > 0 &&
-			!document.querySelector("[role=dialog][data-state=open]");
+		const show = this.visible() && r.width > 0 && r.height > 0 && !overlayOpen();
 		try {
 			if (!this.opened) {
 				if (!show) return;

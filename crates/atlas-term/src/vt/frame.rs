@@ -260,8 +260,19 @@ impl Vt {
                 fg = [fg[0] / 3 * 2, fg[1] / 3 * 2, fg[2] / 3 * 2, 255];
             }
             let mut bg = rgba(bg);
+            let mut keep_fg = false;
             if c.selection.is_some_and(|s| s.contains(cell.point)) {
-                bg = blend(bg, f.selection_color);
+                match pal.selection_bg {
+                    // Themed selection: opaque background (+ optional foreground).
+                    Some(sel) => {
+                        bg = rgba(sel);
+                        if let Some(sfg) = pal.selection_fg {
+                            fg = rgba(sfg);
+                            keep_fg = true;
+                        }
+                    }
+                    None => bg = blend(bg, f.selection_color),
+                }
             }
             if let Some(&(_, cur)) = hits.iter().find(|(m, _)| m.contains(&cell.point)) {
                 bg = blend(
@@ -273,12 +284,13 @@ impl Vt {
                     },
                 );
             }
-            if cursor != Some(cell.point) {
+            if cursor != Some(cell.point) && !keep_fg {
                 fg = pal.enforce_contrast(fg, bg);
             }
             if cursor == Some(cell.point) {
-                // Block cursor: cursor color behind, cell background as text.
-                fg = bg;
+                // Block cursor: cursor color behind, `cursor_text` (else the cell
+                // background) as text.
+                fg = pal.cursor_text.map_or(bg, rgba);
                 bg = rgba(pal.cursor(c.colors));
             }
             let i = row * cols + col;

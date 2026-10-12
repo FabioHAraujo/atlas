@@ -291,14 +291,15 @@ export const lspInlayHints: Extension = [hintField, hintPlugin];
 
 export const lspFeatureTheme = EditorView.baseTheme({
 	".cm-lsp-highlight": {
-		backgroundColor: "var(--cm-selection, var(--ca-action-selected))",
+		backgroundColor: "var(--cm-lsp-highlight, var(--cm-selection, var(--ca-action-selected)))",
 		borderRadius: "2px",
 	},
 	".cm-lsp-hint": {
-		color: "var(--ca-text-disabled)",
+		color: "var(--cm-syn-hint, var(--ca-text-disabled))",
 		fontSize: "0.88em",
-		fontStyle: "italic",
-		opacity: 0.85,
+		fontStyle: "var(--cm-syn-hint-italic, italic)",
+		fontWeight: "var(--cm-syn-hint-weight, normal)",
+		opacity: 0.9,
 		pointerEvents: "none",
 	},
 	".cm-lsp-hover, .cm-lsp-sig": {
@@ -323,5 +324,8 @@ export const lspFeatureTheme = EditorView.baseTheme({
 	".cm-lsp-hover code, .cm-lsp-doc code": { fontFamily: "var(--mono)" },
 	".cm-lsp-doc": { maxWidth: "420px", padding: "4px 6px", fontSize: "12px" },
 	".cm-lsp-sig-label": { fontFamily: "var(--mono)", whiteSpace: "pre-wrap" },
-	".cm-lsp-sig-label b": { color: "var(--ca-brand-main)", textDecoration: "underline" },
+	".cm-lsp-sig-label b": {
+		color: "var(--cm-syn-variable-parameter, var(--ca-brand-main))",
+		textDecoration: "underline",
+	},
 });

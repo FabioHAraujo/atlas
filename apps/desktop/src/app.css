@@ -27,9 +27,9 @@ body {
 	/* Space accent; the shell overrides these on the content root per space. */
 	--space-accent: var(--ca-brand-main);
 	--space-tint: transparent;
-	--dot-ok: var(--ca-semantic-success);
-	--dot-warn: var(--ca-semantic-warning);
-	--dot-fail: var(--ca-semantic-error);
+	--dot-ok: var(--atlas-state-success, var(--ca-semantic-success));
+	--dot-warn: var(--atlas-state-warning, var(--ca-semantic-warning));
+	--dot-fail: var(--atlas-state-error, var(--ca-semantic-error));
 	--dot-off: var(--ca-text-disabled);
 
 	/* ANSI 16 colors for service logs, tuned for the light surface. */
@@ -361,6 +361,46 @@ html:not([data-kbd]) :focus-visible {
 }
 html:not([data-kbd]) .ca-layer-close:focus-visible {
 	box-shadow: none !important;
+}
+html[data-kbd] :focus-visible {
+	outline: 2px solid var(--atlas-focus-ring, var(--ca-brand-main));
+	outline-offset: 1px;
+	box-shadow: none;
+}
+
+/* Scrollbars: thin pill thumb from the theme, transparent track (overrides the kit's). */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--atlas-scrollbar-thumb, color-mix(in oklab, var(--ca-text-primary) 22%, transparent))
+		transparent;
+}
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+	background: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	border-radius: 999px;
+	background: var(--atlas-scrollbar-thumb, color-mix(in oklab, var(--ca-text-primary) 22%, transparent));
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(
+		--atlas-scrollbar-thumb-hover,
+		color-mix(in oklab, var(--ca-text-primary) 38%, transparent)
+	);
+}
+
+/* Text selection follows the editor selection color; the text keeps its own (readable) color. */
+::selection {
+	background: var(--cm-selection, var(--ca-action-selected));
+	color: inherit;
+}
+a:hover {
+	color: var(--atlas-link, var(--ca-brand-main));
 }
 html {
 	overscroll-behavior: none;

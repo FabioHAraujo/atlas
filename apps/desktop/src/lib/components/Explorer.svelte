@@ -467,13 +467,13 @@
 		white-space: nowrap;
 	}
 	.modified .name {
-		color: var(--ca-semantic-warning);
+		color: var(--atlas-vcs-modified, var(--ca-semantic-warning));
 	}
 	.untracked .name {
-		color: var(--ca-semantic-success);
+		color: var(--atlas-vcs-added, var(--ca-semantic-success));
 	}
 	.deleted .name {
-		color: var(--ca-semantic-error, #d33);
+		color: var(--atlas-vcs-deleted, var(--ca-semantic-error));
 		text-decoration: line-through;
 	}
 	.more {

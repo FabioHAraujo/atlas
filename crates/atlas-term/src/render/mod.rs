@@ -24,6 +24,7 @@ use images::Tex;
 use stats::Timing;
 
 use crate::font::{ATLAS, Atlas, COLOR_ATLAS, Font, GlyphInst, TextLayout};
+pub use crate::font::{FontResolution, FontSpec};
 use crate::vt::Frame;
 
 pub use stats::Stats;
@@ -53,6 +54,8 @@ pub struct Renderer {
     decos: VBuf,
     deco_insts: Vec<DecoInst>,
     text: TextLayout,
+    /// The font request the current font was built from.
+    spec: FontSpec,
     /// Backing scale factor (physical px per logical px).
     scale: f32,
     timing: Timing,
@@ -70,8 +73,10 @@ impl Renderer {
         height: u32,
         font_size: f32,
         scale: f32,
-    ) -> Result<Self, String> {
+        spec: FontSpec,
+    ) -> Result<(Self, FontResolution), String> {
         let g = gpu()?;
+        let (font, resolution) = Font::with_spec(font_size, scale, &spec);
         let handle = raw_window_handle::AppKitWindowHandle::new(ns_view);
         // SAFETY: the caller guarantees the view is valid and outlives the surface.
         let surface = unsafe {
@@ -181,7 +186,7 @@ impl Renderer {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        Ok(Self {
+        let renderer = Self {
             surface,
             config,
             bg_pipe,
@@ -204,10 +209,12 @@ impl Renderer {
             color_glyphs: VBuf::new(d, "color glyphs"),
             decos: VBuf::new(d, "decos"),
             deco_insts: Vec::new(),
-            text: TextLayout::new(Font::new(font_size, scale)),
+            text: TextLayout::new(font),
+            spec,
             scale,
             timing: Timing::new(),
-        })
+        };
+        Ok((renderer, resolution))
     }
 
     /// Physical pixels. Returns the grid size that fits.
@@ -271,16 +278,24 @@ impl Renderer {
         upload(g, &self.color_atlas, &mut self.text.font.color);
     }
 
-    /// Rebuild the font at `pt` points (same backing scale) and return the grid that
-    /// fits the current pixel size. Both atlases and every cached row are dropped.
-    pub fn set_font_size(&mut self, pt: f32) -> (u16, u16) {
+    /// The font request the current font was built from.
+    pub fn font_spec(&self) -> &FontSpec {
+        &self.spec
+    }
+
+    /// Rebuild the font for `spec` at `pt` points (same backing scale): the grid that fits
+    /// the current pixel size, and which family the request resolved to. Both atlases and
+    /// every cached row are dropped.
+    pub fn set_font(&mut self, pt: f32, spec: &FontSpec) -> ((u16, u16), FontResolution) {
         let ligatures = self.text.ligatures();
-        self.text = TextLayout::new(Font::new(pt, self.scale));
+        let (font, res) = Font::with_spec(pt, self.scale, spec);
+        self.text = TextLayout::new(font);
+        self.spec = spec.clone();
         self.text.set_ligatures(ligatures);
         // The fresh atlases are blank: upload them over the old textures.
         self.text.font.gray.dirty = Some((0, ATLAS));
         self.text.font.color.dirty = Some((0, COLOR_ATLAS));
-        self.resize(self.config.width, self.config.height)
+        (self.resize(self.config.width, self.config.height), res)
     }
 
     /// Enable/disable `calt`/`liga` ligature shaping (default on); redraws shape anew.

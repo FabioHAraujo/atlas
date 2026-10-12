@@ -90,7 +90,7 @@
 		box-shadow: inset 2px 0 0 var(--space-accent);
 	}
 	.item:focus-visible {
-		box-shadow: 0 0 0 2px var(--ca-action-focus);
+		box-shadow: 0 0 0 2px var(--atlas-focus-ring, var(--ca-action-focus));
 	}
 	.item.unread .name {
 		font-weight: 750;
@@ -122,7 +122,7 @@
 		color: var(--ca-text-secondary);
 	}
 	.chip.bad {
-		background: color-mix(in oklab, var(--ca-semantic-error, #d33) 20%, transparent);
-		color: var(--ca-semantic-error, #d33);
+		background: color-mix(in oklab, var(--ca-semantic-error) 20%, transparent);
+		color: var(--ca-semantic-error);
 	}
 </style>

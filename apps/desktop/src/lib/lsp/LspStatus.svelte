@@ -78,15 +78,15 @@
 		background: var(--ca-text-disabled);
 	}
 	.dot.ready {
-		background: var(--ca-semantic-success);
+		background: var(--atlas-state-success, var(--ca-semantic-success));
 	}
 	.dot.crashed,
 	.dot.missing {
-		background: var(--ca-semantic-error, #e5484d);
+		background: var(--atlas-state-error, var(--ca-semantic-error));
 	}
 	.dot.downloading,
 	.dot.starting {
-		background: var(--ca-semantic-warning);
+		background: var(--atlas-state-warning, var(--ca-semantic-warning));
 	}
 	.count {
 		display: inline-flex;
@@ -96,7 +96,7 @@
 		padding: 2px 4px;
 	}
 	.err {
-		color: var(--ca-semantic-error, #e5484d);
+		color: var(--ca-semantic-error);
 	}
 	.warn {
 		color: var(--ca-semantic-warning);

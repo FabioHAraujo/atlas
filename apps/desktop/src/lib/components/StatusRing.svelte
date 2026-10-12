@@ -26,16 +26,16 @@
 		--c: var(--ca-text-disabled);
 	}
 	.s-running {
-		--c: var(--ca-semantic-success);
+		--c: var(--atlas-state-success, var(--ca-semantic-success));
 	}
 	.s-starting {
-		--c: var(--ca-semantic-warning);
+		--c: var(--atlas-state-warning, var(--ca-semantic-warning));
 	}
 	.s-failed {
-		--c: var(--ca-semantic-error);
+		--c: var(--atlas-state-error, var(--ca-semantic-error));
 	}
 	.s-suspended {
-		--c: var(--ca-semantic-info);
+		--c: var(--atlas-state-info, var(--ca-semantic-info));
 	}
 	.track {
 		fill: none;

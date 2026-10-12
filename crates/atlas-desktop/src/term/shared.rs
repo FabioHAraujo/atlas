@@ -29,6 +29,10 @@ pub(super) struct State {
     pub(super) ligatures: Option<bool>,
     /// Font size (pt) the terminal is at, or will be once `font_pt` is applied.
     pub(super) font_cur: f32,
+    /// Pending font request (`term_set_prefs`) for the render thread.
+    pub(super) font_new: Option<atlas_term::FontSpec>,
+    /// The font request the terminal is at, or will be once `font_new` is applied.
+    pub(super) font_spec: atlas_term::FontSpec,
 }
 
 pub(super) const BLINK: Duration = Duration::from_millis(530);

@@ -19,16 +19,16 @@
 		background: var(--space-accent, var(--ca-brand-main));
 	}
 	.t-ok {
-		background: var(--ca-semantic-success);
+		background: var(--atlas-state-success, var(--ca-semantic-success));
 	}
 	.t-warn {
-		background: var(--ca-semantic-warning);
+		background: var(--atlas-state-warning, var(--ca-semantic-warning));
 	}
 	.t-fail {
-		background: var(--ca-semantic-error);
+		background: var(--atlas-state-error, var(--ca-semantic-error));
 	}
 	.t-info {
-		background: var(--ca-semantic-info);
+		background: var(--atlas-state-info, var(--ca-semantic-info));
 	}
 	.pulse {
 		animation: pulse 1.4s ease-in-out infinite;

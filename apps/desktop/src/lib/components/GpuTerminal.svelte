@@ -18,7 +18,7 @@
 	import { fontStep, keyToSend, producesInput, termAction, type TermAction } from "#lib/termKeys.ts";
 	import { watchSlot } from "./nativeSlot.ts";
 	import { shellQuote } from "./terminal/geometry.ts";
-	import { NativeView, termPrefs } from "./terminal/nativeView.ts";
+	import { NativeView, listenFontFallback, termBg, termPrefs } from "./terminal/nativeView.ts";
 	import { Pointer } from "./terminal/pointer.ts";
 	import TermSearchBar from "./terminal/TermSearchBar.svelte";
 
@@ -82,6 +82,16 @@
 	$effect(() => {
 		void themes.current;
 		view.recolor();
+	});
+
+	// The slot behind the padding is painted with the terminal background (Ghostty `window-padding-color = extend`).
+	const slotBg = $derived(area ? termBg(area) : undefined);
+
+	// Padding moves the native rect: re-sync when it changes.
+	$effect(() => {
+		void prefs.value.terminal.padding_x;
+		void prefs.value.terminal.padding_y;
+		void view.sync();
 	});
 
 	// `terminal.*` settings apply live: scrollback, cursor, OSC 52.
@@ -207,6 +217,7 @@
 	}
 
 	onMount(() => {
+		listenFontFallback();
 		const focus = listen<string>("term://focus", (e) => {
 			if (e.payload === tab) input?.focus();
 		});
@@ -254,6 +265,7 @@
 	{/if}
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 	<div
+		style:background={slotBg}
 		class="area"
 		bind:this={area}
 		onmousedown={pointer.mousedown}
@@ -296,12 +308,11 @@
 		display: flex;
 		flex-direction: column;
 	}
-	/* Same inset as the xterm host. */
+	/* The slot fills the pane in the terminal background; `terminal.padding_x/y` insets the native view inside it. */
 	.area {
 		position: relative;
 		flex: 1;
 		min-height: 0;
-		margin: 6px 0 0 10px;
 	}
 	/* Focus target for keys/IME/paste; the native view draws the terminal. */
 	.sink {

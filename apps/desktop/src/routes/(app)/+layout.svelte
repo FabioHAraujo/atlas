@@ -18,6 +18,7 @@
 	import Settings from "#lib/components/Settings.svelte";
 	import Sidebar from "#lib/components/Sidebar.svelte";
 	import UpdatedCard from "#lib/components/UpdatedCard.svelte";
+	import GhosttyOffer from "#lib/settings/theme/GhosttyOffer.svelte";
 	import WhatsNew from "#lib/components/WhatsNew.svelte";
 	import Onboarding from "#lib/onboarding/Onboarding.svelte";
 	import EdgePeek from "#lib/shell/EdgePeek.svelte";
@@ -103,6 +104,7 @@
 <Settings />
 <WhatsNew />
 <UpdatedCard />
+<GhosttyOffer />
 <DevLine />
 <Onboarding />
 <AskDialog />

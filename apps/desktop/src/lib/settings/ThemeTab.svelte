@@ -1,9 +1,15 @@
 <script lang="ts">
-	import { Select, SegmentedControl, THEME_PRESETS, colorScheme } from "@codeatlasdev/ui";
-	import { Check, Monitor, Moon, Sun } from "@lucide/svelte";
+	import { Button, Select, SegmentedControl, THEME_PRESETS, colorScheme } from "@codeatlasdev/ui";
+	import { Check, FolderOpen, Monitor, Moon, Sun, Upload } from "@lucide/svelte";
 	import { themes } from "#lib/stores/theme.svelte.ts";
 	import Group from "./Group.svelte";
 	import Row from "./Row.svelte";
+	import { copyTheme, revealThemesFolder, saveTheme } from "./theme/actions.ts";
+	import GhosttyBanner from "./theme/GhosttyBanner.svelte";
+	import ImportDialog from "./theme/ImportDialog.svelte";
+	import TerminalThemeSelect from "./theme/TerminalThemeSelect.svelte";
+	import ThemeGrid from "./theme/ThemeGrid.svelte";
+	import ThemeIssues from "./theme/ThemeIssues.svelte";
 
 	const MODES = [
 		{ value: "system", label: "System", icon: Monitor },
@@ -11,12 +17,14 @@
 		{ value: "dark", label: "Dark", icon: Moon },
 	];
 
-	/** The eight normal ANSI colors of the active theme, as a palette strip (CSS vars as fallback). */
-	let palette = $derived(
-		Array.from({ length: 8 }, (_, i) => themes.terminal?.ansi16[i + 8] ?? themes.terminal?.ansi16[i] ?? null),
-	);
-	const NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+	let importing = $state(false);
+	/** Theme the Export row acts on; follows the active theme until the user picks another. */
+	let exportName = $state<string | null>(null);
+	let exportTarget = $derived(exportName ?? themes.current?.name ?? "");
+	const options = (names: string[]) => names.map((n) => ({ value: n, label: n }));
 </script>
+
+<GhosttyBanner />
 
 <Group title="Color theme">
 	<Row id="theme-mode" label="Theme" description="Follow your Mac's appearance, or always use light or dark.">
@@ -28,36 +36,89 @@
 			onchange={(v) => void themes.setTheme({ mode: v as "system" | "light" | "dark" })}
 		/>
 	</Row>
+	<ThemeGrid />
 	<Row id="theme-light" label="Light theme" description="Colors used in light mode.">
 		<div class="select">
 			<Select
 				size="sm"
 				value={themes.selection.light}
-				options={themes.names.light.map((n) => ({ value: n, label: n }))}
+				options={options(themes.names.light)}
 				onchange={(v) => void themes.setTheme({ light: v })}
 			/>
 		</div>
 	</Row>
-	<Row
-		id="theme-dark"
-		label="Dark theme"
-		description="Colors used in dark mode. Add more by dropping Zed theme files into ~/.atlas/desktop/themes."
-	>
+	<Row id="theme-dark" label="Dark theme" description="Colors used in dark mode.">
 		<div class="select">
 			<Select
 				size="sm"
 				value={themes.selection.dark}
-				options={themes.names.dark.map((n) => ({ value: n, label: n }))}
+				options={options(themes.names.dark)}
 				onchange={(v) => void themes.setTheme({ dark: v })}
 			/>
 		</div>
 	</Row>
-	<Row label="Preview" description={themes.current?.name ?? ""}>
-		<div class="palette" aria-hidden="true">
-			{#each NAMES as n, i (n)}
-				<span style="background: {palette[i] ?? `var(--ansi-${n})`}"></span>
-			{/each}
+	<Row
+		id="theme-terminal"
+		label="Terminal theme"
+		description="Colors of terminals and agents. Same as app follows the theme above."
+	>
+		<TerminalThemeSelect />
+	</Row>
+	<ThemeIssues />
+</Group>
+
+<Group title="Import and export">
+	<Row
+		id="theme-import"
+		stack
+		label="Import theme"
+		description="From Ghostty, iTerm, VS Code or Base16. Your themes live in ~/.atlas/themes and reload as you save."
+	>
+		<Button size="sm" variant="outlined" onclick={() => (importing = true)}>
+			<Upload size={13} /> Import…
+		</Button>
+		<Button size="sm" variant="ghost" onclick={revealThemesFolder}>
+			<FolderOpen size={13} /> Reveal themes folder
+		</Button>
+	</Row>
+	<Row
+		id="theme-export"
+		stack
+		label="Export theme"
+		description="Share a theme as JSON or as a Ghostty config."
+	>
+		<div class="select">
+			<Select
+				size="sm"
+				value={exportTarget}
+				options={options(themes.list.map((t) => t.name))}
+				onchange={(v) => (exportName = v)}
+			/>
 		</div>
+		<Button
+			size="sm"
+			variant="outlined"
+			disabled={!exportTarget}
+			onclick={() => copyTheme(exportTarget, "json")}
+		>
+			Copy as JSON
+		</Button>
+		<Button
+			size="sm"
+			variant="outlined"
+			disabled={!exportTarget}
+			onclick={() => copyTheme(exportTarget, "ghostty")}
+		>
+			Copy as Ghostty config
+		</Button>
+		<Button
+			size="sm"
+			variant="ghost"
+			disabled={!exportTarget}
+			onclick={() => saveTheme(exportTarget, "json")}
+		>
+			Save to file…
+		</Button>
 	</Row>
 </Group>
 
@@ -81,19 +142,11 @@
 	</Row>
 </Group>
 
+<ImportDialog bind:open={importing} />
+
 <style>
 	.select {
 		width: 200px;
-	}
-	.palette {
-		display: flex;
-		border-radius: 7px;
-		overflow: hidden;
-		box-shadow: 0 0 0 0.5px var(--ca-outline-subtle);
-	}
-	.palette span {
-		width: 22px;
-		height: 22px;
 	}
 	.swatches {
 		display: flex;

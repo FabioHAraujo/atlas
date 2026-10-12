@@ -186,7 +186,7 @@
 	}
 	.badge.err {
 		background: var(--ca-semantic-error);
-		color: white;
+		color: var(--ca-brand-contrast);
 	}
 	.live {
 		display: inline-flex;

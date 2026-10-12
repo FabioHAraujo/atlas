@@ -60,6 +60,7 @@
 	.md :global(h2),
 	.md :global(h3),
 	.md :global(h4) {
+		color: var(--cm-syn-title, var(--ca-text-primary));
 		line-height: 1.25;
 		letter-spacing: -0.015em;
 		margin: 1.8em 0 0.6em;
@@ -80,7 +81,7 @@
 	}
 	.md :global(h4) {
 		font-size: 1em;
-		color: var(--ca-text-secondary);
+		color: var(--cm-syn-title, var(--ca-text-secondary));
 	}
 	.md :global(p),
 	.md :global(ul),
@@ -91,14 +92,16 @@
 		margin: 0 0 1em;
 	}
 	.md :global(a) {
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--cm-syn-link-uri, var(--space-accent, var(--ca-brand-main)));
 		text-decoration: none;
 		border-bottom: 1px solid color-mix(in oklab, currentColor 35%, transparent);
 	}
 	.md :global(a:hover) {
+		color: var(--atlas-link, var(--cm-syn-link-uri, var(--ca-brand-main)));
 		border-bottom-color: currentColor;
 	}
 	.md :global(code) {
+		color: var(--cm-syn-text-literal, inherit);
 		font-family: var(--mono);
 		font-size: 0.88em;
 		padding: 0.15em 0.4em;
@@ -132,7 +135,7 @@
 	}
 	.md :global(blockquote) {
 		padding: 2px 16px;
-		border-left: 3px solid color-mix(in oklab, var(--space-accent, var(--ca-brand-main)) 60%, transparent);
+		border-left: 3px solid var(--ca-outline-default);
 		color: var(--ca-text-secondary);
 	}
 	.md :global(table) {

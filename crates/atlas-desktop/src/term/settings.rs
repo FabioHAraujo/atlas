@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
-use super::lifecycle::build_palette;
+use super::lifecycle::{ExtraColors, build_palette};
 use super::{TERMS, TermPrefs, targets, with_term};
 
 /// Visible screen text (debug bridge / tests).
@@ -55,14 +55,25 @@ pub fn term_stats_reset() {
 
 /// Live theme update for `tab`, or every open terminal when omitted.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn term_recolor(
     tab: Option<String>,
     fg: String,
     bg: String,
     ansi16: Option<Vec<Option<String>>>,
     min_contrast: Option<f32>,
+    cursor: Option<String>,
+    cursor_text: Option<String>,
+    selection_bg: Option<String>,
+    selection_fg: Option<String>,
 ) -> Result<(), String> {
-    let pal = build_palette(&fg, &bg, ansi16.as_deref(), min_contrast)?;
+    let extra = ExtraColors {
+        cursor,
+        cursor_text,
+        selection_bg,
+        selection_fg,
+    };
+    let pal = build_palette(&fg, &bg, ansi16.as_deref(), min_contrast, &extra)?;
     for sh in targets(tab.as_deref())? {
         let pal = pal.clone();
         sh.update(|s| {
@@ -75,10 +86,12 @@ pub fn term_recolor(
 }
 
 /// Live `terminal.*` settings for `tab`, or every open terminal when omitted:
-/// scrollback, cursor, OSC 52 and font size apply at once (a size change re-fits the grid).
+/// scrollback, cursor, OSC 52, font size, family and thickening apply at once (a font
+/// change re-fits the grid and tells hostd the new size).
 #[tauri::command]
 pub fn term_set_prefs(tab: Option<String>, prefs: TermPrefs) -> Result<(), String> {
     let pt = prefs.font_size.clamp(6.0, 48.0);
+    let spec = prefs.font_spec();
     for sh in targets(tab.as_deref())? {
         sh.vt
             .set_options(prefs.scrollback, &prefs.cursor_shape, prefs.cursor_blink);
@@ -87,6 +100,10 @@ pub fn term_set_prefs(tab: Option<String>, prefs: TermPrefs) -> Result<(), Strin
             if s.font_cur != pt {
                 s.font_cur = pt;
                 s.font_pt = Some(pt);
+            }
+            if s.font_spec != spec {
+                s.font_spec = spec.clone();
+                s.font_new = Some(spec.clone());
             }
             s.ligatures = Some(prefs.ligatures);
             s.dirty = true;

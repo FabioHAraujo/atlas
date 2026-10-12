@@ -39,13 +39,13 @@
 			box-shadow 200ms ease-out;
 	}
 	.t-ok {
-		--c: var(--ca-semantic-success);
+		--c: var(--atlas-state-success, var(--ca-semantic-success));
 	}
 	.t-warn {
-		--c: var(--ca-semantic-warning);
+		--c: var(--atlas-state-warning, var(--ca-semantic-warning));
 	}
 	.t-fail {
-		--c: var(--ca-semantic-error);
+		--c: var(--atlas-state-error, var(--ca-semantic-error));
 	}
 	.t-warn,
 	.t-fail {

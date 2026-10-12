@@ -11,6 +11,16 @@
 	import { pr } from "#lib/stores/pr.svelte.ts";
 	import { confirmDialog } from "#lib/stores/ask.svelte.ts";
 
+	/** Porcelain status letter → `.code` class (anything else reads as modified). */
+	const CODE_KIND: Record<string, string> = {
+		A: "added",
+		U: "added",
+		D: "deleted",
+		R: "renamed",
+		C: "renamed",
+		"!": "conflict",
+	};
+
 	let { worktreeId }: { worktreeId: string } = $props();
 
 	let st = $state<GitStatus | null>(null);
@@ -223,6 +233,8 @@
 				{/if}
 			</div>
 			{#each list as e (kind + e.path)}
+				{@const code =
+					kind === "staged" ? e.x : kind === "untracked" ? "U" : kind === "conflicts" ? "!" : e.y}
 				<div
 					class="entry"
 					role="button"
@@ -230,9 +242,7 @@
 					onclick={() => openFile(worktreeId, e.path)}
 					onkeydown={(ev) => ev.key === "Enter" && openFile(worktreeId, e.path)}
 				>
-					<span class="code"
-						>{kind === "staged" ? e.x : kind === "untracked" ? "U" : kind === "conflicts" ? "!" : e.y}</span
-					>
+					<span class="code {CODE_KIND[code] ?? 'modified'}">{code}</span>
 					<span class="name">{e.path}</span>
 					{#if kind === "staged"}
 						<button title="Unstage" onclick={(ev) => (ev.stopPropagation(), unstage([e.path]))}
@@ -302,7 +312,7 @@
 		overflow: auto;
 		font-size: 11px;
 		white-space: pre-wrap;
-		color: var(--ca-semantic-error, #d33);
+		color: var(--ca-semantic-error);
 	}
 	.row-btns {
 		display: flex;
@@ -336,7 +346,19 @@
 		width: 12px;
 		font-weight: 700;
 		font-size: 10.5px;
-		color: var(--ca-semantic-warning);
+		color: var(--atlas-vcs-modified, var(--ca-semantic-warning));
+	}
+	.code.added {
+		color: var(--atlas-vcs-added, var(--ca-semantic-success));
+	}
+	.code.deleted {
+		color: var(--atlas-vcs-deleted, var(--ca-semantic-error));
+	}
+	.code.renamed {
+		color: var(--atlas-vcs-renamed, var(--ca-semantic-info));
+	}
+	.code.conflict {
+		color: var(--ca-semantic-error);
 	}
 	.name {
 		flex: 1;

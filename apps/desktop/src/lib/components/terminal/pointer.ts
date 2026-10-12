@@ -14,8 +14,8 @@ interface Options {
 	/** Focus the keyboard sink (the mousedown default would blur it). */
 	focusInput: () => void;
 	readonly: () => boolean;
-	/** `terminal.click_to_move` / `terminal.copy_on_select`. */
-	prefs: () => { click_to_move: boolean; copy_on_select: boolean };
+	/** `terminal.click_to_move` / `terminal.copy_on_select`; padding insets cell (0, 0) from the area's corner. */
+	prefs: () => { click_to_move: boolean; copy_on_select: boolean; padding_x: number; padding_y: number };
 	onLink: (url: string, external: boolean) => void;
 }
 
@@ -43,7 +43,10 @@ export class Pointer {
 
 	#toCell(e: MouseEvent): CellHit | null {
 		const area = this.#o.area();
-		return area && this.#cell ? cellAt(e.clientX, e.clientY, area.getBoundingClientRect(), this.#cell) : null;
+		if (!area || !this.#cell) return null;
+		const { padding_x, padding_y } = this.#o.prefs();
+		const r = area.getBoundingClientRect();
+		return cellAt(e.clientX, e.clientY, { left: r.left + padding_x, top: r.top + padding_y }, this.#cell);
 	}
 
 	#update(c: CellHit) {

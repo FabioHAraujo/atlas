@@ -106,14 +106,18 @@
 	}
 	mark,
 	.link.hit {
-		background: color-mix(in oklab, var(--ca-semantic-warning) 40%, transparent);
+		background: var(--cm-search-match, color-mix(in oklab, var(--ca-semantic-warning) 40%, transparent));
 		color: inherit;
 		border-radius: 2px;
 	}
 	mark.cur,
 	.link.cur {
-		background: var(--ca-semantic-warning);
-		color: var(--ca-surface-base);
+		background: var(
+			--cm-search-match-active,
+			color-mix(in oklab, var(--ca-semantic-warning) 70%, transparent)
+		);
+		outline: 1px solid var(--ca-outline-strong);
+		color: inherit;
 		border-radius: 2px;
 	}
 	.mark {

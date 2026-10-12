@@ -4,6 +4,7 @@
 
 mod layout;
 mod sprite;
+mod system;
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -11,7 +12,9 @@ use std::sync::LazyLock;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content, image::Image};
 use swash::shape::ShapeContext;
 use swash::zeno::Format;
-use swash::{FontRef, GlyphId};
+use swash::{FontRef, GlyphId, NormalizedCoord};
+
+use system::Family;
 
 pub use layout::{GlyphInst, TextLayout};
 
@@ -115,8 +118,29 @@ impl Atlas {
     }
 }
 
+/// The user's text font request (`font-family` candidates + `font-thicken`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FontSpec {
+    /// Candidates in order; the first installed family wins, none = bundled JetBrains Mono.
+    pub families: Vec<String>,
+    /// Embolden text glyphs slightly (Ghostty `font-thicken`).
+    pub thicken: bool,
+}
+
+/// What the requested families resolved to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FontResolution {
+    /// Family in use ("JetBrains Mono" for the bundled font).
+    pub family: String,
+    /// Index of the matching candidate; `None` = bundled fallback.
+    pub matched: Option<usize>,
+}
+
 pub struct Font {
     ppem: f32,
+    /// System family used for the text faces; `None` = bundled JetBrains Mono.
+    family: Option<Family>,
+    thicken: bool,
     /// Cell width/height and baseline from the top of the cell, physical pixels.
     pub cell: [f32; 2],
     pub baseline: f32,
@@ -138,7 +162,10 @@ pub struct Font {
     image: Image,
 }
 
-fn mono(style: u8) -> FontRef<'static> {
+/// Name reported when the bundled font is in use.
+pub const BUNDLED_FAMILY: &str = "JetBrains Mono";
+
+fn bundled(style: u8) -> FontRef<'static> {
     FontRef::from_index(FACES[style as usize & 3], 0).expect("bundled font")
 }
 
@@ -154,22 +181,63 @@ fn emoji_face() -> Option<FontRef<'static>> {
     FontRef::from_index(EMOJI_DATA.as_deref()?, 0)
 }
 
-/// The bundled font for `face`.
-pub fn face_ref(face: Face) -> Option<FontRef<'static>> {
+/// A face's font plus the variation coordinates to render it with.
+#[derive(Clone, Copy)]
+pub struct FaceRef<'a> {
+    pub font: FontRef<'a>,
+    pub coords: &'a [NormalizedCoord],
+}
+
+/// `face` of `family` (the bundled JetBrains Mono when `None`); symbols are always bundled.
+fn face_of(family: Option<&Family>, face: Face) -> Option<FaceRef<'_>> {
     match face {
-        Face::Mono(s) => Some(mono(s)),
-        Face::Symbols => Some(symbols()),
+        Face::Symbols => Some(FaceRef {
+            font: symbols(),
+            coords: &[],
+        }),
+        Face::Mono(s) => Some(match family {
+            Some(f) => {
+                let t = &f.faces[s as usize & 3];
+                FaceRef {
+                    font: t.font(),
+                    coords: &t.coords,
+                }
+            }
+            None => FaceRef {
+                font: bundled(s),
+                coords: &[],
+            },
+        }),
     }
 }
 
 impl Font {
-    /// `size` in points, `scale` = backing scale factor.
+    /// The bundled font. `size` in points, `scale` = backing scale factor.
+    #[cfg(test)]
     pub fn new(size: f32, scale: f32) -> Self {
+        Self::with_family(size, scale, None, false)
+    }
+
+    /// `spec`'s first installed family (else the bundled font); also reports which one.
+    pub fn with_spec(size: f32, scale: f32, spec: &FontSpec) -> (Self, FontResolution) {
+        let r = system::resolve(&spec.families);
+        let family = r.family.as_ref().map(|f| f.name.clone());
+        let font = Self::with_family(size, scale, r.family, spec.thicken);
+        let res = FontResolution {
+            family: family.unwrap_or_else(|| BUNDLED_FAMILY.to_string()),
+            matched: r.matched,
+        };
+        (font, res)
+    }
+
+    /// Cell metrics come from the regular face of `family`.
+    fn with_family(size: f32, scale: f32, family: Option<Family>, thicken: bool) -> Self {
         let ppem = size * scale;
-        let f = mono(0);
-        let m = f.metrics(&[]).scale(ppem);
+        let r = face_of(family.as_ref(), Face::Mono(0)).expect("regular face");
+        let (f, coords) = (r.font, r.coords);
+        let m = f.metrics(coords).scale(ppem);
         let advance = f
-            .glyph_metrics(&[])
+            .glyph_metrics(coords)
             .scale(ppem)
             .advance_width(f.charmap().map('0'));
         let height = (m.ascent + m.descent + m.leading).ceil();
@@ -180,6 +248,8 @@ impl Font {
         let st_off = (m.strikeout_offset).round().abs().max(1.0);
         Self {
             ppem,
+            family,
+            thicken,
             cell: [advance.round().max(1.0), height.max(1.0)],
             baseline: m.ascent.round(),
             underline: (ul_thick, ul_off),
@@ -196,11 +266,31 @@ impl Font {
         }
     }
 
+    /// Face data (font + variation coordinates) for `face`.
+    pub fn face(&self, face: Face) -> Option<FaceRef<'_>> {
+        face_of(self.family.as_ref(), face)
+    }
+
+    /// The shaper context together with `face`'s data: disjoint borrows of `self`.
+    pub(crate) fn shaping(&mut self, face: Face) -> Option<(&mut ShapeContext, FaceRef<'_>)> {
+        let f = face_of(self.family.as_ref(), face)?;
+        Some((&mut self.shaper, f))
+    }
+
+    pub fn ppem(&self) -> f32 {
+        self.ppem
+    }
+
+    /// Is the bundled JetBrains Mono the text font?
+    pub fn is_bundled(&self) -> bool {
+        self.family.is_none()
+    }
+
     /// Which face renders `ch` (`None` = no face has it). Emoji-presentation text is
-    /// chosen by the caller; this is the plain text path: JetBrains Mono, then symbols.
+    /// chosen by the caller; this is the plain text path: the text font, then symbols.
     pub fn text_face(&self, ch: char, style: u8) -> Option<Face> {
         let style = style & (BOLD | ITALIC);
-        if mono(style).charmap().map(ch) != 0 {
+        if self.face(Face::Mono(style))?.font.charmap().map(ch) != 0 {
             Some(Face::Mono(style))
         } else if symbols().charmap().map(ch) != 0 {
             Some(Face::Symbols)
@@ -219,7 +309,7 @@ impl Font {
     #[cfg(test)]
     pub fn glyph(&mut self, ch: char, style: u8) -> Option<Slot> {
         let face = self.text_face(ch, style)?;
-        let id = face_ref(face)?.charmap().map(ch);
+        let id = self.face(face)?.font.charmap().map(ch);
         self.glyph_id(face, id)
     }
 
@@ -253,13 +343,22 @@ impl Font {
     }
 
     fn raster(&mut self, face: Face, id: GlyphId) -> Option<Slot> {
-        let f = face_ref(face)?;
-        let mut scaler = self.ctx.builder(f).size(self.ppem).hint(true).build();
+        let r = face_of(self.family.as_ref(), face)?;
+        let mut scaler = self
+            .ctx
+            .builder(r.font)
+            .size(self.ppem)
+            .hint(true)
+            .normalized_coords(r.coords)
+            .build();
         self.image.clear();
-        if !Render::new(&[Source::Outline])
-            .format(Format::Alpha)
-            .render_into(&mut scaler, id, &mut self.image)
-        {
+        let mut render = Render::new(&[Source::Outline]);
+        render.format(Format::Alpha);
+        // Ghostty `font-thicken`: text faces only (symbols keep their drawn weight).
+        if self.thicken && matches!(face, Face::Mono(_)) {
+            render.embolden(thicken_strength(self.ppem));
+        }
+        if !render.render_into(&mut scaler, id, &mut self.image) {
             return None;
         }
         let p = self.image.placement;
@@ -394,6 +493,12 @@ impl Font {
     }
 }
 
+/// Faux-bold outline growth in pixels for `font-thicken`: ~1/48 em, so a 13pt@2x face
+/// gains about half a pixel of stem, the same subtle weight macOS font smoothing adds.
+fn thicken_strength(ppem: f32) -> f32 {
+    (ppem / 48.0).max(0.25)
+}
+
 /// Area-average (box) resample of straight-alpha RGBA, premultiplying while
 /// averaging so transparent edges do not bleed color.
 fn resample(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
@@ -446,6 +551,65 @@ mod tests {
         // Not in any bundled font, and blank glyphs have no slot.
         assert!(f.glyph('\u{10FFFD}', 0).is_none());
         assert!(f.glyph(' ', 0).is_none());
+    }
+
+    #[test]
+    fn empty_or_unresolvable_family_falls_back_to_the_bundled_font() {
+        for families in [vec![], vec!["No Such Family 9000".to_string()]] {
+            let spec = FontSpec {
+                families,
+                thicken: false,
+            };
+            let (mut f, res) = Font::with_spec(13.0, 2.0, &spec);
+            assert!(f.is_bundled());
+            assert_eq!(res.family, BUNDLED_FAMILY);
+            assert_eq!(res.matched, None);
+            assert_eq!(f.cell, Font::new(13.0, 2.0).cell);
+            assert!(f.glyph('A', 0).is_some());
+        }
+    }
+
+    #[test]
+    fn thickened_glyphs_rasterize_and_grow() {
+        let plain = Font::new(13.0, 2.0).glyph('l', 0).unwrap();
+        let mut t = Font::with_family(13.0, 2.0, None, true);
+        let thick = t.glyph('l', 0).expect("thickened glyph");
+        assert!(
+            thick.w >= plain.w && thick.h >= plain.h,
+            "{thick:?} vs {plain:?}"
+        );
+        // Symbols and every style keep working under thicken.
+        assert!(t.glyph('\u{F07B}', 0).is_some());
+        assert!(t.glyph('A', BOLD | ITALIC).is_some());
+        assert!(thicken_strength(26.0) > 0.0 && thicken_strength(1.0) >= 0.25);
+    }
+
+    #[test]
+    fn system_family_drives_metrics_and_glyphs() {
+        let Some(home) = std::env::var_os("HOME") else {
+            return;
+        };
+        if !std::path::Path::new(&home)
+            .join("Library/Fonts/fira-code-variable.ttf")
+            .exists()
+        {
+            return;
+        }
+        let spec = FontSpec {
+            families: vec!["Missing".into(), "fira code".into()],
+            thicken: true,
+        };
+        let (mut f, res) = Font::with_spec(13.0, 2.0, &spec);
+        assert_eq!((res.family.as_str(), res.matched), ("Fira Code", Some(1)));
+        assert!(!f.is_bundled());
+        let bundled = Font::new(13.0, 2.0).cell;
+        assert!(
+            f.cell[0] >= 1.0 && f.cell[1] >= 1.0,
+            "{:?} vs {bundled:?}",
+            f.cell
+        );
+        let (reg, bold) = (f.glyph('A', 0).unwrap(), f.glyph('A', BOLD).unwrap());
+        assert_ne!((reg.x, reg.y), (bold.x, bold.y));
     }
 
     #[test]

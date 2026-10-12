@@ -39,6 +39,112 @@ fn parses_sgr_and_snapshots_colors() {
     assert_eq!(f.bg[2], rgba(pal().base[256]));
 }
 
+const WHITE: Rgb = Rgb {
+    r: 255,
+    g: 255,
+    b: 255,
+};
+
+fn focused_frame() -> Frame {
+    Frame {
+        focused: true,
+        blink_on: true,
+        selection_color: [38, 79, 120, 170],
+        ..Frame::default()
+    }
+}
+
+#[test]
+fn themed_selection_is_opaque_and_keeps_its_foreground() {
+    let vt = Vt::new(10, 2, |_| {});
+    vt.feed(b"\x1b[31mAB\x1b[0m");
+    vt.start_selection(0, 0, SelectionType::Simple, Side::Left);
+    vt.update_selection(0, 0, Side::Right);
+    let mut p = pal();
+    // Unset: the translucent blend over the cell background, text untouched.
+    let mut f = focused_frame();
+    vt.snapshot(&p, &mut f);
+    assert_eq!(f.bg[0], [28, 56, 83, 255]);
+    assert_eq!(f.glyphs[0].fg, rgba(p.base[1]));
+    // Set: the opaque theme color, whatever the cell had; selected text takes selection_fg.
+    let sel = Rgb {
+        r: 70,
+        g: 71,
+        b: 90,
+    };
+    p.selection_bg = Some(sel);
+    p.selection_fg = Some(WHITE);
+    let mut f = focused_frame();
+    vt.snapshot(&p, &mut f);
+    assert_eq!(f.bg[0], rgba(sel));
+    assert_eq!(f.glyphs[0].fg, rgba(WHITE));
+    // The unselected neighbour is untouched.
+    assert_eq!(f.bg[1], rgba(p.bg(&Default::default())));
+    assert_eq!(f.glyphs[1].fg, rgba(p.base[1]));
+    // selection_bg alone keeps the cell's own foreground.
+    p.selection_fg = None;
+    let mut f = focused_frame();
+    vt.snapshot(&p, &mut f);
+    assert_eq!(f.bg[0], rgba(sel));
+    assert_eq!(f.glyphs[0].fg, rgba(p.base[1]));
+}
+
+#[test]
+fn selection_foreground_survives_min_contrast() {
+    let vt = Vt::new(10, 2, |_| {});
+    vt.feed(b"A");
+    vt.start_selection(0, 0, SelectionType::Simple, Side::Left);
+    vt.update_selection(0, 0, Side::Right);
+    let near = Rgb {
+        r: 80,
+        g: 80,
+        b: 80,
+    };
+    let mut p = pal();
+    p.min_contrast = 7.0;
+    p.selection_bg = Some(near);
+    p.selection_fg = Some(Rgb {
+        r: 82,
+        g: 82,
+        b: 82,
+    });
+    let mut f = focused_frame();
+    vt.snapshot(&p, &mut f);
+    assert_eq!(
+        f.glyphs[0].fg,
+        rgba(Rgb {
+            r: 82,
+            g: 82,
+            b: 82
+        })
+    );
+}
+
+#[test]
+fn block_cursor_uses_cursor_and_cursor_text_colors() {
+    let vt = Vt::new(10, 2, |_| {});
+    vt.feed(b"A\x1b[1D");
+    let (cur, text) = (Rgb { r: 1, g: 200, b: 3 }, Rgb { r: 9, g: 9, b: 99 });
+    // Cursor color override only: text = the cell background (today's swap).
+    let mut p = pal().with_cursor(Some(cur));
+    let mut f = focused_frame();
+    vt.snapshot(&p, &mut f);
+    assert_eq!(f.bg[0], rgba(cur));
+    assert_eq!(f.glyphs[0].fg, rgba(p.bg(&Default::default())));
+    // With cursor_text.
+    p.cursor_text = Some(text);
+    p.min_contrast = 21.0;
+    let mut f = focused_frame();
+    vt.snapshot(&p, &mut f);
+    assert_eq!(f.bg[0], rgba(cur));
+    assert_eq!(f.glyphs[0].fg, rgba(text));
+    // Bar cursors use the cursor color too.
+    vt.set_options(100, "bar", false);
+    let mut f = focused_frame();
+    vt.snapshot(&p, &mut f);
+    assert_eq!(f.cursor.unwrap().color, rgba(cur));
+}
+
 #[test]
 fn answers_device_attributes_through_the_proxy() {
     let out = Arc::new(Mutex::new(String::new()));

@@ -7,8 +7,7 @@
 	import { atlasTheme } from "#lib/cm.ts";
 	import { savers } from "#lib/symbols.ts";
 	import { yamlSchema } from "codemirror-json-schema/yaml";
-	import { codeToHtml } from "shiki";
-	import { colorScheme } from "@codeatlasdev/ui";
+	import { highlightLines } from "#lib/viewers/rich/highlight.ts";
 	import { onDestroy, onMount } from "svelte";
 	import { api, errText, type Problem, type ProjectView } from "#lib/api.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
@@ -26,7 +25,7 @@
 	let validating = $state(false);
 	let saving = $state(false);
 	let diffOpen = $state(false);
-	let diffHtml = $state("");
+	let diffRows = $state<{ kind: "add" | "del" | "ctx"; html: string }[]>([]);
 	let externalChange = $state(false);
 	let savedOnce = $state(false);
 
@@ -133,10 +132,12 @@
 
 	async function review() {
 		if (!dirty || problems.length || validating) return;
-		diffHtml = await codeToHtml(diff(disk, text), {
-			lang: "diff",
-			theme: colorScheme.resolved === "dark" ? "github-dark" : "github-light",
-		});
+		const rows = diff(disk, text).split("\n");
+		const html = await highlightLines(rows.map((r) => r.slice(2)).join("\n"), "yaml");
+		diffRows = rows.map((r, i) => ({
+			kind: r[0] === "+" ? "add" : r[0] === "-" ? "del" : "ctx",
+			html: html[i],
+		}));
 		diffOpen = true;
 	}
 
@@ -225,7 +226,13 @@
 </div>
 
 <Dialog bind:open={diffOpen} title="Save atlas.yaml?" description="Review the changes." size="lg">
-	<div class="diff selectable">{@html diffHtml}</div>
+	<div class="diff selectable">
+		{#each diffRows as r, i (i)}
+			<div class="row-{r.kind}">
+				<span class="sign">{r.kind === "add" ? "+" : r.kind === "del" ? "-" : " "}</span>{@html r.html}
+			</div>
+		{/each}
+	</div>
 	{#snippet actions()}
 		<Button variant="ghost" onclick={() => (diffOpen = false)}>Cancel</Button>
 		<Button onclick={save}>Save</Button>
@@ -318,10 +325,31 @@
 		max-height: 55vh;
 		overflow: auto;
 		border-radius: 8px;
+		padding: 8px 0;
+		font-family: var(--mono);
 		font-size: 12px;
+		background: var(--ca-surface-sunken);
 	}
-	.diff :global(pre) {
-		margin: 0;
-		padding: 12px;
+	.diff div {
+		white-space: pre;
+		padding: 0 12px;
+	}
+	.sign {
+		display: inline-block;
+		width: 2ch;
+		user-select: none;
+		color: var(--ca-text-disabled);
+	}
+	.row-add {
+		background: color-mix(in oklab, var(--atlas-vcs-added, var(--ca-semantic-success)) 14%, transparent);
+	}
+	.row-add .sign {
+		color: var(--atlas-vcs-added, var(--ca-semantic-success));
+	}
+	.row-del {
+		background: color-mix(in oklab, var(--atlas-vcs-deleted, var(--ca-semantic-error)) 14%, transparent);
+	}
+	.row-del .sign {
+		color: var(--atlas-vcs-deleted, var(--ca-semantic-error));
 	}
 </style>

@@ -27,9 +27,12 @@
 
 	let el: HTMLDivElement;
 	let term: Terminal | undefined;
+	let fit: FitAddon | undefined;
 	let search: SearchAddon | undefined;
 	let searchOpen = $state(false);
 	let query = $state("");
+
+	const CURSOR_STYLE = { block: "block", bar: "bar", underline: "underline", hollow: "block" } as const;
 
 	/** Theme colors over the surface/text vars (WebGL can't draw a transparent canvas, so bg is always real). */
 	function xtermColors() {
@@ -40,14 +43,35 @@
 		return { background: bg, foreground: fg, cursor: fg, ...themed };
 	}
 
+	/** Terminal background behind the padding: the theme's, else the surface. */
+	const hostBg = $derived(themes.xterm.background ?? "var(--ca-surface-base)");
+
 	$effect(() => {
 		if (focused && term) term.focus();
 	});
 
-	// A theme switch recolors open terminals; reads `themes.current` so the effect re-runs.
+	// A theme switch recolors open terminals; reads `themes.xterm` so the effect re-runs.
 	$effect(() => {
-		void themes.current;
+		void themes.xterm;
 		if (term) term.options.theme = xtermColors();
+	});
+
+	// `terminal.*` font and cursor settings apply live; the host refits to the new cell size.
+	$effect(() => {
+		const t = prefs.value.terminal;
+		if (!term) return;
+		term.options.fontFamily = t.font_family;
+		term.options.fontSize = t.font_size;
+		term.options.fontWeight = t.font_thicken ? 500 : "normal";
+		term.options.fontWeightBold = t.font_thicken ? 700 : "bold";
+		term.options.cursorStyle = CURSOR_STYLE[t.cursor_shape];
+		term.options.cursorBlink = t.blinking;
+		void t.padding_x;
+		void t.padding_y;
+		if (fit && el.offsetWidth && el.offsetHeight) {
+			fit.fit();
+			void host.ptyResize(pty, term.cols, term.rows).catch(() => {});
+		}
 	});
 
 	onMount(() => {
@@ -56,18 +80,19 @@
 			scrollback: prefs.value.terminal.max_scroll_history_lines,
 			fontFamily: prefs.value.terminal.font_family,
 			fontSize: prefs.value.terminal.font_size,
+			fontWeight: prefs.value.terminal.font_thicken ? 500 : "normal",
+			fontWeightBold: prefs.value.terminal.font_thicken ? 700 : "bold",
 			cursorBlink: prefs.value.terminal.blinking,
-			cursorStyle: ({ block: "block", bar: "bar", underline: "underline", hollow: "block" } as const)[
-				prefs.value.terminal.cursor_shape
-			],
+			cursorStyle: CURSOR_STYLE[prefs.value.terminal.cursor_shape],
 			disableStdin: readonly,
 			macOptionIsMeta: true,
 			theme: xtermColors(),
 		});
 		term = t;
-		const fit = new FitAddon();
+		const addon = new FitAddon();
+		fit = addon;
 		search = new SearchAddon();
-		t.loadAddon(fit);
+		t.loadAddon(addon);
 		t.loadAddon(search);
 		t.loadAddon(new Unicode11Addon());
 		t.unicode.activeVersion = "11";
@@ -110,7 +135,7 @@
 			host
 				.ptyAttach(pty, true)
 				.then(() => {
-					fit.fit();
+					fit?.fit();
 					return host.ptyResize(pty, t.cols, t.rows);
 				})
 				.catch(() => {});
@@ -125,7 +150,7 @@
 			clearTimeout(timer);
 			timer = window.setTimeout(() => {
 				if (!el.offsetWidth || !el.offsetHeight) return;
-				fit.fit();
+				addon.fit();
 				void host.ptyResize(pty, t.cols, t.rows).catch(() => {});
 			}, 50);
 		});
@@ -166,7 +191,12 @@
 			/>
 		</div>
 	{/if}
-	<div class="xterm-host" bind:this={el}></div>
+	<div
+		class="xterm-host"
+		bind:this={el}
+		style:background={hostBg}
+		style:padding="{prefs.value.terminal.padding_y}px {prefs.value.terminal.padding_x}px"
+	></div>
 </div>
 
 <style>
@@ -175,7 +205,6 @@
 		flex: 1;
 		min-height: 0;
 		display: flex;
-		padding: 6px 0 0 10px;
 		background: var(--ca-surface-base);
 	}
 	.xterm-host {

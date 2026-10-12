@@ -29,7 +29,8 @@ Editor, interface and terminal preferences use [Zed's setting names](https://zed
 
 | Key | Default | Notes |
 |---|---|---|
-| `terminal.font_family` | `SF Mono, Menlo, ui-monospace, monospace` | xterm.js terminals only; the [GPU terminal](terminal.md) bundles JetBrains Mono |
+| `terminal.font_family` | `SF Mono, Menlo, ui-monospace, monospace` | CSS font list for both terminals. The [GPU terminal](terminal.md) uses the first installed family (variable fonts work), else its bundled JetBrains Mono; applies live |
+| `terminal.font_thicken` | `false` | draw text slightly heavier (Ghostty `font-thicken`; xterm.js uses weights 500/700); applies live |
 | `terminal.font_size` | `12.5` | 6–48; applies live |
 | `terminal.cursor_shape` | `"block"` | `block`, `bar`, `underline` or `hollow` |
 | `terminal.blinking` | `false` | |
@@ -40,6 +41,8 @@ Editor, interface and terminal preferences use [Zed's setting names](https://zed
 | `terminal.copy_on_select` | `true` | GPU terminal |
 | `terminal.option_as_alt` | `"both"` | `both`, `left`, `right` or `none`. GPU terminal |
 | `terminal.click_to_move` | `true` | a click on the prompt moves the cursor (needs shell integration). GPU terminal |
+| `terminal.padding_x` | `10` | 0–64 pt; inset left and right of the terminal. The margin uses the terminal theme's background |
+| `terminal.padding_y` | `6` | 0–64 pt; inset above and below |
 
 The GPU terminal itself is switched with **Settings → Appearance → Terminal → Fast terminal (GPU)**.
 
@@ -47,7 +50,7 @@ The GPU terminal itself is switched with **Settings → Appearance → Terminal 
 
 | Key | Notes |
 |---|---|
-| `theme` | `{ "mode": "system", "light": "Atlas Light", "dark": "Atlas Dark" }`: `mode` is `system`, `light` or `dark`; `light` and `dark` name the theme used for each appearance. Zed theme files (v0.2.0 format) from `~/.atlas/desktop/themes/` are picked up automatically. Bundled: Atlas Dark/Light, One Dark/Light |
+| `theme` | `{ "v": 2, "mode": "system", "light": "Alucard", "dark": "Dracula", "terminal": "app" }`: `mode` is `system`, `light` or `dark`; `light` and `dark` name the theme used for each appearance; `terminal` is `app` (same as the app) or the name of any theme. Defaults are Dracula (dark) and Alucard (light). Your own themes live in `~/.atlas/themes/` as Zed theme files (v0.2.0 format) and are reloaded as you save; the older `~/.atlas/desktop/themes/` is still read. Settings → Appearance imports Ghostty configs, iTerm `.itermcolors`, VS Code theme JSON and Base16 YAML, and exports a theme as JSON or a Ghostty config. Bundled: Dracula, Alucard, Dracula Pro, Atlas Dark/Light, One Dark/Light |
 | `keymap` | rebind or unbind shortcuts, Zed syntax, `null` unbinds. See below |
 
 ```json
@@ -90,5 +93,5 @@ Every shortcut is a named command (`workspace::ToggleLeftDock`, `pane::SplitRigh
 |---|---|
 | `projects.json` | the projects you added |
 | `workspace.json` | tabs, panes and docks per worktree |
-| `themes/` | your Zed theme files |
+| `themes/` | legacy location of your Zed theme files (still read; new ones go to `~/.atlas/themes/`) |
 | `hook-endpoint.env` | loopback endpoint and token for agent hooks (new token per run) |

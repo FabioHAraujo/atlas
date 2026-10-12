@@ -16,6 +16,7 @@ import { startMenu } from "#lib/menu.svelte.ts";
 import { nativeFeel } from "#lib/native.ts";
 import { metrics } from "#lib/panel/metrics.svelte.ts";
 import { shellCommands } from "#lib/shell/commands.svelte.ts";
+import { offerGhostty, startThemeCommands } from "#lib/shell/themeCommands.svelte.ts";
 import { shell } from "#lib/shell/shell.svelte.ts";
 import { agents } from "#lib/stores/agents.svelte.ts";
 import { browserPrefs } from "#lib/stores/browser.svelte.ts";
@@ -36,6 +37,8 @@ function exposeStores() {
 		Object.assign(window, {
 			__atlas: {
 				...stores,
+				themes,
+				updates,
 				/** Make tab `id` throw on its next render (`on = false` heals it); exercises the error boundaries. */
 				crashTab: (id: string, on = true) => (on ? (errors.crashing[id] = true) : delete errors.crashing[id]),
 				/** Reject from a timer: no boundary can catch it, so it surfaces as the toast. */
@@ -139,8 +142,9 @@ export function startSession(): () => void {
 	loadKeymap().catch(() => {});
 	const stopMenu = startMenu();
 	loadPrefs().catch(() => {});
-	themes.init().catch(fail);
+	themes.init().then(offerGhostty, fail);
 	const unregister = register(shellCommands());
+	const stopThemeCommands = startThemeCommands();
 	hooks.launchAgent = (id, agent, prompt) => agents.launch(id, agent, { prompt });
 	exposeStores();
 	const stopFeel = nativeFeel();
@@ -151,6 +155,7 @@ export function startSession(): () => void {
 	const stopErrors = startErrorHandler();
 	return () => {
 		unregister();
+		stopThemeCommands();
 		void stopMenu.then((f) => f());
 		void stopHostStatus.then((f) => f());
 		store.dispose();

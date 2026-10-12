@@ -49,6 +49,25 @@ pub struct TermPrefs {
     pub(super) osc52: String,
     /// Programming ligatures (calt/liga).
     pub(super) ligatures: bool,
+    /// Font family candidates, first installed one wins; empty / none installed =
+    /// the bundled JetBrains Mono.
+    pub(super) font_family: Vec<String>,
+    /// Embolden glyphs slightly (Ghostty `font-thicken`).
+    pub(super) font_thicken: bool,
+}
+
+impl TermPrefs {
+    pub(super) fn font_spec(&self) -> atlas_term::FontSpec {
+        atlas_term::FontSpec {
+            families: self
+                .font_family
+                .iter()
+                .map(|f| f.trim().to_string())
+                .filter(|f| !f.is_empty())
+                .collect(),
+            thicken: self.font_thicken,
+        }
+    }
 }
 
 impl Default for TermPrefs {
@@ -61,6 +80,8 @@ impl Default for TermPrefs {
             // Ghostty's default: a program may not overwrite the clipboard unasked.
             osc52: "ask".into(),
             ligatures: true,
+            font_family: Vec::new(),
+            font_thicken: false,
         }
     }
 }

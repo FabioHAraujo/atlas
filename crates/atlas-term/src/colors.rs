@@ -12,6 +12,12 @@ pub struct Palette {
     pub base: [Rgb; 269],
     /// Minimum WCAG contrast ratio between fg and bg (0 = disabled).
     pub min_contrast: f32,
+    /// Text under a block cursor (`None` = the cell's own background).
+    pub cursor_text: Option<Rgb>,
+    /// Opaque selection background (`None` = the host's translucent highlight blend).
+    pub selection_bg: Option<Rgb>,
+    /// Selected text color (`None` = the cell's own foreground).
+    pub selection_fg: Option<Rgb>,
 }
 
 /// Ghostty's default 16 ANSI colors (used when the theme provides none).
@@ -39,6 +45,7 @@ fn dim(c: Rgb) -> Rgb {
 
 impl Palette {
     /// `ansi16`: optional 16-color theme override (hex strings); `None` slots use `ANSI_DEFAULT`.
+    /// The cursor defaults to `fg`; set it with `with_cursor`.
     pub fn new(fg: Rgb, bg: Rgb, ansi16: Option<&[Option<Rgb>; 16]>) -> Self {
         let mut p = [Rgb::default(); 269];
         for (i, v) in ANSI_DEFAULT.iter().enumerate() {
@@ -67,7 +74,18 @@ impl Palette {
         Self {
             base: p,
             min_contrast: 0.0,
+            cursor_text: None,
+            selection_bg: None,
+            selection_fg: None,
         }
+    }
+
+    /// Cursor color (the default is the foreground).
+    pub fn with_cursor(mut self, c: Option<Rgb>) -> Self {
+        if let Some(c) = c {
+            self.base[NamedColor::Cursor as usize] = c;
+        }
+        self
     }
 
     fn index(&self, i: usize, over: &Colors) -> Rgb {
@@ -190,8 +208,8 @@ mod tests {
     #[test]
     fn min_contrast_lifts_similar_colors() {
         let p = Palette {
-            base: [Rgb::default(); 269],
             min_contrast: 4.5,
+            ..Palette::new(Rgb::default(), Rgb::default(), None)
         };
         // Near-identical dark colors: contrast ~1; should be lifted to white.
         let fg = [0x1a, 0x1a, 0x1a, 255u8];
@@ -202,6 +220,39 @@ mod tests {
             "contrast {}",
             contrast_ratio([out[0], out[1], out[2]], [bg[0], bg[1], bg[2]])
         );
+    }
+
+    #[test]
+    fn cursor_and_selection_default_to_todays_behavior() {
+        let fg = Rgb { r: 9, g: 8, b: 7 };
+        let p = Palette::new(fg, Rgb::default(), None);
+        // The cursor follows the foreground; the optional colors are unset.
+        assert_eq!(p.cursor(&Colors::default()), fg);
+        assert_eq!(
+            (p.cursor_text, p.selection_bg, p.selection_fg),
+            (None, None, None)
+        );
+        assert_eq!(p.with_cursor(None).cursor(&Colors::default()), fg);
+    }
+
+    #[test]
+    fn cursor_and_selection_overrides() {
+        let (fg, cur) = (Rgb { r: 9, g: 8, b: 7 }, Rgb { r: 1, g: 2, b: 3 });
+        let mut p = Palette::new(fg, Rgb::default(), None).with_cursor(Some(cur));
+        p.cursor_text = Some(Rgb { r: 4, g: 5, b: 6 });
+        p.selection_bg = Some(Rgb { r: 7, g: 8, b: 9 });
+        p.selection_fg = Some(Rgb {
+            r: 10,
+            g: 11,
+            b: 12,
+        });
+        assert_eq!(p.cursor(&Colors::default()), cur);
+        // The foreground slot is untouched by the cursor override.
+        assert_eq!(p.base[NamedColor::Foreground as usize], fg);
+        // An OSC 12 override still wins over the base palette.
+        let mut over = Colors::default();
+        over[NamedColor::Cursor as usize] = Some(fg);
+        assert_eq!(p.cursor(&over), fg);
     }
 
     #[test]

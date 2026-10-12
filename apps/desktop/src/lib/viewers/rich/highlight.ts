@@ -21,19 +21,24 @@ function languageIn(ext: Extension): Language | null {
 	return null;
 }
 
-/** Highlighted HTML (spans with the editor's classes) for `code`; plain escaped text when the language is unknown. */
-export async function highlightLang(code: string, lang: string | null): Promise<string> {
+/** Highlighted HTML per line (spans with the editor's classes); plain escaped lines when the language is unknown. */
+export async function highlightLines(code: string, lang: string | null): Promise<string[]> {
 	const language = languageIn(await loadLanguage(lang));
-	if (!language) return esc(code);
-	let out = "";
+	if (!language) return code.split("\n").map(esc);
+	const lines = [""];
 	highlightCode(
 		code,
 		language.parser.parse(code),
 		highlight,
 		(text, classes) => {
-			out += classes ? `<span class="${classes}">${esc(text)}</span>` : esc(text);
+			lines[lines.length - 1] += classes ? `<span class="${classes}">${esc(text)}</span>` : esc(text);
 		},
-		() => (out += "\n"),
+		() => lines.push(""),
 	);
-	return out;
+	return lines;
+}
+
+/** Highlighted HTML (spans with the editor's classes) for `code`; plain escaped text when the language is unknown. */
+export async function highlightLang(code: string, lang: string | null): Promise<string> {
+	return (await highlightLines(code, lang)).join("\n");
 }

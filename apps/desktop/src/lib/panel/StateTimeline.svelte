@@ -89,13 +89,13 @@
 		transition: width 400ms cubic-bezier(0.2, 0.8, 0.2, 1);
 	}
 	.b-running {
-		background: var(--ca-semantic-success);
+		background: var(--atlas-state-success, var(--ca-semantic-success));
 	}
 	.b-starting {
-		background: var(--ca-semantic-warning);
+		background: var(--atlas-state-warning, var(--ca-semantic-warning));
 	}
 	.b-failed {
-		background: var(--ca-semantic-error);
+		background: var(--atlas-state-error, var(--ca-semantic-error));
 	}
 	.axis {
 		display: flex;

@@ -28,10 +28,10 @@
 	}
 	.waiting,
 	.blocked {
-		color: var(--ca-warning-main, #d99a00);
+		color: var(--ca-semantic-warning);
 	}
 	.done {
-		color: var(--ca-success-main, #2a9d4b);
+		color: var(--ca-semantic-success);
 	}
 	.working {
 		color: var(--ca-brand-main);

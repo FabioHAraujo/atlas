@@ -129,7 +129,7 @@
 		padding: 0 6px 0 0;
 	}
 	.rangechip:not(.on) .rangebtn:hover {
-		background: var(--ca-fill-hover, rgb(128 128 128 / 0.15));
+		background: var(--ca-action-hover);
 	}
 	.rangepop {
 		position: absolute;
@@ -143,8 +143,8 @@
 		padding: 4px;
 		border-radius: 9px;
 		border: 0.5px solid var(--ca-outline-subtle);
-		background: var(--ca-surface-raised, var(--ca-surface, #1c1c1e));
-		box-shadow: 0 6px 24px rgb(0 0 0 / 0.3);
+		background: var(--ca-surface-overlay);
+		box-shadow: 0 6px 24px color-mix(in oklab, black 30%, transparent);
 	}
 	.opt {
 		text-align: left;
@@ -158,7 +158,7 @@
 		cursor: pointer;
 	}
 	.opt:hover {
-		background: var(--ca-fill-hover, rgb(128 128 128 / 0.15));
+		background: var(--ca-action-hover);
 	}
 	.opt.sel {
 		color: var(--ca-brand-fill);
@@ -183,12 +183,12 @@
 		color: inherit;
 	}
 	.custom input[aria-invalid="true"] {
-		border-color: var(--ca-error, #ff453a);
+		border-color: var(--ca-semantic-error);
 	}
 	.rangeerr {
 		padding: 2px 8px 4px;
 		font-size: 11px;
-		color: var(--ca-error, #ff453a);
+		color: var(--ca-semantic-error);
 	}
 	.toggle {
 		font: inherit;

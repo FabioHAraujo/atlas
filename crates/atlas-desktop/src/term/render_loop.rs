@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use atlas_term::{Frame, Renderer};
+use atlas_term::{FontResolution, FontSpec, Frame, Renderer};
 
 use super::shared::{BLINK, Shared};
 
@@ -14,13 +14,18 @@ const SELECTION: [u8; 4] = [38, 79, 120, 170];
 const SEARCH: [u8; 4] = [255, 200, 0, 90];
 const SEARCH_CURRENT: [u8; 4] = [255, 140, 0, 200];
 
-pub(super) fn render_loop(mut r: Renderer, sh: Arc<Shared>, on_resize: impl Fn(u16, u16)) {
+pub(super) fn render_loop(
+    mut r: Renderer,
+    sh: Arc<Shared>,
+    on_resize: impl Fn(u16, u16),
+    on_font: impl Fn(&FontSpec, &FontResolution),
+) {
     let mut pal = sh.state.lock().pal.clone();
     let mut frame = Frame::default();
     let mut blink_at = Instant::now() + BLINK;
     let mut blink_on = true;
     loop {
-        let (size, font_pt, ligatures, focused, bell) = {
+        let (size, font_pt, font_new, ligatures, focused, bell) = {
             let mut s = sh.state.lock();
             loop {
                 if s.closed || s.size.is_some() || s.dirty {
@@ -64,6 +69,7 @@ pub(super) fn render_loop(mut r: Renderer, sh: Arc<Shared>, on_resize: impl Fn(u
             (
                 s.size.take(),
                 s.font_pt.take(),
+                s.font_new.take(),
                 s.ligatures.take(),
                 s.focused,
                 s.bell_until.is_some(),
@@ -72,13 +78,20 @@ pub(super) fn render_loop(mut r: Renderer, sh: Arc<Shared>, on_resize: impl Fn(u
         if let Some(on) = ligatures {
             r.set_ligatures(on);
         }
-        // A new font size changes the cell size, so the grid is re-fitted (and the pty
-        // told) exactly like a resize.
-        let fitted = match (font_pt, size) {
-            (Some(pt), size) => {
-                let grid = r.set_font_size(pt);
-                Some(size.map_or(grid, |(w, h)| r.resize(w, h)))
+        // A new font size or family changes the cell size, so the grid is re-fitted (and
+        // the pty told) exactly like a resize.
+        let font_change = match (font_new, font_pt) {
+            (None, None) => None,
+            (spec, pt) => {
+                let spec = spec.unwrap_or_else(|| r.font_spec().clone());
+                let pt = pt.unwrap_or_else(|| sh.state.lock().font_cur);
+                let (grid, res) = r.set_font(pt, &spec);
+                on_font(&spec, &res);
+                Some(grid)
             }
+        };
+        let fitted = match (font_change, size) {
+            (Some(grid), size) => Some(size.map_or(grid, |(w, h)| r.resize(w, h))),
             (None, Some((w, h))) => Some(r.resize(w, h)),
             (None, None) => None,
         };

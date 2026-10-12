@@ -2,18 +2,21 @@
 import { describe, expect, test } from "bun:test";
 import atlas from "./themes/atlas.json";
 import one from "./themes/one.json";
+import dracula from "./themes/dracula.json";
 import {
 	ansi16,
 	color,
 	cssVars,
-	parseSelection,
-	parseThemeFamily,
+	migrateSelection,
+	parseFamily,
 	resolveTheme,
 	syntaxTokens,
 	terminalColors,
 	xtermTheme,
 } from "./theme.ts";
 
+const parseThemeFamily = (f) => parseFamily(f).themes;
+const parseSelection = (v) => migrateSelection(v).selection;
 const family = (themes) => ({ name: "T", author: "a", themes });
 const dark = { name: "D", appearance: "dark", style: { text: "#ffffff" } };
 
@@ -23,9 +26,9 @@ describe("parseThemeFamily", () => {
 		expect(parseThemeFamily(one).map((t) => t.appearance)).toEqual(["dark", "light"]);
 	});
 
-	test("rejects a non-family", () => {
-		expect(() => parseThemeFamily(null)).toThrow();
-		expect(() => parseThemeFamily({ name: "x" })).toThrow();
+	test("rejects a non-family with an error naming the problem", () => {
+		expect(parseFamily(null).issues[0]).toMatchObject({ level: "error", path: "$" });
+		expect(parseFamily({ name: "x" }).issues[0]).toMatchObject({ level: "error", path: "$.themes" });
 	});
 
 	test("skips members with a bad name, appearance or style", () => {
@@ -168,27 +171,35 @@ describe("syntaxTokens", () => {
 });
 
 describe("selection", () => {
-	test("defaults to system with the Atlas themes", () => {
-		expect(parseSelection(undefined)).toEqual({ mode: "system", light: "Atlas Light", dark: "Atlas Dark" });
+	test("defaults to system with Dracula / Alucard", () => {
+		expect(parseSelection(undefined)).toEqual({
+			v: 2,
+			mode: "system",
+			light: "Alucard",
+			dark: "Dracula",
+			terminal: "app",
+		});
 	});
 
 	test("keeps valid fields and defaults the rest", () => {
-		expect(parseSelection({ mode: "dark", light: "One Light", dark: 5 })).toEqual({
+		expect(parseSelection({ v: 2, mode: "dark", light: "One Light", dark: 5 })).toEqual({
+			v: 2,
 			mode: "dark",
 			light: "One Light",
-			dark: "Atlas Dark",
+			dark: "Dracula",
+			terminal: "app",
 		});
-		expect(parseSelection({ mode: "sepia" }).mode).toBe("system");
+		expect(parseSelection({ v: 2, mode: "sepia" }).mode).toBe("system");
 	});
 });
 
 describe("resolveTheme", () => {
-	const themes = [...parseThemeFamily(atlas), ...parseThemeFamily(one)];
+	const themes = [...parseThemeFamily(atlas), ...parseThemeFamily(one), ...parseThemeFamily(dracula)];
 	const sel = (o) => parseSelection(o);
 
 	test("system mode follows the OS appearance", () => {
-		expect(resolveTheme(themes, sel({}), true).name).toBe("Atlas Dark");
-		expect(resolveTheme(themes, sel({}), false).name).toBe("Atlas Light");
+		expect(resolveTheme(themes, sel({}), true).name).toBe("Dracula");
+		expect(resolveTheme(themes, sel({}), false).name).toBe("Alucard");
 	});
 
 	test("fixed mode ignores the OS and uses the chosen name", () => {
@@ -196,12 +207,12 @@ describe("resolveTheme", () => {
 		expect(resolveTheme(themes, sel({ mode: "dark", dark: "One Dark" }), false).name).toBe("One Dark");
 	});
 
-	test("an unknown or wrong-appearance name falls back to the Atlas default", () => {
-		expect(resolveTheme(themes, sel({ mode: "dark", dark: "Gone" }), false).name).toBe("Atlas Dark");
-		expect(resolveTheme(themes, sel({ mode: "dark", dark: "One Light" }), false).name).toBe("Atlas Dark");
+	test("an unknown or wrong-appearance name falls back to the default of that appearance", () => {
+		expect(resolveTheme(themes, sel({ mode: "dark", dark: "Gone" }), false).name).toBe("Dracula");
+		expect(resolveTheme(themes, sel({ mode: "dark", dark: "One Light" }), false).name).toBe("Dracula");
 	});
 
-	test("without the Atlas defaults, any theme of that appearance is used", () => {
+	test("without the default themes, any theme of that appearance is used", () => {
 		const only = parseThemeFamily(one);
 		expect(resolveTheme(only, sel({ mode: "light" }), true).name).toBe("One Light");
 		expect(resolveTheme([], sel({}), true)).toBeUndefined();

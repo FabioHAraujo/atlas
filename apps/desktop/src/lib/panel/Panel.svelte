@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import { Button, EmptyState } from "@codeatlasdev/ui";
 	import { FileCog } from "@lucide/svelte";
 	import { onMount } from "svelte";
@@ -73,14 +74,16 @@
 		};
 	});
 
+	const space = useSpace();
+
 	function showLogs(name: string) {
 		store.focusedService = name;
-		const w = ws.selected;
+		const w = space.worktree;
 		if (w) ws.reveal(w.id, (t) => t.kind === "logs", { kind: "logs", label: "Logs" });
 	}
 
 	function openConfig() {
-		const w = ws.selected;
+		const w = space.worktree;
 		if (w) ws.reveal(w.id, (t) => t.kind === "config", { kind: "config", label: "Config" });
 	}
 

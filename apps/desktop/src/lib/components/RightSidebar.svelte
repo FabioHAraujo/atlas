@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import { invoke } from "@tauri-apps/api/core";
 	import { Select, Skeleton, toast } from "@codeatlasdev/ui";
 	import { Play, Copy, FolderSearch, Globe, RefreshCw, PanelRightClose, Pin } from "@lucide/svelte";
@@ -37,7 +38,8 @@
 	let ports = $state<Port[]>([]);
 	let loading = $state(false);
 
-	let w = $derived(ws.selected);
+	const space = useSpace();
+	let w = $derived(space.worktree);
 
 	function cwds(): string[] {
 		if (!w || scope === "all") return [];

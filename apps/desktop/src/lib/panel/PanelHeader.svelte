@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import { Network } from "@lucide/svelte";
 	import { Spinner } from "@codeatlasdev/ui";
 	import { api, type ProjectConfig, type ProjectView } from "#lib/api.ts";
@@ -6,7 +7,6 @@
 	import ProjectIcon from "#lib/shell/ProjectIcon.svelte";
 	import SetupRow from "#lib/components/SetupRow.svelte";
 	import { store, type Live } from "#lib/stores/projects.svelte.ts";
-	import { ws } from "#lib/stores/workspace.svelte.ts";
 	import { fmtUptime } from "./metrics.ts";
 	import { portsLabel } from "./overview.ts";
 
@@ -26,12 +26,13 @@
 
 	let ports = $derived(portsLabel(cfg?.services ?? []));
 	let modeLabel = $derived(live?.mode ?? project.mode ?? "running");
+	const space = useSpace();
 </script>
 
 <div class="ident">
 	<div class="title">
 		<ProjectIcon id={project.parent ?? project.id} size={30} />
-		<h1>{project.parent ? (ws.selected?.name ?? project.name) : project.name}</h1>
+		<h1>{project.parent ? (space.worktree?.name ?? project.name) : project.name}</h1>
 	</div>
 	<div class="facts">
 		{#if project.running}<span title="Time since the stack came up">Up {fmtUptime(uptime)}</span>{/if}

@@ -80,12 +80,10 @@
 		<div class="space-edge" aria-hidden="true"></div>
 		<div class="nav-chip nav-chip-prev" aria-hidden="true"><ChevronLeft size={18} /></div>
 		<div class="nav-chip nav-chip-next" aria-hidden="true"><ChevronRight size={18} /></div>
-		{#key shell.epoch}
-			<div class="space-view" data-dir={shell.direction}>
-				<CrashProbe id="app" />
-				{@render children()}
-			</div>
-		{/key}
+		<div class="space-view">
+			<CrashProbe id="app" />
+			{@render children()}
+		</div>
 	</main>
 </div>
 

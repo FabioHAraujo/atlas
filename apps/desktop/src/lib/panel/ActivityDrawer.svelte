@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import { EmptyState, ToggleGroup } from "@codeatlasdev/ui";
 	import { Activity } from "@lucide/svelte";
 	import { onMount } from "svelte";
@@ -10,6 +11,7 @@
 	import { clock, counts, filterRows, fold, group, span, type Filter, type Row } from "./activity.ts";
 
 	let { projectId }: { projectId: string } = $props();
+	const space = useSpace();
 
 	let now = $state(Date.now());
 	let rows = $derived(fold(store.live[projectId]?.events ?? []));
@@ -30,7 +32,7 @@
 	/** Rows of a service open its logs at that moment; action/tunnel rows have no service. */
 	function open(r: Row) {
 		if (r.type === "action" || !r.service) return;
-		const w = ws.selected;
+		const w = space.worktree;
 		if (!w) return;
 		store.focusedService = r.service;
 		activity.seek = { project: projectId, service: r.service, ts: r.from };

@@ -212,33 +212,18 @@ body {
 	transition: background var(--dur-slow) var(--ease);
 }
 
-/* Space switch: the new space enters from the side you moved toward (Arc's space swipe). */
+/* The page area. Space switches are a full-width pager inside it (routes/(app)/SpacePager.svelte,
+   lib/shell/pager.ts): layers slide, nothing fades or remounts. `.space-view` itself only moves
+   for the Back/Forward nudge (gestures.ts writes `transform`; releasing clears it and it springs back). */
 .space-view {
 	flex: 1;
 	min-height: 0;
 	display: flex;
 	flex-direction: column;
-	animation: space-in var(--dur-slow) var(--ease) both;
-}
-.space-view[data-dir="-1"] {
-	--enter: -28px;
-}
-.space-view[data-dir="1"] {
-	--enter: 28px;
-}
-@keyframes space-in {
-	from {
-		opacity: 0;
-		transform: translateX(var(--enter, 0));
-	}
-}
-/* Live trackpad swipe: lib/shell/gestures.ts writes `transform` inline on .space-view and the
-   chips (compositor-only, no reactivity); releasing clears it and the transition springs back. */
-.space-view {
 	transition: transform var(--dur-slow) var(--ease);
 	will-change: transform;
 }
-.content[data-space] .space-view {
+.content[data-nav] .space-view {
 	transition: none;
 }
 /* The next space's accent peeks in from the edge the content is being pulled away from. */

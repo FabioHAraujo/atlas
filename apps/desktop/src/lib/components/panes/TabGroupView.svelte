@@ -31,6 +31,7 @@
 	import Config from "#lib/components/Config.svelte";
 	import { swipe } from "#lib/shell/swipe.ts";
 	import { tabSwipe } from "#lib/shell/gestures.ts";
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import Contain from "#lib/errors/Contain.svelte";
 	import CrashProbe from "#lib/errors/CrashProbe.svelte";
 	import NewTabMenu from "./NewTabMenu.svelte";
@@ -38,14 +39,39 @@
 	import TerminalPane from "./TerminalPane.svelte";
 
 	let { groupId }: { groupId: string } = $props();
+	const space = useSpace();
 	let g = $derived(ws.group(groupId));
 	let tabs = $derived((g?.order ?? []).map((id) => ws.tab(id)).filter((t): t is Tab => !!t));
 	let active = $derived(ws.tab(g?.activeTab));
-	let focused = $derived(!!g && ws.doc.focusedGroup[g.worktreeId] === groupId);
+	// Focus and native views belong to the live space: a mounted neighbour (or a space mid-swipe) never steals them.
+	let focused = $derived(!!g && space.live && ws.doc.focusedGroup[g.worktreeId] === groupId);
+	/** Tabs shown at least once stay mounted; the rest of a space's tabs mount only once it is current. */
+	let seen = $state<Record<string, true>>({});
+	/** How many of the not-yet-shown tabs of the current space are mounted (grows one per tick). */
+	let extra = $state(0);
+	$effect(() => {
+		const id = g?.activeTab;
+		if (id && !seen[id]) seen[id] = true;
+	});
+	// A space that became current fills in its other tabs one per timer tick: they are hidden, so
+	// nothing visible changes, and a 19-editor space never costs a frame.
+	$effect(() => {
+		if (!space.current || extra >= tabs.length) return;
+		const h = setTimeout(() => extra++, 40);
+		return () => clearTimeout(h);
+	});
+	let mounted = $derived.by(() => {
+		const rest = space.current ? extra : 0;
+		let n = 0;
+		return new Set(
+			tabs.filter((t) => t.id === g?.activeTab || seen[t.id] || (!!rest && n++ < rest)).map((t) => t.id),
+		);
+	});
 	let w = $derived(ws.worktree(g?.worktreeId));
 	let project = $derived(store.projects.find((p) => p.id === w?.repoId));
 	let dropZone = $state<"right" | "bottom" | "center" | null>(null);
 	let renaming = $state<string | null>(null);
+	let groupEl = $state<HTMLElement | null>(null);
 
 	const ICONS = {
 		terminal: SquareTerminal,
@@ -97,6 +123,7 @@
 {#if g}
 	<div
 		class="group"
+		bind:this={groupEl}
 		class:focused
 		role="group"
 		onpointerdown={() => ws.focusGroup(groupId)}
@@ -108,6 +135,8 @@
 			class="strip"
 			data-gesture-zone
 			use:swipe={tabSwipe(
+				groupId,
+				() => groupEl,
 				() => g?.order ?? [],
 				() => g?.activeTab ?? undefined,
 			)}
@@ -179,39 +208,41 @@
 		</div>
 		<div class="body">
 			{#each tabs as t (t.id)}
-				<div class="pane" class:hidden={t.id !== g.activeTab}>
-					<Contain
-						where="Tab"
-						kind={t.kind}
-						file={t.path?.split("/").pop()}
-						title={`${label(t)} hit an error`}
-						hint="This tab stopped rendering. Your other tabs and terminals are unaffected."
-						close={pinned(t) ? undefined : () => ws.closeTab(t.id)}
-					>
-						<CrashProbe id={t.id} />
-						{#if t.chat && t.pty && !t.rawView && !ws.ended(t)}
-							<ChatTab tab={t} focused={focused && t.id === g.activeTab} />
-						{:else if t.kind === "terminal" && t.pty}
-							<TerminalPane {t} pty={t.pty} active={t.id === g.activeTab} {focused} />
-						{:else if t.kind === "editor" && t.path}
-							<Editor worktreeId={t.worktreeId} path={t.path} focused={focused && t.id === g.activeTab} />
-						{:else if t.kind === "diff"}
-							<DiffView worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
-						{:else if t.kind === "browser"}
-							<BrowserTab tab={t} visible={t.id === g.activeTab} />
-						{:else if t.kind === "pr"}
-							<PrTab worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
-						{:else if project && t.kind === "services"}
-							<Panel {project} />
-						{:else if project && t.kind === "logs"}
-							<Logs {project} worktreeId={t.worktreeId} />
-						{:else if project && t.kind === "config"}
-							<Config {project} />
-						{:else}
-							<PaneNotice>Nothing to show</PaneNotice>
-						{/if}
-					</Contain>
-				</div>
+				{#if mounted.has(t.id)}
+					<div class="pane" data-tab={t.id} class:hidden={t.id !== g.activeTab}>
+						<Contain
+							where="Tab"
+							kind={t.kind}
+							file={t.path?.split("/").pop()}
+							title={`${label(t)} hit an error`}
+							hint="This tab stopped rendering. Your other tabs and terminals are unaffected."
+							close={pinned(t) ? undefined : () => ws.closeTab(t.id)}
+						>
+							<CrashProbe id={t.id} />
+							{#if t.chat && t.pty && !t.rawView && !ws.ended(t)}
+								<ChatTab tab={t} focused={focused && t.id === g.activeTab} />
+							{:else if t.kind === "terminal" && t.pty}
+								<TerminalPane {t} pty={t.pty} active={t.id === g.activeTab && space.live} {focused} />
+							{:else if t.kind === "editor" && t.path}
+								<Editor worktreeId={t.worktreeId} path={t.path} focused={focused && t.id === g.activeTab} />
+							{:else if t.kind === "diff"}
+								<DiffView worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
+							{:else if t.kind === "browser"}
+								<BrowserTab tab={t} visible={t.id === g.activeTab && space.live} />
+							{:else if t.kind === "pr"}
+								<PrTab worktreeId={t.worktreeId} focused={focused && t.id === g.activeTab} />
+							{:else if project && t.kind === "services"}
+								<Panel {project} />
+							{:else if project && t.kind === "logs"}
+								<Logs {project} worktreeId={t.worktreeId} />
+							{:else if project && t.kind === "config"}
+								<Config {project} />
+							{:else}
+								<PaneNotice>Nothing to show</PaneNotice>
+							{/if}
+						</Contain>
+					</div>
+				{/if}
 			{/each}
 			{#if dropZone}<div class="drop {dropZone}"></div>{/if}
 		</div>
@@ -348,8 +379,14 @@
 		min-width: 0;
 		min-height: 0;
 	}
+	/* A hidden tab stays laid out (so CodeMirror and the terminal slot keep their size and showing one
+	   needs no layout pass), just invisible, out of the tab order and out of the way. */
 	.pane.hidden {
-		display: none;
+		position: absolute;
+		inset: 0;
+		visibility: hidden;
+		pointer-events: none;
+		contain: strict;
 	}
 	.drop {
 		position: absolute;

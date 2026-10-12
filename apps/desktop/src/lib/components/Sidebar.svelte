@@ -10,6 +10,7 @@
 	import { shell } from "#lib/shell/shell.svelte.ts";
 	import { spaceSwipe } from "#lib/shell/gestures.ts";
 	import { swipe } from "#lib/shell/swipe.ts";
+	import { pushZones } from "#lib/shell/nativeSwipe.ts";
 	import { agents } from "#lib/stores/agents.svelte.ts";
 	import { toggleSidebar } from "#lib/stores/docks.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
@@ -57,6 +58,12 @@
 		e.preventDefault();
 		sidebar.askDelete(ids);
 	}
+
+	// Neighbour availability bounds the native swipe: re-push the zones when the spaces change.
+	$effect(() => {
+		void [shell.activeId, shell.spaceIds];
+		pushZones();
+	});
 
 	onMount(() =>
 		register([

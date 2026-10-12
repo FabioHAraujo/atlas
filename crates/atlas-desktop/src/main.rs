@@ -13,6 +13,11 @@ mod menu;
 mod registry;
 mod remote;
 mod shell_env;
+#[cfg(target_os = "macos")]
+mod swipe_mac;
+#[cfg(not(target_os = "macos"))]
+#[path = "swipe_stub.rs"]
+mod swipe_mac;
 mod term;
 mod tray;
 mod updates;
@@ -118,6 +123,8 @@ macro_rules! handlers {
             term::term_close,
             term::term_stats,
             term::term_stats_reset,
+            swipe_mac::swipe_zones,
+            swipe_mac::swipe_native,
             term::term_key,
             term::term_paste,
             term::term_text,
@@ -219,6 +226,8 @@ fn main() {
             app.manage(std::sync::Arc::new(remote::Remotes::default()));
             remote::start(&handle);
 
+            #[cfg(target_os = "macos")]
+            swipe_mac::install(&handle);
             #[cfg(target_os = "macos")]
             if let Some(win) = app.get_window("main") {
                 use window_vibrancy::{

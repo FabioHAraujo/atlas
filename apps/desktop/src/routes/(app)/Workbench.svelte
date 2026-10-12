@@ -12,8 +12,10 @@
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
 	import { leaves, ws } from "#lib/stores/workspace.svelte.ts";
 	import { untrack } from "svelte";
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 
-	let wt = $derived(ws.selected);
+	const space = useSpace();
+	let wt = $derived(space.worktree);
 	let layout = $derived(wt ? ws.doc.layouts[wt.id] : undefined);
 	let bottomId = $derived(wt ? ws.doc.bottomGroup[wt.id] : undefined);
 	// The bottom dock's group exists whenever the dock is shown.

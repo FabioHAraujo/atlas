@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import { flip } from "svelte/animate";
 	import { tick } from "svelte";
 	import { api, type ServiceDef } from "#lib/api.ts";
@@ -46,8 +47,10 @@
 		store.run(`svc:${projectId}:${name}`, () => api.service(projectId, cmd, name));
 	}
 
+	const space = useSpace();
+
 	function terminal(def: ServiceDef | undefined) {
-		const w = ws.selected;
+		const w = space.worktree;
 		if (w) void ws.newTerminal(w.id, { argv: shellIn(def?.dir ?? null), label: def?.name ?? "Terminal" });
 	}
 

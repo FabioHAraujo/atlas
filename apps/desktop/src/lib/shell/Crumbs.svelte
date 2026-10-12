@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import { ChevronLeft, ChevronRight } from "@lucide/svelte";
 	import { shell } from "#lib/shell/shell.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
@@ -10,7 +11,8 @@
 	 * Where you are: `Space › worktree › tab`, each segment clickable, plus back/forward over
 	 * the (worktree, tab) visit history. The space name is always visible here.
 	 */
-	const w = $derived(ws.selected);
+	const space = useSpace();
+	const w = $derived(space.worktree);
 	const tab = $derived(w ? ws.tab(ws.focusedGroup(w.id).activeTab) : undefined);
 	const tabLabel = $derived(tab ? (tab.pty && ws.titles[tab.pty]) || tab.label : "");
 	const spaceName = $derived(shell.active?.name ?? "");

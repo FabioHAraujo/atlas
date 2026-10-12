@@ -15,6 +15,7 @@ import {
 	type GestureView,
 } from "#lib/shell/gesture.ts";
 import { scrollsHorizontally } from "#lib/shell/scrollable.ts";
+import { initNativeSwipe, nativeActive, registerZone, type NativeSwipe } from "#lib/shell/nativeSwipe.ts";
 
 export interface SwipeOptions extends GestureOptions {
 	/** Once per gesture end. `dir` 1 = next (fingers moved left), -1 = previous. */
@@ -23,6 +24,14 @@ export interface SwipeOptions extends GestureOptions {
 	onView?: (v: GestureView, el: HTMLElement) => void;
 	/** When set, a gesture only starts if nothing between the target and the surface can scroll horizontally. */
 	respectScrollers?: boolean;
+	/**
+	 * Native (AppKit) path for this surface. When native tracking is active the zone is registered
+	 * natively and the DOM wheel recognizer below stays off; otherwise it is the fallback.
+	 */
+	native?: Omit<NativeSwipe, "can"> & {
+		/** Element whose rect is the native zone; defaults to the action's element (e.g. the whole tab group, not just its strip). */
+		el?: () => HTMLElement | null;
+	};
 }
 
 const zoneOf = (t: EventTarget | null) => (t instanceof Element ? t.closest("[data-gesture-zone]") : null);
@@ -30,6 +39,22 @@ const zoneOf = (t: EventTarget | null) => (t instanceof Element ? t.closest("[da
 /** Svelte action: `use:swipe={options}`. */
 export function swipe(el: HTMLElement, options: SwipeOptions) {
 	let o = options;
+	let zone: ReturnType<typeof registerZone> | null = null;
+	const spec = (): NativeSwipe | null => {
+		if (!o.native) return null;
+		const { el: _el, ...rest } = o.native;
+		return { ...rest, can: (d) => o.can?.(d) ?? true };
+	};
+	if (options.native) {
+		void initNativeSwipe().then(() => {
+			const s = spec();
+			const target = o.native?.el?.() ?? el;
+			if (nativeActive() && s && target && !zone) {
+				g.cancel();
+				zone = registerZone(target, s);
+			}
+		});
+	}
 	// Options are read through `o` per call so an update never resets a swipe in flight.
 	const g: Gesture = createGesture({ ...options, can: (d) => o.can?.(d) ?? true });
 	const motion = window.matchMedia("(prefers-reduced-motion: no-preference)");
@@ -49,6 +74,7 @@ export function swipe(el: HTMLElement, options: SwipeOptions) {
 	}
 
 	function onwheel(e: WheelEvent) {
+		if (zone) return; // AppKit owns this surface's gestures
 		if (e.ctrlKey) return; // pinch-zoom arrives as ctrl+wheel: never a swipe
 		const mine = g.active;
 		if (!mine && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return; // vertical scroll: not ours
@@ -69,8 +95,11 @@ export function swipe(el: HTMLElement, options: SwipeOptions) {
 	return {
 		update(next: SwipeOptions) {
 			o = next;
+			const s = spec();
+			if (zone && s) zone.update(s);
 		},
 		destroy() {
+			zone?.destroy();
 			el.removeEventListener("wheel", onwheel);
 			cancelAnimationFrame(raf);
 			g.cancel();

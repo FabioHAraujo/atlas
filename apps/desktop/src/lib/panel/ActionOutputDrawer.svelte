@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import { Button, EmptyState, toast } from "@codeatlasdev/ui";
 	import { Copy, RotateCw, Terminal } from "@lucide/svelte";
 	import { onMount } from "svelte";
@@ -49,7 +50,8 @@
 		toast.success(`Copied ${run.lines.items.length.toLocaleString()} lines`);
 	}
 
-	let wtId = $derived(ws.selected?.id);
+	const space = useSpace();
+	let wtId = $derived(space.worktree?.id);
 	let root = $derived(ws.worktree(wtId)?.path ?? project.root);
 
 	onMount(() => {
@@ -58,7 +60,7 @@
 				id: "atlas::ShowActionOutput",
 				label: "Show action output",
 				run: () => actionOutput.show(project.id),
-				when: () => store.current?.id === project.id,
+				when: () => space.current && store.current?.id === project.id,
 			},
 		]);
 		return () => {

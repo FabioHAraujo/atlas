@@ -1,19 +1,16 @@
 /**
- * Shell state that is not a dock: spaces (one per repo), the direction of the last space
- * switch (drives the content slide) and back/forward history over (worktree, tab) visits.
+ * Shell state that is not a dock: spaces (one per repo) and back/forward history over
+ * (worktree, tab) visits. Space switches animate through `spacePager` (pager.ts).
  */
 import { colorScheme } from "@codeatlasdev/ui";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
-import { accentOf, directionOf, neighbour, spreadHues, tintOf } from "#lib/shell/space.ts";
+import { neighbour, accentOf, spreadHues, tintOf } from "#lib/shell/space.ts";
+import { spacePager } from "#lib/shell/pager.ts";
 import { hueFor } from "#lib/shell/identity.ts";
 import { emptyHistory, step, visit, type History, type Visit } from "#lib/shell/history.ts";
 
 class Shell {
-	/** 1: the new space enters from the right; -1: from the left. Read by the content wrapper. */
-	direction = $state<1 | -1>(1);
-	/** Bumped on every space switch so the content wrapper can re-key its transition. */
-	epoch = $state(0);
 	history = $state<History>(emptyHistory());
 	/** Entry a back/forward step is landing on; the next recorded visit for it is not new history. */
 	#arriving: Visit | null = null;
@@ -46,21 +43,24 @@ class Shell {
 	}
 
 	/** Worktree to land on when entering a space: the one last used there, else its main checkout. */
-	#landing(spaceId: string): string {
+	landing(spaceId: string): string {
 		const kids = new Set([spaceId, ...store.projects.filter((p) => p.parent === spaceId).map((p) => p.id)]);
 		const last = ws.doc.recentWorktrees.find((id) => kids.has(id) && ws.worktree(id));
 		return last ?? spaceId;
 	}
 
-	/** Switch to a space (animated in the direction of its position). */
+	/** Switch to a space: the selection moves now, the pager animates the layers into place. */
 	switchTo(spaceId: string) {
 		if (spaceId === this.activeId) {
 			ws.view = "worktree";
 			return;
 		}
-		this.direction = directionOf(this.spaceIds, this.activeId, spaceId);
-		this.epoch++;
-		this.select(this.#landing(spaceId));
+		if (!spacePager.go(spaceId)) this.commitSpace(spaceId);
+	}
+
+	/** The state half of a space switch (what the pager calls once it has decided): enter the space. */
+	commitSpace(spaceId: string) {
+		if (spaceId !== this.activeId || ws.view !== "worktree") this.select(this.landing(spaceId));
 	}
 
 	/** Previous / next space, wrapping. */
@@ -113,11 +113,10 @@ class Shell {
 		this.#arriving = unchanged ? null : r.to;
 		const fromSpace = this.activeId;
 		const w = ws.worktree(r.to.worktreeId);
-		if (w && w.repoId !== fromSpace) {
-			this.direction = directionOf(this.spaceIds, fromSpace, w.repoId);
-			this.epoch++;
-		}
+		// Across spaces: the pager slides the layers; the exact (worktree, tab) target is selected below.
+		const slide = w && w.repoId !== fromSpace ? w.repoId : null;
 		this.select(r.to.worktreeId);
+		if (slide && fromSpace) spacePager.go(slide, fromSpace);
 		if (r.to.tabId && ws.tab(r.to.tabId)) ws.activate(r.to.tabId);
 	}
 }

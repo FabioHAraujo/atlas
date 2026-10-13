@@ -1,0 +1,3 @@
+[test]
+# One DOM for every test file: bun runs them in a single process, so the DOM must not depend on which file imports test/setup.ts first.
+preload = ["./test/setup.ts"]

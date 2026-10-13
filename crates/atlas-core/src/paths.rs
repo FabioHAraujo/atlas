@@ -20,9 +20,21 @@ pub fn desktop_token() -> PathBuf {
     atlas_home().join("desktop.token")
 }
 
-/// Debug-build bridge socket (`atlas desktop debug …`).
+/// Debug-build bridge socket (`atlas desktop debug …`). `ATLAS_DEBUG_SOCK` (an absolute path) picks another
+/// instance's bridge: agents run isolated instances and address them without changing `$HOME`.
 pub fn desktop_debug_socket() -> PathBuf {
-    atlas_home().join("desktop-debug.sock")
+    debug_socket_in(
+        std::env::var_os("ATLAS_DEBUG_SOCK").as_deref(),
+        &atlas_home(),
+    )
+}
+
+/// [`desktop_debug_socket`] for an explicit override and home (pure, for tests).
+pub fn debug_socket_in(over: Option<&OsStr>, home: &Path) -> PathBuf {
+    match over.map(Path::new) {
+        Some(p) if p.is_absolute() => p.to_path_buf(),
+        _ => home.join("desktop-debug.sock"),
+    }
 }
 
 /// First executable named `name` in the `PATH`-style list `path`.
@@ -55,6 +67,28 @@ pub fn installed_app() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_debug_socket_defaults_to_the_homes_and_an_absolute_override_wins() {
+        let home = Path::new("/h/.atlas");
+        assert_eq!(debug_socket_in(None, home), home.join("desktop-debug.sock"));
+        assert_eq!(
+            debug_socket_in(Some(OsStr::new("/tmp/agent-1/debug.sock")), home),
+            PathBuf::from("/tmp/agent-1/debug.sock")
+        );
+    }
+
+    #[test]
+    fn a_relative_or_empty_override_is_ignored_not_resolved_against_the_cwd() {
+        let home = Path::new("/h/.atlas");
+        for bad in ["", "debug.sock", "./x.sock", "../x.sock"] {
+            assert_eq!(
+                debug_socket_in(Some(OsStr::new(bad)), home),
+                home.join("desktop-debug.sock"),
+                "{bad:?}"
+            );
+        }
+    }
 
     #[test]
     fn which_in_finds_only_executables() {

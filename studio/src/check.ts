@@ -4,6 +4,7 @@
 //   3. film data is consistent (unique ids, assets in the manifest, chapters and voice inside the film)
 //   4. smoke render: every scene of every cut at 1 s each, through the real compile + HyperFrames check + render
 //   5. determinism: one smoke cut rendered twice decodes to identical frames
+//   6. media lint: the published videos and posters of every film have no lint errors (`bun studio lint`)
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ import { loadFilm, listFilms } from "./lib/films.ts";
 import { probe, run } from "./lib/exec.ts";
 import { BUILD, REPO, STUDIO, StudioError } from "./lib/paths.ts";
 import type { Film } from "./lib/types.ts";
+import { enforce, lintPublished } from "./lint/gate.ts";
 import { renderCut } from "./render.ts";
 
 const problems: string[] = [];
@@ -101,6 +103,7 @@ export async function main(_argv: string[]): Promise<void> {
 	}
 	for (const film of films) await step(`smoke render (1 s per scene): ${film.id}`, () => smoke(film));
 	if (films[0]) await step("determinism (two renders, identical frames)", () => determinism(films[0]!));
+	for (const film of films) await step(`media lint (published files): ${film.id}`, async () => enforce(await lintPublished(film.id, { fast: true }), `published media of ${film.id}`));
 	if (problems.length > 0) {
 		console.error(`\n${problems.length} check(s) failed`);
 		process.exit(1);

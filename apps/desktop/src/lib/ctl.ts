@@ -4,6 +4,9 @@ import type { Tab, Worktree } from "#lib/stores/workspace.svelte.ts";
 import { openFile, openDiff } from "#lib/stores/files.svelte.ts";
 import { openPreview, toUrl } from "#lib/stores/browser.svelte.ts";
 import { errText } from "#lib/api.ts";
+import { realEnv } from "#lib/capture/env.ts";
+import { runScript } from "#lib/capture/runner.ts";
+import { parseScript } from "#lib/capture/script.ts";
 
 // These getters resolve through window.__atlasCtlStores (set by shell/session.svelte.ts)
 // so ctl.ts works regardless of which module instance calls it.
@@ -316,6 +319,22 @@ const handlers: Record<string, (a: Args) => Promise<unknown>> = {
 	async browser_fill(a) {
 		const t = browserTab(a);
 		return grab(t, `fillRef(${JSON.stringify(str(a, "ref"))}, ${JSON.stringify(str(a, "text") ?? "")})`);
+	},
+
+	/** Scripted recording: `{script, out, shots_dir?}` -> `{ok, error?, timeline}` (see lib/capture). */
+	async capture_run(a) {
+		const parsed = parseScript(a.script);
+		if (!parsed.ok)
+			throw new Error(
+				`invalid script:\n${parsed.errors.map((e) => `  ${e.path || "(script)"}: ${e.message}`).join("\n")}`,
+			);
+		const out = str(a, "out");
+		if (!out) throw new Error("out is required (absolute path of the video)");
+		return runScript(
+			parsed.script,
+			{ out, shotsDir: str(a, "shots_dir") ?? out.replace(/\/[^/]*$/, "") },
+			realEnv(),
+		);
 	},
 
 	async browser_screenshot(a) {

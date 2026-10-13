@@ -22,6 +22,9 @@ import { shell } from "#lib/shell/shell.svelte.ts";
 import { agents } from "#lib/stores/agents.svelte.ts";
 import { browserPrefs } from "#lib/stores/browser.svelte.ts";
 import { initHostStatus } from "#lib/stores/hostStatus.svelte.ts";
+import { INTRO_TIMING } from "#lib/onboarding/flow.ts";
+import { onboarding } from "#lib/onboarding/state.svelte.ts";
+import { welcome } from "#lib/onboarding/welcome.svelte.ts";
 import { sound } from "#lib/sound/sound.svelte.ts";
 import { loadPrefs } from "#lib/stores/prefs.svelte.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
@@ -34,6 +37,9 @@ import { editors } from "#lib/symbols.ts";
 import { lsp, docOf } from "#lib/lsp/client.svelte.ts";
 import { navigator as jumps } from "#lib/lsp/history.ts";
 import { hooks, worktrees } from "#lib/stores/worktrees.svelte.ts";
+import * as captureDom from "#lib/capture/dom.ts";
+import * as agentDebug from "#lib/debug/agent.ts";
+import { easeInOutCubic } from "#lib/capture/motion.ts";
 
 /** The live stores, shared with `ctl.ts` (HMR-safe) and, in debug builds, `atlas desktop debug eval`. */
 function exposeStores() {
@@ -44,6 +50,12 @@ function exposeStores() {
 				...stores,
 				themes,
 				updates,
+				/** The first-run flow and its persisted state, for `atlas desktop debug eval`. */
+				onboarding,
+				welcome,
+				sound,
+				/** Intro timing (ms) for scripted recordings: hitMs is the strike, soundMs when the sting starts. */
+				introTiming: INTRO_TIMING,
 				/** Live CodeMirror views by `worktreeId:path`, the LSP state and the jump history (scripts/validate-goto-definition.sh). */
 				editors,
 				lsp,
@@ -57,7 +69,19 @@ function exposeStores() {
 			},
 		});
 	}
-	Object.assign(window, { __atlasCtlStores: stores });
+	// The page side of `atlas desktop debug wait|click|type|a11y|perf|state|rect` (lib/debug/agent.ts): debug builds only.
+	if ("__ATLAS_DEBUG__" in window) {
+		Object.assign(window, {
+			__atlasDebug: {
+				...agentDebug,
+				perf: agentDebug.perfRecorder(),
+				state: () => agentDebug.stateSummary(stores),
+				view: () => ({ w: innerWidth, h: innerHeight, scale: devicePixelRatio }),
+			},
+		});
+	}
+	// the DOM driver scripted recordings use (lib/capture); Studio's coded scenes call it through the debug bridge
+	Object.assign(window, { __atlasCtlStores: stores, __atlasCapture: { ...captureDom, easeInOutCubic } });
 }
 
 /** Reactive syncs between the workspace, the project registry and the OS. */

@@ -38,28 +38,56 @@ pub struct DesktopArgs {
     pub dev: bool,
 
     /// Print where the app is installed, its version and whether it is linked, then exit
-    #[arg(long, conflicts_with_all = ["install", "from", "dev", "sync"])]
+    #[arg(long, conflicts_with_all = ["install", "from", "dev", "sync", "agent"])]
     pub status: bool,
+
+    /// Start an isolated instance for an agent (own HOME, hostd and debug socket; never on your desktop), print its
+    /// socket and exit. Debug builds only; drive it with `ATLAS_DEBUG_SOCK=<socket> atlas desktop debug …`
+    #[arg(long, conflicts_with_all = ["install", "from", "dev", "sync", "latest", "no_open"])]
+    pub agent: bool,
+
+    /// With --agent: name the instance (default a1, a2, …); with --stop: the one to stop
+    #[arg(long, value_name = "NAME", requires = "agent")]
+    pub name: Option<String>,
+
+    /// With --agent: seed the instance's HOME with your desktop settings (never projects, tokens or sockets)
+    #[arg(long, requires = "agent")]
+    pub scratch: bool,
+
+    /// Stop agent instances: `--agent --stop` stops all of them, `--agent --stop --name a1` that one
+    #[arg(long, requires = "agent")]
+    pub stop: bool,
 
     /// Bring an installed app to this CLI's version (run by `atlas update`); never installs fresh
     #[arg(long, hide = true)]
     pub sync: bool,
 
     #[command(subcommand)]
-    pub debug: Option<Debug>,
+    pub sub: Option<DesktopSub>,
 }
 
 #[derive(Debug, clap::Subcommand)]
-pub enum Debug {
+pub enum DesktopSub {
     /// Inspect a running debug build (console, CSP, eval, screenshot) — for agents
     #[command(subcommand)]
     Debug(super::desktop_debug::DebugCmd),
+    /// Record or screenshot the app window natively, without focusing the app (any build)
+    #[command(subcommand)]
+    Capture(super::desktop_capture::CaptureCmd),
+    /// Run a capture script inside the app and write video + timeline.json
+    Record(super::desktop_capture::RecordArgs),
 }
 
 impl AtlasCommand for DesktopArgs {
     async fn run(self) -> Result<()> {
-        if let Some(Debug::Debug(cmd)) = self.debug {
-            return super::desktop_debug::run(cmd);
+        match self.sub {
+            Some(DesktopSub::Debug(cmd)) => return super::desktop_debug::run(cmd),
+            Some(DesktopSub::Capture(cmd)) => return super::desktop_capture::run(cmd),
+            Some(DesktopSub::Record(a)) => return super::desktop_capture::record(a),
+            None => {}
+        }
+        if self.agent {
+            return agent(self.stop, self.name, self.scratch);
         }
         if self.dev {
             return dev();
@@ -313,6 +341,26 @@ fn open(app: &Path) -> Result<()> {
 }
 
 /// `bun run desktop:dev` from the atlas workspace (hot-reloading frontend + Tauri shell).
+/// `atlas desktop --agent [--name N] [--scratch] [--stop]`: see `desktop_agent.rs`.
+fn agent(stop: bool, name: Option<String>, scratch: bool) -> Result<()> {
+    if stop {
+        return super::desktop_agent::stop(name.as_deref());
+    }
+    let exe = std::env::current_exe()?;
+    // The CLI built from a checkout knows its repo; otherwise the checkout we are standing in.
+    let repo = match super::desktop_agent::repo_of_exe(&exe) {
+        Some(r) => r,
+        None => super::link::find_workspace_root()?,
+    };
+    super::desktop_agent::start(super::desktop_agent::StartOpts {
+        name,
+        scratch,
+        atlas_bin: exe,
+        repo,
+        extra_env: vec![],
+    })
+}
+
 fn dev() -> Result<()> {
     let ws = super::link::find_workspace_root()?;
     if !ws.join("apps/desktop/package.json").is_file() {

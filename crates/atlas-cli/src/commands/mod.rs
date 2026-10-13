@@ -3,6 +3,8 @@ use anyhow::Result;
 pub mod config;
 pub mod deploy;
 pub mod desktop;
+pub mod desktop_agent;
+pub mod desktop_capture;
 pub mod desktop_debug;
 pub mod dev;
 pub mod down;

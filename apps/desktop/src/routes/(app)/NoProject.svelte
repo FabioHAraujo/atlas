@@ -4,7 +4,9 @@
 	import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 	import { api } from "#lib/api.ts";
 	import { shortcutFor } from "#lib/keymap.svelte.ts";
+	import { showStanding } from "#lib/onboarding/flow.ts";
 	import Hero from "#lib/onboarding/Hero.svelte";
+	import { onboarding } from "#lib/onboarding/state.svelte.ts";
 	import { welcome } from "#lib/onboarding/welcome.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
 
@@ -27,7 +29,10 @@
 			<Skeleton variant="text" rows={2} width={320} />
 		</div>
 	{:else if store.projects.length === 0}
-		<Hero onfinish={() => welcome.reset()} />
+		<!-- First run: the full-window overlay owns the screen; this pane waits for it to be over. -->
+		{#if showStanding(onboarding.state, onboarding.loaded, store.projects.length)}
+			<Hero onfinish={() => welcome.reset()} />
+		{/if}
 	{:else}
 		<EmptyState
 			icon={FolderPlus}

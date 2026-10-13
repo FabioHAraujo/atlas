@@ -31,7 +31,7 @@
 </script>
 
 {#if visible}
-	<aside class="card" class:collapsed={!open} aria-label="Getting started">
+	<aside class="card" class:collapsed={!open} aria-label="Getting started" data-testid="checklist">
 		<header>
 			<button class="head" onclick={toggle} aria-expanded={open}>
 				<span class="ring" style:--pct="{(p.done / p.total) * 100}%"></span>

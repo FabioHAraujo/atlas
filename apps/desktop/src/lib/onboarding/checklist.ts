@@ -24,12 +24,15 @@ export interface OnboardingState {
 	done: boolean;
 	/** The tour ran (finished or skipped) at least once. */
 	toured: boolean;
+	/** The welcome intro (globe + sting) played once; it never replays on its own. */
+	introSeen: boolean;
 	checklist: { done: ChecklistId[]; dismissed: boolean };
 }
 
 export const EMPTY_STATE: OnboardingState = {
 	done: false,
 	toured: false,
+	introSeen: false,
 	checklist: { done: [], dismissed: false },
 };
 
@@ -46,6 +49,7 @@ export function parseState(raw: unknown): OnboardingState {
 	return {
 		done: r.done === true,
 		toured: r.toured === true,
+		introSeen: r.introSeen === true,
 		checklist: { done, dismissed: c.dismissed === true },
 	};
 }
@@ -64,14 +68,6 @@ export function progress(state: OnboardingState): { done: number; total: number;
 /** The first item still to do, to highlight as "next". */
 export function nextItem(state: OnboardingState): ChecklistItem | undefined {
 	return CHECKLIST.find((c) => !state.checklist.done.includes(c.id));
-}
-
-/**
- * First run = nothing added yet and the welcome was never finished. Waits for the
- * project list to load so a returning user never flashes the welcome.
- */
-export function isFirstRun(state: OnboardingState, loaded: boolean, projectCount: number): boolean {
-	return loaded && projectCount === 0 && !state.done;
 }
 
 /** Command ids whose run completes a checklist item (palette and key presses). */

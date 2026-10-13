@@ -151,6 +151,7 @@ pub async fn term_open(
                         sh.update(|s| s.bell_until = Some(Instant::now() + BELL));
                     }
                     if let Some(win) = a.get_window("main")
+                        && crate::agent_mode::Mode::current().focus_allowed()
                         && !win.is_focused().unwrap_or(true)
                     {
                         let _ = win

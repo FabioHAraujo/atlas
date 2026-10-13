@@ -122,6 +122,10 @@ async fn conn(stream: UnixStream, app: AppHandle, token: &str) -> std::io::Resul
 async fn dispatch(app: &AppHandle, req: Value) -> Result<Value, String> {
     let cmd = req["cmd"].as_str().ok_or("missing cmd")?.to_string();
     let args = req.get("args").cloned().unwrap_or(json!({}));
+    // Native capture is answered here; scripted recordings (`capture_run`) go to the frontend.
+    if crate::capture::handles(&cmd) {
+        return crate::capture::handle(app, &cmd, &args).await;
+    }
     let wait = args["timeout_s"]
         .as_u64()
         .map(|s| Duration::from_secs(s + 5).min(MAX_WAIT))

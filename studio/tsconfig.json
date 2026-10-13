@@ -13,5 +13,6 @@
     "verbatimModuleSyntax": true,
     "lib": ["ES2023", "DOM"]
   },
-  "include": ["src", "films", "scripts"]
+  "include": ["src", "films", "scripts", "recipes"],
+  "exclude": ["recipes/**/*.test.ts"]
 }

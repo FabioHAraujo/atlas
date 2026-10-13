@@ -269,22 +269,57 @@ How it works: the popover is a second webview (`/tray`, label `tray`) created on
 | Make the real `Atlas.app` (Dock, Spotlight, `atlas desktop`) run your build | `atlas link --desktop` (debug bundle; rerun to rebuild)           |
 | Back to the release CLI and app                                             | `atlas unlink`                                                    |
 | Release bundle + dmg locally                                                | `bun run desktop:build` → `target/release/bundle/`                |
+| Debug `.app` only (agents, Studio capture; never builds a DMG)             | `bun run desktop:build:app` → `target/debug/bundle/macos/`        |
 | Typecheck the frontend                                                      | `bun run desktop:check` (also part of `bun run check`)            |
 
 While linked (or running `cargo tauri dev`), the app shows a thin amber line across the top of the window and a small **Dev** chip next to the version in Settings and in the menu-bar popover. Hovering the top edge says _Dev build X — updates paused (atlas unlink to resume)_. Both the app and `atlas update` refuse to install over your build, and no update pill or notification appears. Settings → General has an **Unlink dev build** button and copyable rebuild commands.
 
 ### Debugging a running build
 
-Debug builds (`desktop:dev` and `atlas link --desktop`) keep WebKit's context menu, so right-click → **Inspect Element** opens Web Inspector. They also run a bridge on `~/.atlas/desktop-debug.sock` that a terminal or an AI agent can use without touching the mouse or keyboard:
+Debug builds (`desktop:dev` and `atlas link --desktop`) keep WebKit's context menu, so right-click → **Inspect Element** opens Web Inspector. They also run a bridge (`~/.atlas/desktop-debug.sock`, or `$ATLAS_DEBUG_SOCK`) that a terminal or an AI agent can use without touching the mouse or keyboard. Release builds do not contain the bridge or the menu.
+
+#### Agent instances: `bun run desktop:agent`
+
+An agent that wants to look at the app must never open a window on your desktop. `atlas desktop --agent` (or `bun run desktop:agent`, which also builds the debug bundle the first time) starts an isolated instance and prints the socket to use:
 
 ```bash
-atlas desktop debug info                      # pid, URL, visible, native window id
-atlas desktop debug logs [--level csp|error|warn] [--since N]   # console, uncaught errors, CSP violations
-atlas desktop debug eval 'document.title'     # expression, or a body with `return`; awaits promises
-atlas desktop debug eval 'return await window.__TAURI_INTERNALS__.invoke("projects_list")'
-atlas desktop debug shot [/tmp/x.png]         # screencapture of the app window only
+bun run desktop:agent -- --name a1 [--scratch]
+# atlas-agent ready name=a1 pid=123 ATLAS_DEBUG_SOCK=/private/tmp/atlas-agent-a1/debug.sock
+export ATLAS_DEBUG_SOCK=/private/tmp/atlas-agent-a1/debug.sock
+atlas desktop debug state
+bun run desktop:agent -- --stop --name a1      # or --stop for all of them
 ```
 
-Logs are captured from before the page's own scripts run, so load-time errors and CSP violations show up. `desktop:dev` also prints them to the terminal as `[webview <level>] …`. Release builds do not contain the bridge or the menu.
+Each instance has its own `HOME`, `ATLAS_HOSTD_DIR` and bridge socket under `/tmp/atlas-agent-<name>/`, so agents run side by side and never touch your app, hostd or `~/.atlas`. `--scratch` copies only the files of `~/.atlas/desktop` (settings, theme, layout) into its `HOME`, never your project registry, tokens or sockets. The instance has no Dock icon or tray, never takes focus, and its window is placed on a private 2x `CGVirtualDisplay` that is not one of your monitors; the page there runs at the full 60 rAF/s because the display is never occluded. The display is retina (DPR 2); `ATLAS_AGENT_SCALE=1 bun run desktop:agent` gives a standard 1x display, to check what a non-retina user sees. Before showing the window the app reads its real frame back from AppKit and refuses unless it lies entirely on that display.
+
+```bash
+atlas desktop debug info                          # pid, URL, visible, window id, agent, socket
+atlas desktop debug state                         # projects + service states, worktrees, selection
+atlas desktop debug logs [--level csp|error|warn] [--since N]   # console, uncaught errors, CSP violations
+atlas desktop debug eval 'document.title'         # expression, or a body with `return`; awaits promises
+atlas desktop debug shot x.png [--selector css | --rect x,y,w,h | --full | --window]
+atlas desktop debug record x.mov --seconds 5 | --until '[data-intro="done"]' [--fps 30]
+atlas desktop debug wait '.ready' [--timeout ms] | wait 'window.__atlas.ws.loaded' --expr
+atlas desktop debug click 'button.go' | type 'input' 'text' [--delay ms]
+atlas desktop debug a11y [selector]               # roles, names, nesting; unnamed controls are flagged
+atlas desktop debug perf --seconds 3              # rAF/s, p50/p95/max frame ms, long tasks
+```
+
+`shot` is a `WKWebView` snapshot: no permission, retina, works with the window unfocused. `--selector` picks the first match that is visible and on screen. `click` and `type` are DOM events inside the webview, never OS input. Logs are captured from before the page's own scripts run, so load-time errors and CSP violations show up. `desktop:dev` also prints them to the terminal as `[webview <level>] …`.
+
+#### Capture and record (agents)
+
+The app records and screenshots its own windows without focusing or driving the desktop (ScreenCaptureKit inside the app; every build, local only):
+
+```bash
+atlas desktop capture shot /tmp/x.png [--mode window|snapshot] [--size WxH]
+atlas desktop capture start /tmp/x.mov [--fps 24|30|60] [--size WxH] [--cursor]   # then: atlas desktop capture stop
+atlas desktop record --script tour.json --out /tmp/rec     # video.mov + timeline.json + shots/
+bun studio run studio/recipes/tour.ts                      # recipe -> cached clip + timeline + shots
+```
+
+`snapshot` renders the page only (no permission, works occluded); `window` includes the native chrome and needs Screen Recording. Measured on macOS 26 with the user's windows covering the dev window 100 %: WebKit marks the page hidden (0 rAF/s) because AppKit clears the window's occlusion bit; none of the WebKit preferences or `_setWindowOcclusionDetectionEnabled:` changes that, only `-[NSWindow _setOcclusionStateIsVisible:]` does (30 rAF/s). `capture start` applies it for the recording and restores the real bit on stop. A window that is not key renders at 30 Hz, so the video container runs at the requested fps while page content is 30 fps; `start` reports this as `page_fps_cap`. macOS draws a "being shared" pill into the title bar of a captured window; no `SCStreamConfiguration` setting removes it (`sharingType = none` makes the frames black), so the standard window buttons are hidden for the recording.
+
+Agent instances (`ATLAS_AGENT=1`, debug builds only) have no Dock icon or tray, never take focus, and park their window on a private `CGVirtualDisplay` (2x, placed right of the user's displays, destroyed with the process). Verified: creating it leaves the user's display bounds, main display, menu bar and Spaces unchanged. `ATLAS_DEBUG_SOCK=<absolute path>` selects another instance's bridge socket.
 
 The code lives in two places: the backend is in `crates/atlas-desktop`, which reuses `atlas-tui`'s `config`, `control`, `status` and `runner`, and the frontend is in `apps/desktop` (SvelteKit SPA, `@codeatlasdev/ui`). Installs and updates always go through the CLI (`atlas update`, `atlas desktop --install`), so the terminal and the app share one download-and-replace path.

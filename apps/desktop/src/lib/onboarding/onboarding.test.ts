@@ -5,7 +5,6 @@ import {
 	CHECKLIST,
 	EMPTY_STATE,
 	complete,
-	isFirstRun,
 	itemsFromRecent,
 	nextItem,
 	parseState,
@@ -85,11 +84,16 @@ describe("checklist", () => {
 		expect(nextItem(s)).toBeUndefined();
 	});
 
-	test("first run needs a loaded empty list and no finished welcome", () => {
-		expect(isFirstRun(EMPTY_STATE, false, 0)).toBe(false);
-		expect(isFirstRun(EMPTY_STATE, true, 1)).toBe(false);
-		expect(isFirstRun({ ...EMPTY_STATE, done: true }, true, 0)).toBe(false);
-		expect(isFirstRun(EMPTY_STATE, true, 0)).toBe(true);
+	test("the intro is remembered as seen, parsed strictly, and absent means not seen", () => {
+		expect(EMPTY_STATE.introSeen).toBe(false);
+		expect(parseState({ introSeen: true }).introSeen).toBe(true);
+		for (const bad of ["yes", 1, null, undefined, {}])
+			expect(parseState({ introSeen: bad }).introSeen).toBe(false);
+		expect(parseState(undefined).introSeen).toBe(false);
+	});
+
+	test("restart (Help > start over) lets the intro play again", () => {
+		expect(parseState({ introSeen: true, done: true }).introSeen).toBe(true);
 	});
 
 	test("palette and file search complete from a newly run command only", () => {

@@ -136,7 +136,7 @@ bun studio release unreleased --as 1.1 --draft # "What's new" video from the CHA
 
 Capture and narration:
 
-- `bun studio capture app <scene>` records the **real** Atlas Desktop debug build in a separate instance (own `HOME` and `ATLAS_HOSTD_DIR`, scratch projects, window capture by id; it never sends input to your desktop). Build the debug bundle first (`atlas link --desktop` or `cargo tauri build --debug`). `bun studio capture tui <take>` runs `vhs` on `demo/demo.tape` with its output redirected into the cache.
+- `bun studio capture app <scene>` records the **real** Atlas Desktop debug build in a separate instance (own `HOME` and `ATLAS_HOSTD_DIR`, scratch projects, window capture by id; it never sends input to your desktop). Build the debug bundle first (`atlas link --desktop` or `bun run desktop:build:app`). `bun studio capture tui <take>` runs `vhs` on `demo/demo.tape` with its output redirected into the cache.
 - `bun studio voice <film>` synthesizes the narration with ElevenLabs and caches each line by a hash of its text, voice and model. Secrets come only from the environment (`ELEVENLABS_API_KEY`, `MAGNIFIC_API_KEY`), never from the repo.
 - The final mix is measured: the render fails when the integrated loudness is not within the film's tolerance of -14 LUFS.
 

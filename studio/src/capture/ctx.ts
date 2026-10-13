@@ -1,31 +1,11 @@
 // What a scene script can do to the isolated Atlas Desktop instance. Everything goes through the debug bridge
 // (`$HOME/.atlas/desktop-debug.sock`, the same JSON-lines protocol as `atlas desktop debug eval`): synthetic DOM
-// events inside the webview and calls on the live stores in `window.__atlas`. Nothing here ever sends input to the
-// operating system, so the user's own desktop is never touched.
+// events inside the webview (the app's own DOM driver, `window.__atlasCapture`, apps/desktop/src/lib/capture/dom.ts)
+// and calls on the live stores in `window.__atlas`. Nothing here ever sends input to the operating system, so the
+// user's own desktop is never touched.
 
 import type { Socket } from "bun";
 import { StudioError } from "../lib/paths.ts";
-
-/** Injected once per app instance; the scenes call it through `ctx`. Runs inside the webview. */
-const HELPERS = String.raw`
-window.__film = {
-  key(s) { // "cmd-shift-p", "ctrl-cmd-s", "alt-cmd-right", "escape", "enter"
-    const p = s.split("-"); let k = p.pop(); if (s.endsWith("--")) k = "-";
-    const named = {escape:"Escape",enter:"Enter",left:"ArrowLeft",right:"ArrowRight",up:"ArrowUp",down:"ArrowDown",tab:"Tab"};
-    const key = named[k] ?? k;
-    const ev = new KeyboardEvent("keydown", {key, code: /^[a-z]$/.test(k)?"Key"+k.toUpperCase():(/^\d$/.test(k)?"Digit"+k:key), metaKey:p.includes("cmd"), shiftKey:p.includes("shift"), ctrlKey:p.includes("ctrl"), altKey:p.includes("alt"), bubbles:true, cancelable:true});
-    (document.activeElement || document.body).dispatchEvent(ev);
-    return ev.defaultPrevented;
-  },
-  click(sel) { const e = typeof sel==="string" ? document.querySelector(sel) : sel; e?.click(); return !!e; },
-  byText(txt, tag="button,[role=menuitem],[role=option],a,div,span") { return [...document.querySelectorAll(tag)].find(e => e.textContent.trim() === txt && e.offsetParent !== null); },
-  // timer-driven, not requestAnimationFrame: the isolated instance is never frontmost and WebKit throttles rAF for background windows
-  smooth(sel, to, ms) { return new Promise(res => { const el = document.querySelector(sel); const from = el.scrollTop; const t0 = performance.now(); const ease = t => t<.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; const id = setInterval(() => { const t = Math.min(1,(performance.now()-t0)/ms); el.scrollTop = from + (to-from)*ease(t); if (t >= 1) { clearInterval(id); res(el.scrollTop); } }, 16); }); },
-  async typeInto(sel, text, delay=90) { const el = document.querySelector(sel); el.focus(); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set; for (const ch of text) { setter.call(el, el.value + ch); el.dispatchEvent(new InputEvent("input",{bubbles:true,data:ch,inputType:"insertText"})); await new Promise(r=>setTimeout(r,delay)); } return el.value; },
-  clear(sel) { const el=document.querySelector(sel); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,""); el.dispatchEvent(new InputEvent("input",{bubbles:true})); },
-};
-return 1;
-`;
 
 /** One reply line of the debug bridge (crates/atlas-desktop/src/debug.rs). */
 interface BridgeReply {
@@ -146,8 +126,6 @@ export async function makeCtx(home: string, env: SceneEnv): Promise<{ ctx: Ctx; 
 		const result: T = await bridge.request({ cmd: "eval", js }); // the scene states what its JS returns
 		return result;
 	};
-	await ev(HELPERS);
-
 	const wt = (project: string, name?: string) =>
 		`(() => { const a = window.__atlas; const repo = a.store.projects.find(p => !p.parent && p.name === ${JSON.stringify(project)}); if (!repo) throw new Error("no project ${project}");
 		  return a.ws.doc.worktrees.find(w => w.repoId === repo.id && (${JSON.stringify(name ?? null)} === null ? w.isMain : (w.name === ${JSON.stringify(name)} || w.branch.endsWith(${JSON.stringify(name)})))); })()`;
@@ -156,22 +134,22 @@ export async function makeCtx(home: string, env: SceneEnv): Promise<{ ctx: Ctx; 
 		eval: ev,
 		sleep,
 		async key(combo) {
-			await ev(`return window.__film.key(${JSON.stringify(combo)})`);
+			await ev(`return window.__atlasCapture.pressKey(${JSON.stringify(combo)})`);
 		},
 		async typeInto(selector, text, delayMs = 90) {
-			await ev(`return await window.__film.typeInto(${JSON.stringify(selector)}, ${JSON.stringify(text)}, ${delayMs})`);
+			await ev(`return await window.__atlasCapture.typeInto(${JSON.stringify(selector)}, ${JSON.stringify(text)}, ${delayMs})`);
 		},
 		async clearInput(selector) {
-			await ev(`window.__film.clear(${JSON.stringify(selector)}); return 1`);
+			await ev(`const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, ""); el.dispatchEvent(new InputEvent("input", { bubbles: true })); return 1`);
 		},
-		click: (selector) => ev<boolean>(`return window.__film.click(${JSON.stringify(selector)})`),
-		clickText: (text) => ev<boolean>(`return window.__film.click(window.__film.byText(${JSON.stringify(text)}) ?? null)`),
+		click: (selector) => ev<boolean>(`return window.__atlasCapture.clickBySelector(${JSON.stringify(selector)})`),
+		clickText: (text) => ev<boolean>(`return window.__atlasCapture.clickByText(${JSON.stringify(text)})`),
 		async view(view) {
 			await ev(`window.__atlas.ws.view = ${JSON.stringify(view)}; return 1`);
 			await sleep(400);
 		},
 		async smoothScroll(selector, top, ms) {
-			await ev(`return await window.__film.smooth(${JSON.stringify(selector)}, ${top}, ${ms})`);
+			await ev(`return await window.__atlasCapture.smoothScroll(${JSON.stringify(selector)}, ${top}, ${ms}, window.__atlasCapture.easeInOutCubic)`);
 		},
 		async sidebar(state) {
 			const hidden = await ev<boolean>(`return document.querySelector(".sidebar-slot").classList.contains("hidden")`);

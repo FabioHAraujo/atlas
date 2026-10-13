@@ -1,5 +1,5 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
-import { expect, mock, test } from "bun:test";
+import { afterAll, expect, mock, test } from "bun:test";
 
 mock.module("@tauri-apps/api/core", () => ({ invoke: async () => null }));
 mock.module("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
@@ -8,10 +8,14 @@ mock.module("#lib/api.ts", () => ({ errText: String }));
 mock.module("#lib/host.ts", () => ({
 	host: { ptyKill: async () => {}, ptyList: async () => [], ptyCreate: async () => ({ pty: "p1" }) },
 }));
+// Stubs live only for this file: bun runs every test file in one process, so leaking the stub `document`
+// broke every DOM suite that ran after this one (see test/dom-isolation.test.ts).
+const saved = { document: globalThis.document, $state: globalThis.$state, $effect: globalThis.$effect };
 globalThis.document = { hasFocus: () => true };
 // Runes are compiled by Svelte; plain objects are enough for the rules under test.
 globalThis.$state = (v) => v;
 globalThis.$effect = Object.assign(() => {}, { root: (f) => f() });
+afterAll(() => Object.assign(globalThis, saved));
 
 const { ws } = await import("./workspace.svelte.ts");
 

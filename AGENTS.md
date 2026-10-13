@@ -14,22 +14,43 @@ Rust workspace (`crates/*`: `atlas-cli` = the `atlas` binary, `atlas-tui` = runt
 ## Deploying a local build
 
 - CLI: `cargo build -p atlas-cli && codesign -f -s - target/debug/atlas && cp target/debug/atlas ~/.atlas/bin/atlas`, or `atlas link` (symlink). Verify with `strings ~/.atlas/bin/atlas | grep <version>`.
-- Desktop (macOS only): `atlas link --desktop` (debug bundle at `/Applications/Atlas.app`), `bun run desktop:dev` (hot reload), `atlas unlink` to go back.
+- Desktop (macOS only): `atlas link --desktop` (debug bundle at `/Applications/Atlas.app`), `bun run desktop:dev` (hot reload), `bun run desktop:build:app` (debug `.app` only; never use `desktop:build -- --debug`, its DMG step mounts an image and opens Finder), `atlas unlink` to go back.
 
-## Debugging Atlas Desktop (no mouse/keyboard)
+## Debugging Atlas Desktop (agents: `desktop:agent`)
 
-Debug builds run a bridge on `~/.atlas/desktop-debug.sock` (`crates/atlas-desktop/src/debug.rs`, never in release builds):
+**An agent never shows an Atlas window on the user's desktop, takes his focus, or sends input to it.** Not for a screenshot, not for a recording, not "just for a second". Start your own instance:
 
 ```bash
-atlas desktop debug info                         # pid, URL, visible, window id
-atlas desktop debug logs [--level csp|error]     # console, uncaught errors, CSP violations
-atlas desktop debug eval 'return await window.__TAURI_INTERNALS__.invoke("projects_list")'
-atlas desktop debug shot /tmp/x.png              # window capture by the CLI
+bun run desktop:agent                    # builds the debug app (`bun run desktop:build:app`: `.app` only, never a DMG, which would open Finder on the user's screen) + CLI the first time; same as `atlas desktop --agent`
+# atlas-agent ready name=a1 pid=123 ATLAS_DEBUG_SOCK=/private/tmp/atlas-agent-a1/debug.sock
+export ATLAS_DEBUG_SOCK=/private/tmp/atlas-agent-a1/debug.sock     # every `atlas desktop debug …` below talks to THIS instance
+bun run desktop:agent -- --name pdf --scratch   # own name; --scratch seeds HOME with his desktop settings (never projects/tokens)
+bun run desktop:agent -- --stop --name a1       # stop one; --stop alone stops every agent instance
 ```
 
-Debug builds also expose the live stores as `window.__atlas` (`ws`, `store`, `agents`, `worktrees`, `api`, `host`); use them from `debug eval` instead of `import()`, which creates separate module instances. With the app open, `atlas wt|term|browser|file` drive it over `~/.atlas/desktop.sock` in every build.
+Each instance has its own `HOME`, `ATLAS_HOSTD_DIR` and bridge socket under `/tmp/atlas-agent-<name>/`, so any number of agents run side by side and none touches the user's app, hostd or `~/.atlas`. It runs with `ATLAS_AGENT=1` (debug builds only; a release app ignores it): no Dock icon or tray (`Prohibited` activation policy), never frontmost, and its window sits on a private 2x virtual display (`CGVirtualDisplay`, placed right of his monitors, destroyed with the process; `agent_mode.rs`, `display_mac.rs`, `agent_display.rs`). That display is never occluded, so the page runs at the full 60 rAF/s and ScreenCaptureKit can record it. It is retina (DPR 2); `ATLAS_AGENT_SCALE=1` gives a 1x display. Before the window is shown, code reads its real frame back from AppKit and refuses to show it unless it is wholly on that display (`agent_mode::safe_to_show`); if the display cannot be made the window stays hidden.
 
-Check CSP and IPC on the **bundled** build (`tauri://localhost`), not only on Vite. Never send synthetic input to the user's desktop.
+The bridge (`crates/atlas-desktop/src/debug.rs`, `debug_req.rs` validates every request; page side `apps/desktop/src/lib/debug/agent.ts` = `window.__atlasDebug`). Everything works while the window is unfocused or hidden-behind, and `click`/`type` are DOM events inside the webview, never OS input:
+
+```bash
+atlas desktop debug info                                  # pid, url, visible, window id, agent: true, socket
+atlas desktop debug state                                 # projects + service states, worktrees, selection
+atlas desktop debug eval 'return await window.__TAURI_INTERNALS__.invoke("projects_list")'
+atlas desktop debug logs [--level csp|error] [--since N]  # console, uncaught errors, CSP violations
+atlas desktop debug shot /tmp/x.png                       # page snapshot (WKWebView.takeSnapshot, retina, no permission)
+atlas desktop debug shot /tmp/x.png --selector 'aside.sidebar'   # one element (first VISIBLE match); also --rect x,y,w,h (CSS px)
+atlas desktop debug shot /tmp/x.png --full                # the whole scrollable page/element (view grows for the shot)
+atlas desktop debug shot /tmp/x.png --window              # native window as the compositor shows it (Screen Recording permission)
+atlas desktop debug record /tmp/x.mov --seconds 5 | --until '[data-intro="done"]' [--fps 30]
+atlas desktop debug wait '.ready' [--timeout ms] | wait 'window.__atlas.ws.loaded' --expr
+atlas desktop debug click 'button.go' | type 'input' 'text' [--delay ms]
+atlas desktop debug a11y [selector]                       # roles, names, nesting; a control without a name is flagged
+atlas desktop debug perf --seconds 3                      # rAF/s, p50/p95/max frame ms, long tasks
+```
+
+Debug builds also expose the live stores as `window.__atlas` (`ws`, `store`, `agents`, `worktrees`, `api`, `host`); use them from `debug eval` instead of `import()`, which creates separate module instances. Scripted recordings: `atlas desktop record --script`, `bun studio run <recipe>` (they start their own agent instance). The user's own app, when open, is driven by `atlas wt|term|browser|file` over `~/.atlas/desktop.sock` in every build; a bare `atlas desktop debug …` without `ATLAS_DEBUG_SOCK` talks to a debug build of HIS app: do not do that.
+
+Prove you did not touch his screen when it matters: list the windows of your pid with `CGWindowListCopyWindowInfo` and check none is on-screen inside a non-virtual display. Check CSP and IPC on the **bundled** build (`tauri://localhost`), not only on Vite.
 
 ## Runtime rules that bit before
 

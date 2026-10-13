@@ -835,4 +835,43 @@ mod tests {
             ]
         );
     }
+
+    /// Studio records onboarding in a scratch HOME so "found on this Mac" never lists the user's real projects.
+    /// A decoy "real home" with a project sits next to the scratch HOME; the walk over the scratch HOME's default
+    /// roots must report only the scratch project, and Spotlight (real `mdfind`, scoped by `-onlyin`) nothing outside it.
+    #[test]
+    fn discovery_in_a_scratch_home_finds_its_own_projects_and_never_the_real_homes() {
+        let base = tempfile::tempdir().unwrap();
+        let base = base.path().canonicalize().unwrap();
+        let (real, scratch) = (base.join("real-home"), base.join("scratch-home"));
+        for (home, name) in [(&real, "secret"), (&scratch, "mine")] {
+            let dir = home.join("Projetos").join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("atlas.yaml"), format!("name: {name}\n")).unwrap();
+        }
+
+        let opts = ScanOpts {
+            roots: canonical_roots(default_roots(&scratch, &[])),
+            max_depth: DEFAULT_DEPTH,
+            candidates: false,
+        };
+        let mut found = Vec::new();
+        scan(&opts, &AtomicBool::new(false), &mut |ev| {
+            if let Event::Found(f) = ev {
+                found.push(f.name);
+            }
+        });
+        assert_eq!(
+            found,
+            ["mine"],
+            "the scratch HOME's own project, and only that"
+        );
+
+        for dir in spotlight(&scratch, Duration::from_secs(10)) {
+            assert!(
+                dir.starts_with(&scratch),
+                "{dir:?} is outside the scratch HOME"
+            );
+        }
+    }
 }

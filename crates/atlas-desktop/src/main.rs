@@ -1,12 +1,18 @@
 //! Atlas Desktop: native client of the `atlas dev` runners.
 
 mod agent;
+mod agent_mode;
 mod boot;
 mod browser;
+mod capture;
 mod cmds;
 mod ctl;
 #[cfg(debug_assertions)]
 mod debug;
+#[cfg(debug_assertions)]
+mod debug_req;
+#[cfg(target_os = "macos")]
+mod display_mac;
 mod git;
 mod host;
 mod live;
@@ -28,6 +34,10 @@ mod worktree;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
+/// The virtual display an agent instance lives on, and how its window gets there.
+#[cfg(target_os = "macos")]
+mod agent_display;
+
 /// CGWindowID of a window (`screencapture -l`).
 #[cfg(target_os = "macos")]
 pub fn window_number<R: tauri::Runtime>(win: &tauri::Window<R>) -> Option<isize> {
@@ -42,12 +52,20 @@ pub fn window_number<R: tauri::Runtime>(_: &tauri::Window<R>) -> Option<isize> {
     None
 }
 
+/// Show the main window. An agent instance (`agent_mode`) puts it on its private virtual display and shows it
+/// WITHOUT activating the app: never on the user's monitors, never focus.
 fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_window("main") {
+    let Some(w) = app.get_window("main") else {
+        return;
+    };
+    if agent_mode::Mode::current().focus_allowed() {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        return;
     }
+    #[cfg(target_os = "macos")]
+    agent_display::park_and_show(app, &w);
 }
 
 /// App IPC commands; debug builds append the bridge's commands.
@@ -145,6 +163,7 @@ macro_rules! handlers {
             browser::browser_pick,
             browser::browser_pick_cancel,
             browser::window_region_png,
+            capture::capture_cmd,
             term::term_open,
             term::term_bounds,
             term::term_close,
@@ -198,6 +217,10 @@ macro_rules! handlers {
 /// window-state restores the last position, which can belong to a monitor that is
 /// no longer connected; the window then "opens" invisibly. Center it instead.
 fn recenter_if_offscreen(win: &tauri::Window) {
+    // An agent instance is parked on its virtual display by `show_main`; centering would move it onto the user's.
+    if !agent_mode::Mode::current().focus_allowed() {
+        return;
+    }
     let (Ok(pos), Ok(size), Ok(monitors)) = (
         win.outer_position(),
         win.outer_size(),
@@ -273,6 +296,12 @@ fn main() {
         )
         .setup(|app| {
             boot::mark("setup:begin");
+            // An agent instance is invisible to the user: no Dock icon, never frontmost (agent_mode.rs).
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(match agent_mode::Mode::current().policy() {
+                agent_mode::Policy::Regular => tauri::ActivationPolicy::Regular,
+                agent_mode::Policy::Prohibited => tauri::ActivationPolicy::Prohibited,
+            });
             // First: WebKit's WebContent process spawns while the rest of setup runs. Nothing can
             // reach managed state before `setup` returns (the page's scripts need the event loop).
             create_main_window(app)?;
@@ -288,6 +317,7 @@ fn main() {
             host::start(&handle);
             app.manage(std::sync::Arc::new(agent::hooks::AgentHub::default()));
             agent::hooks::start(&handle);
+            app.manage(std::sync::Arc::new(capture::Capture::default()));
             app.manage(std::sync::Arc::new(ctl::Ctl::default()));
             ctl::start(&handle);
             app.manage(std::sync::Arc::new(remote::Remotes::default()));
@@ -308,7 +338,9 @@ fn main() {
                 );
             }
 
-            tray::start(&handle)?;
+            if agent_mode::Mode::current().tray_allowed() {
+                tray::start(&handle)?;
+            }
             boot::mark("setup:end");
             Ok(())
         })

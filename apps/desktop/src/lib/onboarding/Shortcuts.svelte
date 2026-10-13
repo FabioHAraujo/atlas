@@ -18,7 +18,7 @@
 </script>
 
 <Dialog bind:open={onboarding.helpOpen} size="lg" title="Keyboard shortcuts">
-	<div class="sheet">
+	<div class="sheet" data-testid="shortcuts-sheet">
 		<label class="search">
 			<Search size={13} />
 			<input bind:this={input} bind:value={query} placeholder="Search shortcuts" spellcheck="false" />

@@ -7,8 +7,8 @@
 			"film": "loops"
 		},
 		"film-poster.jpg": {
-			"sha256": "2663e9ab52d52300d911ed46afe90fed8edb4108a368eea0aa104f9d3278deb4",
-			"bytes": 154810,
+			"sha256": "48fcaed29b6be76875909e9758e38c9d2fa21c17803222dc4aaf3c856b29d3d2",
+			"bytes": 156799,
 			"film": "atlas-1-0",
 			"buildHash": "d22c6ad0511902ca"
 		},
@@ -25,8 +25,8 @@
 			"buildHash": "d22c6ad0511902ca"
 		},
 		"film-vertical-poster.jpg": {
-			"sha256": "139e16a40651005a20b71ab14f88fa1c92a92c246993b17b9754b60a7dab2443",
-			"bytes": 410567,
+			"sha256": "314ecaa75c37933efbb83784d3036ba6508fc038846d3cee692730559537ab3e",
+			"bytes": 419862,
 			"film": "atlas-1-0",
 			"buildHash": "e750e984d67b0477"
 		},

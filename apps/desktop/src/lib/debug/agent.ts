@@ -1,0 +1,271 @@
+/**
+ * The page side of the agent debug bridge (`atlas desktop debug …`): wait, click, type, accessibility tree, perf,
+ * element rects and a store summary. Everything is DOM events and reads inside the webview, never OS input, so it
+ * works while the window is behind others, unfocused or on a virtual display, and never touches the user's mouse,
+ * keyboard or focus. Debug builds expose it as `window.__atlasDebug` (shell/session.svelte.ts).
+ */
+
+import { typeInto } from "../capture/dom.ts";
+
+export interface Clock {
+	now(): number;
+	sleep(ms: number): Promise<void>;
+}
+const realClock: Clock = {
+	now: () => Date.now(),
+	sleep: (ms) => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, ms);
+		return promise;
+	},
+};
+
+const visible = (e: Element) => (e as HTMLElement).offsetParent !== null;
+
+/**
+ * The element a selector means to an agent: the first match that is visible and, when a `view` is given, on screen
+ * (a slid-out panel has layout but sits at x=-260). The DOM often holds hidden or off-screen copies first.
+ */
+function target(selector: string, view?: { w: number; h: number }): Element {
+	const all = [...document.querySelectorAll(selector)];
+	if (all.length === 0) throw new Error(`no element matches ${selector}`);
+	const shown = all.filter(visible);
+	if (shown.length === 0) throw new Error(`${selector} is not visible`);
+	if (!view) return shown[0]!;
+	const onScreen = shown.find((e) => {
+		const r = e.getBoundingClientRect();
+		return r.x < view.w && r.x + r.width > 0 && r.y < view.h && r.y + r.height > 0;
+	});
+	if (!onScreen) {
+		const r = shown[0]!.getBoundingClientRect();
+		throw new Error(
+			`${selector} is outside the viewport (x=${Math.round(r.x)} y=${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)})`,
+		);
+	}
+	return onScreen;
+}
+
+/**
+ * Poll until `selector` matches a visible element, or `expr` (a JS expression) is truthy. Rejects on timeout, saying
+ * what was awaited. `evalExpr` is the expression evaluator (the real one is `new Function`, injected in tests).
+ */
+export async function waitFor(
+	what: { selector?: string | null; expr?: string | null },
+	o: { timeoutMs: number; pollMs: number },
+	clock: Clock = realClock,
+	evalExpr: (src: string) => unknown = (src) => new Function(`return (${src})`)(),
+): Promise<{ ok: true; ms: number }> {
+	// The bridge sends JSON: the one not given is `null`, not absent.
+	if ((what.selector == null) === (what.expr == null))
+		throw new Error("wait needs exactly one of selector or expr");
+	const t0 = clock.now();
+	for (;;) {
+		const hit = what.selector
+			? [...document.querySelectorAll(what.selector)].some(visible)
+			: !!(await evalExpr(what.expr!));
+		const ms = clock.now() - t0;
+		if (hit) return { ok: true, ms };
+		if (ms >= o.timeoutMs)
+			throw new Error(
+				`timed out after ${o.timeoutMs} ms waiting for ${what.selector ? `selector ${what.selector}` : `expression ${what.expr}`}`,
+			);
+		await clock.sleep(o.pollMs);
+	}
+}
+
+export type Click = { clicked: true; tag: string; text: string } | { clicked: false; reason: string };
+
+export function clickTarget(selector: string): Click {
+	const all = [...document.querySelectorAll<HTMLElement>(selector)];
+	if (all.length === 0) return { clicked: false, reason: `no element matches ${selector}` };
+	const el = all.find(visible);
+	if (!el) return { clicked: false, reason: `${selector} is not visible` };
+	el.click();
+	return { clicked: true, tag: el.tagName.toLowerCase(), text: (el.textContent ?? "").trim().slice(0, 80) };
+}
+
+/** Types into the visible field at `selector`; returns the field's value afterwards. */
+export const typeTarget = (selector: string, text: string, delayMs: number) =>
+	typeInto(selector, text, delayMs);
+
+export interface A11yNode {
+	role: string;
+	name?: string;
+	problem?: string;
+	children?: A11yNode[];
+}
+
+const IMPLICIT_ROLE: Record<string, string> = {
+	main: "main",
+	nav: "navigation",
+	header: "banner",
+	footer: "contentinfo",
+	aside: "complementary",
+	h1: "heading",
+	h2: "heading",
+	h3: "heading",
+	h4: "heading",
+	h5: "heading",
+	h6: "heading",
+	button: "button",
+	a: "link",
+	ul: "list",
+	ol: "list",
+	li: "listitem",
+	input: "textbox",
+	textarea: "textbox",
+	select: "combobox",
+	img: "img",
+	table: "table",
+	dialog: "dialog",
+};
+
+function nameOf(el: Element): string {
+	return (
+		el.getAttribute("aria-label") ??
+		el.getAttribute("title") ??
+		el.getAttribute("alt") ??
+		(el.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 80)
+	);
+}
+
+/**
+ * The accessibility tree an assistive technology would walk: elements with a role (explicit or implicit), their
+ * accessible name, nesting preserved; `aria-hidden` subtrees and role-less wrappers are dropped (their children are
+ * hoisted). A control without a name carries a `problem`: the structural bug a screenshot cannot show.
+ */
+export function a11yTree(root: Element): A11yNode[] {
+	const out: A11yNode[] = [];
+	for (const el of root.children) {
+		if (el.getAttribute("aria-hidden") === "true") continue;
+		const role = el.getAttribute("role") ?? IMPLICIT_ROLE[el.tagName.toLowerCase()];
+		const children = a11yTree(el);
+		if (!role) {
+			out.push(...children);
+			continue;
+		}
+		const node: A11yNode = { role };
+		const name = nameOf(el);
+		if (name && role !== "list") node.name = name;
+		if ((role === "button" || role === "link") && !name) node.problem = `${role} has no accessible name`;
+		if (children.length) node.children = children;
+		out.push(node);
+	}
+	return out;
+}
+
+export interface ShotRect {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	scale: number;
+}
+
+/** The element's rect in CSS px, clipped to the viewport, for a native element snapshot. */
+export function elementShotRect(selector: string, view: { w: number; h: number; scale: number }): ShotRect {
+	const r = target(selector, view).getBoundingClientRect();
+	const x = Math.max(0, r.x);
+	const y = Math.max(0, r.y);
+	const width = Math.min(r.x + r.width, view.w) - x;
+	const height = Math.min(r.y + r.height, view.h) - y;
+	if (width <= 0 || height <= 0) throw new Error(`${selector} is outside the viewport`);
+	return { x, y, width, height, scale: view.scale };
+}
+
+/** Longest side of a `--full` snapshot in CSS px: a runaway list must not exhaust memory. */
+export const MAX_FULL_SIDE = 16384;
+
+/**
+ * The size of the whole scrollable content of `selector` (the document when omitted), in CSS px: what `--full`
+ * needs the view to be so one snapshot shows everything, capped at {@link MAX_FULL_SIDE}.
+ */
+export function fullShotSize(selector: string | undefined, view: { w: number; h: number }) {
+	const el = selector ? target(selector, { w: view.w, h: view.h }) : document.documentElement;
+	const box = el.getBoundingClientRect();
+	return {
+		width: Math.min(MAX_FULL_SIDE, Math.ceil(Math.max(el.scrollWidth, selector ? box.width : view.w))),
+		height: Math.min(MAX_FULL_SIDE, Math.ceil(Math.max(el.scrollHeight, selector ? box.height : view.h))),
+	};
+}
+
+interface Stores {
+	ws?: {
+		loaded?: boolean;
+		doc?: { worktrees?: { id: string; name: string }[]; selected?: string | null };
+	};
+	store?: {
+		loaded?: boolean;
+		projects?: { id: string; name: string; root: string }[];
+		selected?: string | null;
+		live?: Record<string, { services?: { name: string; state: string }[] }>;
+	};
+}
+
+/** What the app is doing, compactly: projects with their services' states, worktrees, and the selection. */
+export function stateSummary(s: Stores) {
+	const selected: Record<string, string | undefined> = {};
+	if (s.ws?.doc?.selected) selected.worktree = s.ws.doc.selected;
+	if (s.store?.selected) selected.project = s.store.selected;
+	return {
+		loaded: { ws: !!s.ws?.loaded, store: !!s.store?.loaded },
+		projects: (s.store?.projects ?? []).map((p) => ({
+			id: p.id,
+			name: p.name,
+			root: p.root,
+			services: Object.fromEntries((s.store?.live?.[p.id]?.services ?? []).map((x) => [x.name, x.state])),
+		})),
+		worktrees: (s.ws?.doc?.worktrees ?? []).map((w) => ({ id: w.id, name: w.name })),
+		selected,
+	};
+}
+
+/** Frame times and long tasks since `start()`: the numbers behind "it feels janky". */
+export function perfRecorder() {
+	const frames: number[] = [];
+	const longTasks: { start: number; ms: number }[] = [];
+	let raf = 0;
+	let last = 0;
+	let obs: PerformanceObserver | undefined;
+	return {
+		start() {
+			last = performance.now();
+			const tick = (t: number) => {
+				frames.push(t - last);
+				last = t;
+				raf = requestAnimationFrame(tick);
+			};
+			raf = requestAnimationFrame(tick);
+			try {
+				obs = new PerformanceObserver((l) => {
+					for (const e of l.getEntries())
+						longTasks.push({ start: Math.round(e.startTime), ms: Math.round(e.duration) });
+				});
+				obs.observe({ entryTypes: ["longtask"] });
+			} catch {
+				// longtask entries are not available in every WebKit; frames are still measured
+			}
+		},
+		stop() {
+			cancelAnimationFrame(raf);
+			obs?.disconnect();
+			return perfReport(frames.slice(1), longTasks, document.visibilityState);
+		},
+	};
+}
+
+/** Pure: summarise frame gaps (ms). A page that never painted reports `fps: 0`, not NaN. */
+export function perfReport(gaps: number[], longTasks: { start: number; ms: number }[], visibility: string) {
+	const sorted = [...gaps].sort((a, b) => a - b);
+	const pick = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
+	const total = gaps.reduce((a, b) => a + b, 0);
+	return {
+		visibility,
+		frames: gaps.length,
+		fps: total > 0 ? Math.round((gaps.length * 1000 * 10) / total) / 10 : 0,
+		p50_ms: Math.round(pick(0.5)),
+		p95_ms: Math.round(pick(0.95)),
+		max_ms: Math.round(sorted.at(-1) ?? 0),
+		long_tasks: longTasks,
+	};
+}

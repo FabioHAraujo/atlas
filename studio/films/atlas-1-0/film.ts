@@ -6,9 +6,17 @@ import type { AppClipScene, Chapter, Cut, Film, NarrationLine, Scene, TerminalSc
 
 // ---- 16:9 -------------------------------------------------------------------------------------------------------
 
-/** Window recordings are 2560x1640 (2x of the window); the top 40 px are the title bar. */
-const APP_CROP = { x: 0, y: 40, w: 2560, h: 1600 };
-const APP_BOX = { x: "center", y: "center", w: 1520, h: 950 } as const;
+/**
+ * Window recordings are 2560x1640 (2x of the window) and already contain the whole window: its bezel, rounded
+ * corners and, at the top, the titlebar with the controls pill (y 20-70). The 1.0 film cropped `y: 40`, which sliced
+ * that pill and shipped a poster/README hero with the window's top cut. Never crop the window: use the full frame,
+ * and give the box headroom (`bun studio lint` requires >= 3% of the short side on every side).
+ */
+const APP_CROP = { x: 0, y: 0, w: 2560, h: 1640 };
+/** 1520 wide at the recording's aspect is 974 high: 53 px of headroom above and below in a 1080 frame (4.9%). */
+const APP_BOX = { x: "center", y: "center", w: 1520, h: 974 } as const;
+/** The window's own corner radius is ~28 px at 2x; at the 1520/2560 scale that is ~17 px. */
+const APP_RADIUS = 17;
 
 /** Section card: headline and subtitle centered over a still of the field, 1.7 s. */
 const card = (id: string, bg: string, title: string, subtitle: string, titleSize = 104, y = 440): TitleScene => ({
@@ -29,6 +37,7 @@ const app = (id: string, clip: string, from: number, duration: number): AppClipS
 	bg: "a",
 	crop: APP_CROP,
 	box: APP_BOX,
+	radius: APP_RADIUS,
 });
 
 const tui: TerminalScene = {
@@ -160,7 +169,8 @@ const chapters169: Chapter[] = [
 
 // ---- 9:16 -------------------------------------------------------------------------------------------------------
 
-const V_BOX = { x: "center", y: 700, w: 1040 } as const;
+/** 1000 of 1080 px: 40 px (3.7%) of margin per side; `bun studio lint` requires >= 3% of the short side. */
+const V_BOX = { x: "center", y: 700, w: 1000 } as const;
 
 /** Clip over the vertical field with the headline over it: six 5 s beats. */
 const vApp = (id: string, clip: string, from: number, title: string, subtitle: string, titleSize: number, y: number, subSize = 48): AppClipScene => ({
@@ -172,6 +182,7 @@ const vApp = (id: string, clip: string, from: number, title: string, subtitle: s
 	bg: "v",
 	crop: APP_CROP,
 	box: V_BOX,
+	radius: 12,
 	overlay: { title, subtitle, y, titleSize, subtitleSize: subSize },
 });
 
@@ -182,7 +193,7 @@ const scenes916: Scene[] = [
 		type: "terminal",
 		take: "take:tui",
 		segments: [[19.0, 24.0]],
-		width: 1040,
+		width: 1000,
 		y: 700,
 		duration: 5,
 		bg: "v",

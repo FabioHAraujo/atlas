@@ -13,7 +13,8 @@ studio/
     render.ts              compile -> `hyperframes check` -> render -> mix -> mux -> webm/vtt/poster/sprite
     audio/voice.ts         ElevenLabs TTS cached by text hash;  audio/mix.ts  ducking + MEASURED loudness assert
     capture/               `capture app|tui`: the real app (isolated instance) and the vhs take
-    publish.ts release.ts preview.ts check.ts cli.ts
+    lint/                    the "video LSP": checks on images/videos (see "Lint" below)
+  publish.ts release.ts still.ts preview.ts check.ts cli.ts
   assets/                  fonts (the site's own, OFL), logo.svg
   clips/library.json       tagged recordings that release videos pick from
   .cache/ .build/ out/     gitignored: manifest + takes + proxies, compiled projects, renders
@@ -23,13 +24,15 @@ studio/
 
 | Command | What |
 |---|---|
-| `bun studio check` | **The gate for studio changes.** tsc, brand tokens vs the site CSS, film data, a 1 s-per-scene smoke render of every cut (real compile + HyperFrames lint + render), and a determinism check. ~1-2 min. |
+| `bun studio check` | **The gate for studio changes.** tsc, brand tokens vs the site CSS, film data, a 1 s-per-scene smoke render of every cut (real compile + HyperFrames lint + render), and a determinism check, and a media lint of the published files (errors fail). ~1-2 min. |
 | `bun studio preview <film> [--aspect 9:16] [--open]` | Compiles, serves HyperFrames Studio on :3002, rebuilds on save of film.ts / scenes / brand. |
 | `bun studio render <film> [--aspect …] [--draft]` | Full render to `studio/out/<film>/` (mp4, webm, vtt, poster, scrub sprite, `*.report.json` with measured duration/LUFS/hashes). `--draft` is a fast low-quality silent-quality pass. |
 | `bun studio voice <film> [--offline] [--models]` | Synthesize narration. Cached by hash of (line id, voice, model, settings, text); only changed lines hit the API. `--models` lists the account's TTS models (the film pins `model`; bump it deliberately). |
 | `bun studio capture app <scene>` / `tui <take>` / `list` | Record the real app or the vhs take into `.cache/` and register it (sha256) in `.cache/manifest.json`. |
 | `bun studio assets [list\|verify\|import <dir>]` | Inspect or verify the manifest; `import` seeds it from the 1.0 working dir. |
-| `bun studio publish <film> [--release vX.Y.Z]` | Copy renders into `site/public/media/`, write `manifest.json` (content hashes) and `film-chapters.json`; `--release` also `gh release upload`s the mp4/webm. |
+| `bun studio publish <film> [--release vX.Y.Z] [--stills]` | Lints the render first and **refuses on errors**, then copies renders into `site/public/media/`, writes `manifest.json` (content hashes) and `film-chapters.json`; `--release` also `gh release upload`s the mp4/webm. `--stills` publishes only the posters (and their manifest entries). |
+| `bun studio still <film> [--aspect …] [--at s] [--out f]` | Re-render ONE still (the cut's poster by default): renders only the scene the time falls in, lints the frame, writes `out/<film>/<cut>-poster.jpg`. Refreshing a poster never needs a film render. |
+| `bun studio lint <film\|file\|dir> [--profile p] [--json] [--ref f] [--fast] [--strict]` | The video LSP. Exit 1 on any error. `--json` prints diagnostics for agents. |
 | `bun studio release <version\|unreleased> [--as 1.1] [--voice] [--aspect …] [--draft]` | "What's new" video (16:9 + 9:16) from the CHANGELOG.md section. |
 
 ## Add a scene to a film
@@ -57,6 +60,25 @@ Add the type to `src/lib/types.ts` (`Scene` union), a builder `src/scenes/<type>
 - Text must fit its box: use `max-width`/wrapping, never `<br>` in body text.
 - Fonts are the site's own files in `assets/fonts` (copied into each project). Brand tokens are in `src/brand/tokens.ts`; `check` fails if they drift from `site/src/styles/global.css`.
 
+## Lint: the video LSP (`src/lint/`)
+
+`bun studio lint` checks the *output*, not the film data: pictures and rendered videos. Every finding is a diagnostic with `severity`, a stable `code`, a pixel `rect` or a `range` in seconds, `measured`/`limit`, and a `fix` (`action` + `params`) an agent can apply. `bun studio lint <file> --json` is the contract; `publish` and `still` refuse files with errors, and `check` fails if a published file has any.
+
+| Code | What it catches |
+|---|---|
+| `frame/edge-clipped` | the subject (an app window) is closer than 3% of the short side to a frame edge |
+| `frame/window-cropped` | structure crosses the top/bottom edge of the subject: the window was cut by a crop (the cover/README defect: `crop y:40` sliced the titlebar) |
+| `safe-area/text-overlaps-ui` | authored text inside a platform UI zone (Reels/TikTok/Shorts) |
+| `text/too-small`, `text/low-contrast` | authored text under the profile's legible size / WCAG contrast (OCR: tesseract if installed, else a macOS Vision helper `native/vision.swift`) |
+| `video/black-frames`, `video/frozen-frames`, `video/flashing` | black in the middle, a stalled picture, > 3 flashes/s (BT.1702/Harding) |
+| `audio/loudness`, `audio/true-peak`, `audio/clipping` | integrated LUFS vs the profile, peak above -1 dBTP, clipped samples |
+| `spec/aspect|resolution|duration|codec|bitrate|keyframe-interval` | the file against its profile |
+| `quality/vmaf` | with `--ref`, a re-encode that is visibly worse than its reference |
+
+Profiles (`lint/profiles.ts`): `site`, `site-film`, `site-loop`, `site-sibling`, `social-vertical`, `social-square`, `social-landscape`, `still`. Default by file name and shape; override with `--profile`. `captured` profiles (loops, webm siblings) skip text rules: the typography is the real app's.
+
+Two rules authors hit: **never crop the window of a recording** (use the full frame; the window's own bezel, corners and shadow are part of the picture, and the box needs 3% headroom), and **the mix must peak under -1 dBFS** (`audio/mix.ts` asserts it). Scan sprites (`*-thumbs.jpg`) are not linted. Tests use synthetic windows plus real-poster fixtures in `src/lint/__fixtures__/`: write the failing fixture first.
+
 ## Media is not in git
 
 `studio/.cache/` (recordings, takes, stills, voice, music, proxies) and `studio/out/` are gitignored. The manifest records sha256 + source of every cached asset. A fresh clone has nothing cached: `bun studio assets` shows what is missing and each missing key's error says which command makes it (`capture app`, `capture tui`, `voice`, `bg`). The published media is fetched with `scripts/fetch-media.sh`.
@@ -65,9 +87,14 @@ Add the type to `src/lib/types.ts` (`Scene` union), a builder `src/scenes/<type>
 
 Only from the environment: `ELEVENLABS_API_KEY` (voice), `MAGNIFIC_API_KEY` (cobalt stills). The CLI also reads `KEY=value` lines from the files in `ATLAS_STUDIO_ENV` (colon-separated, default `~/.config/atlas-site/secrets.env`) without overriding the environment. Never commit a key, never print one. HyperFrames telemetry is disabled by the CLI (`HYPERFRAMES_NO_TELEMETRY=1`).
 
+## Recipes: `bun studio run`
+
+`studio/recipes/<id>.ts` default-exports a `RecipeInput` (`schema: "atlas.recipe/1"`): `captures[]` of `{ id, script, shots?, instance? }`. `script` is the in-app capture script (`apps/desktop/src/lib/capture/script.ts`: steps run through the app's own stores, never OS input). `instance` is the state the app starts in: default `{ projects: true, onboarding: false }` (seeded demo projects); `{ projects: false, onboarding: true }` is a first-run app in an empty scratch HOME, so discovery can never list the user's real projects. Captures are cached by script + instance + app build; `--force` re-records, `--dry-run` prints the plan. The recorder is the app's own (ScreenCaptureKit, `atlas desktop capture|record`), not an external tool: `winrec` is gone. `recipes/onboarding.ts` films the intro (3900 ms, hit at 1680 ms) and welcome; it is smoke-tested only until the welcome screen is final.
+
 ## Capturing the real app: rules that matter
 
-- Never send input to the user's desktop; drive the app only through the debug bridge (`atlas desktop debug eval`). Capture runs a **separate** app instance with its own `HOME` and `ATLAS_HOSTD_DIR` and records only its window (CGWindowID).
+- **Capture runs in agent mode, always.** The instance is spawned with `ATLAS_AGENT=1` (`appEnv` in `src/capture/app.ts`): no Dock icon or tray, never focused, its window on a private 2x virtual display, never on the user's desktop. Never show a window to the user for a capture, never send input to his desktop; drive the app only through the debug bridge (`atlas desktop debug …`, see root AGENTS.md "Debugging Atlas Desktop"). The instance has its own `HOME` and `ATLAS_HOSTD_DIR`; the recorder is the app's own, on its own window.
+- To look at the app while writing a scene or recipe, start your own instance (`bun run desktop:agent -- --name studio`, `export ATLAS_DEBUG_SOCK=…`) and use `debug shot --selector`, `debug a11y`, `debug eval` to find selectors; stop it with `--stop`. Never point `atlas desktop debug` at the user's app (the default socket).
 - Never kill the user's apps or the container runtime; the capture tool only stops the pids it spawned, verified by command line.
 - Never `rm -rf`/`git clean` at the repo root. Scratch lives in a `mkdtemp` dir and every delete asserts the path is inside it.
 - It needs `target/debug/atlas` and `target/debug/bundle/macos/Atlas.app` (see root AGENTS.md "Deploying a local build"), `vhs` for TUI takes, and macOS Screen Recording permission for the terminal that runs it.

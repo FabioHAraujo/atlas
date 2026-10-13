@@ -19,6 +19,23 @@ export interface Mixed {
 	lineSeconds: Record<string, number>;
 }
 
+/** True-peak ceiling in dBFS that platform transcodes need (-1 dBTP); the render fails above it. */
+export const TRUE_PEAK_CEILING = -1;
+
+/** Fail a render whose measured integrated loudness is outside the film's tolerance or whose peak is above the ceiling. */
+export function assertLevels(out: string, final: { lufs: number; peak: number }, loud: { target: number; tolerance: number }, bedLufs?: number): void {
+	if (final.lufs <= -69) return; // silent cut: no audio to judge
+	if (Math.abs(final.lufs - loud.target) > loud.tolerance) {
+		throw new StudioError(
+			`${out}: integrated loudness ${final.lufs.toFixed(1)} LUFS is outside ${loud.target} ±${loud.tolerance}`,
+			`bed level (music.bedLufs ${bedLufs}) or ducking may be fighting the voice; adjust film.ts and re-render`
+		);
+	}
+	if (final.peak > TRUE_PEAK_CEILING) {
+		throw new StudioError(`${out}: peak ${final.peak.toFixed(1)} dBFS is above the ${TRUE_PEAK_CEILING} dBTP ceiling`, "the limiter in audio/mix.ts must hold peaks under the ceiling; lower its limit and re-render");
+	}
+}
+
 /** Caption cue end: the line's speech plus a 0.4 s tail (reads better than cutting on the last phoneme), never into the next cue. */
 export function cueEnd(at: number, seconds: number, nextAt: number | undefined): number {
 	const end = at + seconds + 0.4;
@@ -71,16 +88,12 @@ export async function mix(film: Film, cut: Cut, duration: number, work: string, 
 		await ffmpeg(["-i", bed, "-af", `atrim=0:${duration},asetpts=PTS-STARTPTS,afade=t=in:d=${music.fadeIn},afade=t=out:st=${Math.max(0, duration - music.fadeOut)}:d=${music.fadeOut},loudnorm=I=${film.loudness.target}:TP=-1.5:LRA=7`, "-ar", "48000", "-ac", "2", raw]);
 	}
 	const first = await loudness(raw);
-	// one measured linear correction toward the target, then the limiter keeps peaks under -1 dBFS
+	// one measured linear correction toward the target, then the limiter keeps peaks under the ceiling (-1.5 dBFS: the
+	// limiter works on samples, the true peak can overshoot by a fraction of a dB; assertLevels checks the result)
 	const gain = film.loudness.target - first.lufs;
-	await ffmpeg(["-i", raw, "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=0.89:level=false,atrim=0:${duration}`, "-ar", "48000", "-ac", "2", out]);
+	await ffmpeg(["-i", raw, "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=0.84:level=false,atrim=0:${duration}`, "-ar", "48000", "-ac", "2", out]);
 	const final = await loudness(out);
-	if (Math.abs(final.lufs - film.loudness.target) > film.loudness.tolerance) {
-		throw new StudioError(
-			`${cut.out}: integrated loudness ${final.lufs.toFixed(1)} LUFS is outside ${film.loudness.target} ±${film.loudness.tolerance}`,
-			`bed level (music.bedLufs ${music?.bedLufs}) or ducking may be fighting the voice; adjust film.ts and re-render`
-		);
-	}
+	assertLevels(cut.out, final, film.loudness, music?.bedLufs);
 	const len = (await probe(out)).duration;
 	if (Math.abs(len - duration) > 0.1) throw new StudioError(`${cut.out}: mixed audio is ${len.toFixed(2)} s, expected ${duration.toFixed(2)} s`);
 	return { file: out, lufs: final.lufs, peak: final.peak, lineSeconds: voice?.seconds ?? {} };

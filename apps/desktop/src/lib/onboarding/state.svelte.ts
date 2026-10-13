@@ -7,9 +7,10 @@ import { api } from "#lib/api.ts";
 import { recent } from "#lib/keymap.svelte.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
+import { showWelcome } from "./flow.ts";
+import { welcome } from "./welcome.svelte.ts";
 import {
 	complete,
-	isFirstRun,
 	itemsFromRecent,
 	parseState,
 	EMPTY_STATE,
@@ -22,8 +23,10 @@ class Onboarding {
 	loaded = $state(false);
 	tourOpen = $state(false);
 	helpOpen = $state(false);
-	/** No project yet and the welcome was never finished. */
-	firstRun = $derived(isFirstRun(this.state, this.loaded && store.loaded, store.projects.length));
+	/** The welcome overlay is up: first run, and it stays through the guided flow after the first project is added. */
+	firstRun = $derived(
+		showWelcome(this.state, this.loaded && store.loaded, store.projects.length, welcome.phase),
+	);
 
 	async init() {
 		this.state = parseState((await api.settings()).onboarding);
@@ -39,6 +42,13 @@ class Onboarding {
 		const next = complete(this.state, id);
 		if (next === this.state) return;
 		this.state = next;
+		await this.save().catch(() => {});
+	}
+
+	/** The title sequence played (or was skipped): never replay it on its own. */
+	async markIntroSeen() {
+		if (this.state.introSeen) return;
+		this.state = { ...this.state, introSeen: true };
 		await this.save().catch(() => {});
 	}
 

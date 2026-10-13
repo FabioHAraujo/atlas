@@ -236,16 +236,28 @@ atlas desktop --dev                    # inside the atlas repo: bun run desktop:
 
 Installs into `/Applications/Atlas.app` (or `~/Applications` when `/Applications` is not writable). Downloads `Atlas-<version>-<platform>.app.tar.gz` and its `.sha256` from the public GitHub release (with `curl`, no login) and verifies the checksum. The new bundle is copied next to the old one and swapped in only once complete, so a failed download never breaks the installed app. Refuses while the app is linked (`atlas link --desktop`). Full guide: [Desktop app](desktop.md).
 
+### `atlas desktop --agent`
+
+```text
+atlas desktop --agent [--name NAME] [--scratch]   # start an isolated instance, print its ATLAS_DEBUG_SOCK
+atlas desktop --agent --stop [--name NAME]        # stop one instance, or all
+```
+
+Debug builds only (inside the atlas repo or from `target/debug/atlas`). The instance has its own `HOME`, hostd dir and debug socket under `/tmp/atlas-agent-<name>/`, no Dock icon or tray, never takes focus and lives on a private virtual display, so it never appears on your desktop. `--scratch` seeds its `HOME` with your `~/.atlas/desktop` settings only. `bun run desktop:agent` wraps it and builds the bundle when missing. Details: [Desktop app](desktop.md#agent-instances-bun-run-desktopagent).
+
 ### `atlas desktop debug`
 
 ```text
-atlas desktop debug info
+atlas desktop debug info | state | a11y [SELECTOR] | perf [--seconds N]
 atlas desktop debug logs [--level log|info|warn|error|debug|csp] [--since SEQ]
 atlas desktop debug eval <JS>
-atlas desktop debug shot [PATH]       # default /tmp/atlas-desktop.png
+atlas desktop debug shot [PATH] [--selector CSS | --rect x,y,w,h | --full | --window]
+atlas desktop debug record PATH (--seconds N | --until SELECTOR) [--fps 24|30|60]
+atlas desktop debug wait TARGET [--expr] [--timeout MS]
+atlas desktop debug click SELECTOR | type SELECTOR TEXT [--delay MS]
 ```
 
-Drives a running **debug** build of the app (`atlas link --desktop`, `bun run desktop:dev`) through `~/.atlas/desktop-debug.sock`, without touching the mouse or keyboard. `eval` takes an expression or a body with `return` and awaits promises; `shot` captures the app window only. Release builds do not contain the bridge.
+Drives a running **debug** build through `$ATLAS_DEBUG_SOCK` (default `~/.atlas/desktop-debug.sock`, which is YOUR app: agents use `atlas desktop --agent` and its socket instead) without touching the mouse or keyboard. `eval` takes an expression or a body with `return` and awaits promises. `shot` is a page snapshot (retina, no permission); `--window` is the compositor's picture of the whole window. `click`/`type` are DOM events in the webview, never OS input. Release builds do not contain the bridge.
 
 ## `atlas wt`
 

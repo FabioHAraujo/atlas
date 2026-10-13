@@ -22,12 +22,14 @@ const HELP = `bun studio capture <command>
   app <scene|--all> [--as <key>]   record an app scene from an isolated Atlas Desktop (debug bundle) -> rec:<scene>
                                    scenes: ${SCENES.join(", ")}
                                    --as   register under <key> instead of rec:<scene> (e.g. rec:panel@new)
+                                   (declarative recordings: bun studio run <recipe>)
   tui <take> [--tape <path>]       run a vhs tape (default demo/demo.tape) against target/debug/atlas -> take:<take>
   list                             scenes and takes, and whether each is in the manifest
 
-Needs the debug bundle and CLI (cargo build -p atlas-cli; the desktop debug bundle), Screen Recording permission for
-the terminal running this, swiftc (recorder), and vhs for tui. Nothing is sent to your desktop; the instance runs with
-its own HOME and hostd dir.`;
+Needs the debug bundle and CLI (cargo build -p atlas-cli; the desktop debug bundle), macOS 15+ and Screen Recording
+permission for the app (or the terminal that launches it), and vhs for tui. Recording is built into the app
+(ScreenCaptureKit on its own window): nothing is sent to your desktop and the window is never focused; the instance runs
+with its own HOME and hostd dir.`;
 
 export async function main(args: string[]): Promise<void> {
 	const [cmd, ...rest] = args;

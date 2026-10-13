@@ -4,6 +4,20 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
 
+## [1.5.0-alpha.1] — 2026-10-13
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Changed
+
+- **Swiping between spaces follows your fingers.** A new gesture engine in Rust drives the trackpad swipe between spaces: it lands on the right space, settles in about 300 ms, no longer goes the wrong way after two quick swipes, and bounces at the first and last space instead of wrapping around. Back/Forward swipes use the same engine.
+- **Switching spaces is lighter.** A switch no longer rebuilds the neighbouring space, and menus, tooltips and dialogs of spaces you are not looking at are built only when needed (about 6× fewer page elements touched per switch).
+- **For contributors and agents:** `main` and `release/*` now require CI to pass, release tags can no longer be moved or deleted, and `.agents/skills/atlas-workflow` explains branches, the gate and release channels. `atlas desktop debug gesture-record` / `gesture-replay` record and replay real trackpad swipes.
+
+### Fixed
+
+- An agent test instance could briefly show its window on your screen when several started at once; agent windows now appear only when fully inside their own virtual display, and instances start one at a time.
+
 ## [1.4.0] — 2026-10-13
 
 > Soak override: promoted after 0h on beta/rc, below the 48h minimum (forced with --force-soak).

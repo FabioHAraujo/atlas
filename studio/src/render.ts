@@ -41,6 +41,17 @@ export function hf(args: string[], cwd: string, live = false) {
 	return run([join(STUDIO, "node_modules/.bin/hyperframes"), ...args], { cwd, live, env: { HYPERFRAMES_NO_TELEMETRY: "1", DO_NOT_TRACK: "1" } });
 }
 
+/**
+ * The delivery picture: x264 at the film's crf, a keyframe at least every 2 s (x264's default GOP of 250 frames left an
+ * 8.3 s gap in the vertical cut, over the 3 s that seeking and platform transcodes want), no scene-change keyframes
+ * (the GOP is the rule). A draft copies the intermediate.
+ */
+export function filmVideoArgs(film: { crf: number; fps: number }, draft: boolean): string[] {
+	if (draft) return ["-c:v", "copy"];
+	const gop = String(film.fps * 2);
+	return ["-c:v", "libx264", "-crf", String(film.crf), "-preset", "slow", "-pix_fmt", "yuv420p", "-g", gop, "-keyint_min", gop, "-sc_threshold", "0"];
+}
+
 export async function renderCut(film: Film, cut: Cut, opts: RenderOpts = {}): Promise<RenderReport> {
 	const c = await compile(film, cut, opts.compile);
 	const lint = await hf(["check", "--json"], c.dir).catch((e: StudioError) => {
@@ -59,7 +70,7 @@ export async function renderCut(film: Film, cut: Cut, opts: RenderOpts = {}): Pr
 
 	const mixed = await mix(film, cut, c.duration, work, { offline: opts.offline });
 	const mp4 = join(out, `${cut.out}.mp4`);
-	const video = opts.draft ? ["-c:v", "copy"] : ["-c:v", "libx264", "-crf", String(film.crf), "-preset", "slow", "-pix_fmt", "yuv420p"];
+	const video = filmVideoArgs(film, opts.draft ?? false);
 	await ffmpeg(["-i", picture, "-i", mixed.file, "-map", "0:v", "-map", "1:a", ...video, "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-t", String(c.duration), mp4]);
 
 	const files: RenderReport["files"] = {};

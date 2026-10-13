@@ -38,7 +38,7 @@ function lineStd(img: Image, from: number, to: number, at: (t: number) => [numbe
 
 export function analyzeSubject(img: Image): SubjectReport {
 	const mask = subjectMask(img);
-	const box = subjectBox(mask, img.w, img.h);
+	const box = subjectBox(img, mask);
 	if (!box) return {};
 	return analyzeEdges(img, box);
 }
@@ -61,25 +61,68 @@ function analyzeEdges(img: Image, box: Rect): SubjectReport {
 }
 
 /**
- * True when the frame has no field around anything: the four corners and the four mid-edges are one flat colour (a
- * full-bleed terminal recording, whose border is the terminal's own background). A framed subject always sits on a
- * field that differs from the subject somewhere along the border (gradient, shadow, the window itself); with a uniform
- * border, any "subject" found is just a block of content (log lines) and has no headroom to judge.
+ * True when the frame has no field around anything, in either of two ways:
+ * - the four corners and the four mid-edges are one flat colour (a full-bleed terminal recording, whose border is the
+ *   terminal's own background); or
+ * - all four corners are near-black (< 0.01 relative luminance): the corners of a window-only frame are the window's
+ *   own bezel (0.0003-0.0046 measured: the top pair is lifted by the toolbar highlight, and a VP9 encode of the same
+ *   frame lands a few thousandths away from the H.264 one). A lit field (the cobalt backgrounds) is never that dark at
+ *   all four corners, and the real cropped-poster defects measure 0.036 on their brightest corner.
+ * A framed subject always sits on a field; with none, any "subject" found is a block of content (log lines, a sidebar)
+ * and has no headroom to judge.
  */
 function isFieldless(img: Image): boolean {
 	const p = 6;
-	const patches: Rect[] = [
+	const corners: Rect[] = [
 		{ x: 0, y: 0, w: p, h: p },
 		{ x: img.w - p, y: 0, w: p, h: p },
 		{ x: 0, y: img.h - p, w: p, h: p },
 		{ x: img.w - p, y: img.h - p, w: p, h: p },
+	];
+	const edges: Rect[] = [
 		{ x: Math.round(img.w / 2) - p, y: 2, w: p, h: p },
 		{ x: Math.round(img.w / 2) - p, y: img.h - p - 2, w: p, h: p },
 		{ x: 2, y: Math.round(img.h / 2) - p, w: p, h: p },
 		{ x: img.w - p - 2, y: Math.round(img.h / 2) - p, w: p, h: p },
 	];
-	const lum = patches.map((r) => luminance(...meanRgb(img, r)));
+	const corner = corners.map((r) => luminance(...meanRgb(img, r)));
+	if (Math.max(...corner) < 0.01) return true;
+	const lum = [...corner, ...edges.map((r) => luminance(...meanRgb(img, r)))];
 	return Math.max(...lum) - Math.min(...lum) < 0.004;
+}
+
+/**
+ * True when the box's outermost row on `side` is EMPTY at one end (< 15% of the mask) against a filled middle: a
+ * window's rounded corner. One end is enough: the field is a gradient and the mask against it is lopsided (measured on
+ * the real frame: left corner 0.00, right 0.83), while a window whose bottom was cropped is cut square and FULL at
+ * both ends (1.00 / 1.00).
+ */
+function hasRoundedCorners(img: Image, box: Rect, side: "top" | "bottom"): boolean {
+	const mask = subjectMask(img);
+	const y = side === "bottom" ? box.y + box.h - 1 : box.y;
+	const cw = Math.max(6, Math.round(box.w * 0.012));
+	const fill = (x0: number, x1: number) => {
+		let c = 0;
+		for (let x = x0; x < x1; x++) c += mask[y * img.w + x]!;
+		return c / (x1 - x0);
+	};
+	const left = fill(box.x, box.x + cw);
+	const right = fill(box.x + box.w - cw, box.x + box.w);
+	const mid = fill(box.x + Math.round(box.w * 0.4), box.x + Math.round(box.w * 0.6));
+	return (left < 0.15 || right < 0.15) && mid > 0.4;
+}
+
+/** Share of the middle 60% of a frame edge (4 px in) that the subject mask marks as subject. */
+function edgeSubjectShare(mask: Uint8Array, w: number, h: number, side: "top" | "bottom" | "left" | "right"): number {
+	const n = 64;
+	let hit = 0;
+	for (let i = 0; i < n; i++) {
+		const t = 0.2 + (i / (n - 1)) * 0.6;
+		const x = side === "left" ? 4 : side === "right" ? w - 5 : Math.round(t * (w - 1));
+		const y = side === "top" ? 4 : side === "bottom" ? h - 5 : Math.round(t * (h - 1));
+		hit += mask[y * w + x]!;
+	}
+	return hit / n;
 }
 
 export function checkEdgeClipping(img: Image, profile: Profile): Diagnostic[] {
@@ -89,12 +132,20 @@ export function checkEdgeClipping(img: Image, profile: Profile): Diagnostic[] {
 		// runs off 3+ sides the picture IS the content (a window-only screenshot): there is no frame to judge.
 		const bleeding = bleedingSides(img);
 		if (bleeding.length >= 3) return [];
-		return bleeding.map((side) => ({
-			severity: "error" as const,
-			code: "frame/edge-clipped",
-			message: `content runs off the ${side} edge of the frame (it has no headroom there)`,
-			fix: { action: "add-headroom" as const, description: `reframe so the subject has >= ${Math.ceil(profile.headroom * Math.min(img.w, img.h))}px on the ${side}`, params: { side } },
-		}));
+		// A cut subject is subject-coloured along the edge it runs off, so the subject mask sees it there (1.00 on every
+		// real case measured). A textured background (the aurora behind a title card, whose band crosses an edge) fools
+		// the corner-blend model but is not subject to the mask (0.00): that edge is field, not content. The exception is
+		// a subject spanning the axis: both opposite edges bleed, and the mask's own model is blind to exactly that.
+		const mask = subjectMask(img);
+		const opposite = { top: "bottom", bottom: "top", left: "right", right: "left" } as const;
+		return bleeding
+			.filter((side) => bleeding.includes(opposite[side]) || edgeSubjectShare(mask, img.w, img.h, side) >= 0.5)
+			.map((side) => ({
+				severity: "error" as const,
+				code: "frame/edge-clipped",
+				message: `content runs off the ${side} edge of the frame (it has no headroom there)`,
+				fix: { action: "add-headroom" as const, description: `reframe so the subject has >= ${Math.ceil(profile.headroom * Math.min(img.w, img.h))}px on the ${side}`, params: { side } },
+			}));
 	}
 	// A subject that covers (nearly) the frame along BOTH axes is not a framed object: the picture is the content itself
 	// (a window-only screenshot, a full-bleed recording). One that is wide but short (a 1040 px terminal in a 1080 px
@@ -134,6 +185,10 @@ export function checkEdgeClipping(img: Image, profile: Profile): Diagnostic[] {
 	for (const side of ["top", "bottom"] as const) {
 		if (edgeStd[side] < SLICE_STD) continue;
 		if (out.some((d) => d.code === "frame/edge-clipped" && d.fix?.params?.side === side)) continue;
+		// Content running down to a window's last row (a scrolled panel) is not a crop: a whole window ends in ROUNDED
+		// corners (the mask is empty at the outermost pixels of the corner, measured 0.00 on real windows), a cropped one
+		// is cut square (full there). Only the bottom: the top is where the titlebar defect lives.
+		if (side === "bottom" && hasRoundedCorners(img, box, "bottom")) continue;
 		const strip = Math.max(8, Math.round((side === "top" || side === "bottom" ? box.h : box.w) * 0.05));
 		const rect: Rect = side === "top" ? { x: box.x, y: box.y, w: box.w, h: strip } : side === "bottom" ? { x: box.x, y: box.y + box.h - strip, w: box.w, h: strip } : side === "left" ? { x: box.x, y: box.y, w: strip, h: box.h } : { x: box.x + box.w - strip, y: box.y, w: strip, h: box.h };
 		out.push({

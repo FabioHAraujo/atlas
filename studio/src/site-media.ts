@@ -11,6 +11,8 @@ export interface LoopSpec {
 	from: number;
 	/** Length of the loop in seconds. */
 	seconds: number;
+	/** Frame rate of the loop; default 30. A terminal full of text is 24 (the 1.0 loop was): the file stays under budget. */
+	fps?: number;
 }
 
 /** A still of the real app, published as shot-<name>.jpg (2000 px wide). */
@@ -24,10 +26,10 @@ export interface ShotSpec {
 export const LOOPS: LoopSpec[] = [
 	{ name: "workspace", capture: "workspace", from: 0.5, seconds: 10 },
 	{ name: "panel", capture: "panel", from: 0.5, seconds: 9 },
-	{ name: "logs", capture: "logs", from: 0.5, seconds: 12 },
-	{ name: "terminal", capture: "terminal", from: 0.5, seconds: 10 },
+	{ name: "logs", capture: "logs", from: 1, seconds: 12 },
+	{ name: "terminal", capture: "terminal", from: 2.6, seconds: 10 },
 	{ name: "agents", capture: "agents", from: 0.5, seconds: 14 },
-	{ name: "mcp", capture: "mcp", from: 0.5, seconds: 14 },
+	{ name: "mcp", capture: "mcp", from: 2.5, seconds: 9 },
 ];
 
 export const SHOTS: ShotSpec[] = [

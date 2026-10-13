@@ -7,14 +7,16 @@ import type { AppClipScene, Chapter, Cut, Film, NarrationLine, Scene, TerminalSc
 // ---- 16:9 -------------------------------------------------------------------------------------------------------
 
 /**
- * Window recordings are 2560x1640 (2x of the window) and already contain the whole window: its bezel, rounded
- * corners and, at the top, the titlebar with the controls pill (y 20-70). The 1.0 film cropped `y: 40`, which sliced
- * that pill and shipped a poster/README hero with the window's top cut. Never crop the window: use the full frame,
- * and give the box headroom (`bun studio lint` requires >= 3% of the short side on every side).
+ * App footage is the six captures of `recipes/site-media.ts` (`bun studio run`): the real app in agent mode, Dracula,
+ * with the window buttons hidden by the recorder (no OS "being shared" pill). Each frame is 2560x1580: the window
+ * (2560x1576, 2x) starts at row 4, the 4 rows above are the wallpaper of the private virtual display. Cropping the
+ * window EXACTLY keeps its bezel, corners and titlebar whole and leaves out the sliver, which sat above the dark
+ * bezel and read as structure crossing the window's top edge (`frame/window-cropped` at 38.97 s and 58.45 s).
+ * `film.test.ts` measures that row on the footage each scene plays. The box gives >= 3% headroom (the lint's rule).
  */
-const APP_CROP = { x: 0, y: 0, w: 2560, h: 1640 };
-/** 1520 wide at the recording's aspect is 974 high: 53 px of headroom above and below in a 1080 frame (4.9%). */
-const APP_BOX = { x: "center", y: "center", w: 1520, h: 974 } as const;
+const APP_CROP = { x: 0, y: 4, w: 2560, h: 1576 };
+/** 1520 wide at the window's aspect is 936 high: 72 px of headroom above and below in a 1080 frame (6.7%). */
+const APP_BOX = { x: "center", y: "center", w: 1520, h: 936 } as const;
 /** The window's own corner radius is ~28 px at 2x; at the 1520/2560 scale that is ~17 px. */
 const APP_RADIUS = 17;
 
@@ -31,7 +33,7 @@ const card = (id: string, bg: string, title: string, subtitle: string, titleSize
 const app = (id: string, clip: string, from: number, duration: number): AppClipScene => ({
 	id,
 	type: "app",
-	clip: `rec:${clip}`,
+	clip: `rec:site-media/${clip}`,
 	from,
 	duration,
 	bg: "a",
@@ -105,7 +107,7 @@ const scenes169: Scene[] = [
 	card("c02", "c", "atlas dev", "A fast terminal dashboard for the whole stack"),
 	tui,
 	card("c03", "a", "Atlas Desktop", "Every project is a space"),
-	app("spaces", "spaces", 2.5, 6),
+	app("spaces", "workspace", 2.5, 6),
 	card("c04", "b", "A GPU terminal", "Ligatures, emoji, inline images"),
 	app("term", "terminal", 1.5, 7),
 	card("c05", "c", "Live project panel", "Health, CPU and memory, as it happens"),
@@ -176,10 +178,10 @@ const chapters169: Chapter[] = [
 const V_BOX = { x: "center", y: 700, w: 972 } as const;
 
 /** Clip over the vertical field with the headline over it: six 5 s beats. */
-const vApp = (id: string, clip: string, from: number, title: string, subtitle: string, titleSize: number, y: number, subSize = 48): AppClipScene => ({
+const vApp = (id: string, clip: string, from: number, title: string, subtitle: string, titleSize: number, y: number, subSize = 80): AppClipScene => ({
 	id,
 	type: "app",
-	clip: `rec:${clip}`,
+	clip: `rec:site-media/${clip}`,
 	from,
 	duration: 5,
 	bg: "v",
@@ -190,7 +192,7 @@ const vApp = (id: string, clip: string, from: number, title: string, subtitle: s
 });
 
 const scenes916: Scene[] = [
-	vApp("v1", "spaces", 2.5, "Atlas", "One file. Your whole stack.", 150, 720),
+	vApp("v1", "workspace", 2.5, "Atlas", "One file. Whole stack.", 150, 240),
 	{
 		id: "v2",
 		type: "terminal",
@@ -200,9 +202,9 @@ const scenes916: Scene[] = [
 		y: 700,
 		duration: 5,
 		bg: "v",
-		overlay: { title: "atlas dev", subtitle: "your stack in the terminal", y: 260, titleSize: 100 },
+		overlay: { title: "atlas dev", subtitle: "Your stack, in a TUI", y: 260, titleSize: 100, subtitleSize: 80 },
 	},
-	vApp("v3", "terminal", 7.5, "A GPU terminal", "emoji, ligatures, images", 100, 260),
+	vApp("v3", "terminal", 7.5, "A GPU terminal", "emoji and images", 100, 260),
 	vApp("v4", "panel", 2.5, "Live panel", "health, CPU, memory", 100, 260),
 	vApp("v5", "agents", 4, "Agents", "in their own worktrees", 100, 260),
 	{

@@ -118,7 +118,7 @@ const recipe: RecipeInput = {
 					{ do: "wait", terminal: { contains: "ligatures", timeoutMs: 15000 } },
 					{ do: "pause", ms: 6500 },
 					{ do: "shot", name: "terminal" },
-					{ do: "pause", ms: 4000 },
+					{ do: "pause", ms: 6000 },
 				],
 			},
 		},

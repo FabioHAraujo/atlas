@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assetPath } from "./lib/assets.ts";
 import { ffmpeg, sha256File } from "./lib/exec.ts";
+import { windowTopRow } from "./capture/window-rect.ts";
+import { decode } from "./lint/pixels.ts";
 import { parseArgs } from "./lib/films.ts";
 import { SITE_MEDIA, StudioError } from "./lib/paths.ts";
 import { enforce } from "./lint/gate.ts";
@@ -20,27 +22,43 @@ import { parseRecipeV1 } from "./run/recipe.ts";
 import { capturedEntry } from "./run/run.ts";
 import { LOOP_MAX_BYTES, LOOPS, SHOTS, type LoopSpec } from "./site-media.ts";
 
-/** The vhs take of `atlas dev`, cut to its densest 10.2 s (boot, error jumps, links, find, filters): the 1.0 loop's window. */
-export const TUI_LOOP: LoopSpec = { name: "tui", capture: "take:tui", from: 10.6, seconds: 10.2 };
+/** The vhs take of `atlas dev`, cut to its densest 8 s (error jumps, links, find, filters). It is a full terminal of text, so 24 fps. */
+export const TUI_LOOP: LoopSpec = { name: "tui", capture: "take:tui", from: 10.6, seconds: 8, fps: 24 };
 
-const FILTER = "scale=1280:800:flags=lanczos,fps=30,format=yuv420p";
+const fps = (spec: LoopSpec) => spec.fps ?? 30;
+/** Drops the capture's leading wallpaper rows (`top`, from windowTopRow) so the window is the picture; no filter when there are none. */
+const trim = (top: number) => (top > 0 ? `crop=iw:ih-${top}:0:${top},` : "");
+const filter = (spec: LoopSpec, top: number) => `${trim(top)}scale=1280:800:flags=area,fps=${fps(spec)},format=yuv420p`;
 const cut = (input: string, spec: LoopSpec) => ["-ss", String(spec.from), "-t", String(spec.seconds), "-i", input];
+/** A keyframe every 2 s at the loop's own rate. */
+const gop = (spec: LoopSpec) => String(fps(spec) * 2);
 
-/** H.264: seekable from the first byte, a keyframe every 2 s (60 frames at 30 fps), silent. */
-export const loopMp4Args = (input: string, spec: LoopSpec, crf: number, out: string): string[] => [
-	...cut(input, spec), "-vf", FILTER, "-an", "-c:v", "libx264", "-preset", "slow", "-crf", String(crf), "-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-movflags", "+faststart", out,
+/** H.264: seekable from the first byte, silent. veryslow + aq-mode 3 keep text edges sharp at a fraction of the bytes. */
+export const loopMp4Args = (input: string, spec: LoopSpec, crf: number, out: string, top = 0): string[] => [
+	...cut(input, spec), "-vf", filter(spec, top), "-an", "-c:v", "libx264", "-preset", "veryslow", "-crf", String(crf), "-x264-params", "aq-mode=3", "-g", gop(spec), "-keyint_min", gop(spec), "-sc_threshold", "0", "-movflags", "+faststart", out,
 ];
 
 /** VP9 sibling of the same cut, silent. */
-export const loopWebmArgs = (input: string, spec: LoopSpec, crf: number, out: string): string[] => [
-	...cut(input, spec), "-vf", FILTER, "-an", "-c:v", "libvpx-vp9", "-crf", String(crf), "-b:v", "0", "-g", "60", "-row-mt", "1", out,
+export const loopWebmArgs = (input: string, spec: LoopSpec, crf: number, out: string, top = 0): string[] => [
+	...cut(input, spec), "-vf", filter(spec, top), "-an", "-c:v", "libvpx-vp9", "-crf", String(crf), "-b:v", "0", "-g", gop(spec), "-row-mt", "1", out,
 ];
 
 /** The loop's first frame: what the page shows until the video is in view. */
-export const posterArgs = (input: string, spec: LoopSpec, out: string): string[] => ["-ss", String(spec.from), "-i", input, "-vf", FILTER, "-frames:v", "1", "-q:v", "3", out];
+export const posterArgs = (input: string, spec: LoopSpec, out: string, top = 0): string[] => ["-ss", String(spec.from), "-i", input, "-vf", filter(spec, top), "-frames:v", "1", "-q:v", "3", out];
 
 /** A 2x window PNG as the 2000 px wide JPEG the site's stills use. */
-export const shotArgs = (input: string, out: string): string[] => ["-i", input, "-vf", "scale=2000:-2:flags=lanczos", "-frames:v", "1", "-q:v", "3", out];
+export const shotArgs = (input: string, out: string, top = 0): string[] => ["-i", input, "-vf", `${trim(top)}scale=2000:-2:flags=lanczos`, "-frames:v", "1", "-q:v", "3", out];
+
+/** Where the app window starts in a capture's frame at second `at`: the top rows are the virtual display's wallpaper (window-rect.ts). */
+export async function topRowOf(video: string, at: number): Promise<number> {
+	const tmp = join(mkdtempSync(join(tmpdir(), "atlas-studio-top-")), "top.png");
+	try {
+		await ffmpeg(["-ss", String(at), "-i", video, "-frames:v", "1", "-vf", "crop=iw:60:0:0", tmp]);
+		return windowTopRow(await decode(tmp));
+	} finally {
+		rmSync(join(tmp, ".."), { recursive: true, force: true });
+	}
+}
 
 /** Raise CRF until the file fits the budget; the loop is a picture of an app, so a few CRF points are invisible. */
 async function encodeUnder(make: (crf: number, out: string) => string[], start: number, out: string): Promise<number> {
@@ -65,31 +83,33 @@ export async function main(argv: string[]): Promise<void> {
 	const work = mkdtempSync(join(tmpdir(), "atlas-studio-loops-"));
 	const built: Built[] = [];
 	try {
-		const make = async (spec: LoopSpec, input: string) => {
+		const make = async (spec: LoopSpec, input: string, top: number) => {
 			const stem = `loop-${spec.name}`;
 			const mp4 = join(work, `${stem}.mp4`);
 			const webm = join(work, `${stem}.webm`);
 			const poster = join(work, `${stem}-poster.jpg`);
-			const crf = await encodeUnder((c, o) => loopMp4Args(input, spec, c, o), 24, mp4);
-			await encodeUnder((c, o) => loopWebmArgs(input, spec, c, o), crf + 10, webm);
-			await ffmpeg(posterArgs(input, spec, poster));
+			const crf = await encodeUnder((c, o) => loopMp4Args(input, spec, c, o, top), 24, mp4);
+			await encodeUnder((c, o) => loopWebmArgs(input, spec, c, o, top), crf + 10, webm);
+			await ffmpeg(posterArgs(input, spec, poster, top));
 			built.push({ name: `${stem}.mp4`, file: mp4, profile: "site-loop" }, { name: `${stem}.webm`, file: webm, profile: "site-sibling" }, { name: `${stem}-poster.jpg`, file: poster, profile: "site-shot" });
 			console.log(`✓ ${stem}  crf ${crf}  ${(statSync(mp4).size / 1000).toFixed(0)} KB mp4`);
 		};
 		for (const spec of LOOPS) {
 			if (!wants(`loop-${spec.name}`)) continue;
-			await make(spec, (await capturedEntry(parsed, spec.capture)).video);
+			const video = (await capturedEntry(parsed, spec.capture)).video;
+			await make(spec, video, await topRowOf(video, spec.from));
 		}
 		for (const s of SHOTS) {
 			if (!wants(`shot-${s.name}`)) continue;
 			const png = (await capturedEntry(parsed, s.capture)).shots.find((p) => p.endsWith(`/${s.shot}.png`));
 			if (!png) throw new StudioError(`capture ${s.capture} has no shot "${s.shot}"`, "bun studio run recipes/site-media.ts --force");
 			const out = join(work, `shot-${s.name}.jpg`);
-			await ffmpeg(shotArgs(png, out));
+			await ffmpeg(shotArgs(png, out, await topRowOf(png, 0)));
 			built.push({ name: `shot-${s.name}.jpg`, file: out, profile: "site-shot" });
 			console.log(`✓ shot-${s.name}`);
 		}
-		if (wants("loop-tui")) await make(TUI_LOOP, assetPath(TUI_LOOP.capture));
+		// the vhs take is a terminal window, not a capture of the virtual display: no wallpaper rows
+		if (wants("loop-tui")) await make(TUI_LOOP, assetPath(TUI_LOOP.capture), 0);
 
 		// nothing replaces a published file until every new one lints clean
 		enforce(await lintTargets(built.map((b) => ({ file: b.file, profile: b.profile })), { fast: true }), "site loops and shots");

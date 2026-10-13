@@ -307,12 +307,30 @@ describe("a sliver is not a framed subject", () => {
 		expect(checkEdgeClipping(img, PROFILES["site-loop"]!)).toEqual([]);
 	});
 
+	// Incident (`bun studio loops`, shot-terminal.jpg): a window-only screenshot whose content is a dark terminal. The
+	// detector boxed only the sidebar (327x576 of 2000x1232, flush with the top), and "edge-clipped" fired on what is
+	// one block of the window. The picture IS the window: its corners are the window's own dark bezel, not a field.
+	test("a window-only screenshot of a dark terminal is not edge-clipped (shot-terminal.jpg)", async () => {
+		const img = await decode(new URL("./__fixtures__/window-only-shot-terminal.jpg", import.meta.url).pathname);
+		expect(checkEdgeClipping(img, PROFILES["site-shot"]!)).toEqual([]);
+	});
+
 	// Same incident, other frames of loop-tui.mp4 (3 s and 9 s): the text block is 8-12% of the frame, past any size floor.
 	// What they share is the border: corners and mid-edges are one flat terminal colour, i.e. there is no field around
 	// a subject, the frame IS the content.
 	test.each(["terminal-fullbleed-t3.jpg", "terminal-fullbleed-t9.jpg"])("%s: a uniform border ring means the frame is the content", async (name) => {
 		const img = await decode(new URL(`./__fixtures__/${name}`, import.meta.url).pathname);
 		expect(checkEdgeClipping(img, PROFILES["site-loop"]!)).toEqual([]);
+	});
+
+	// Incident (`bun studio lint site/public/media`, loop-terminal.webm @ 7.5 s): the app window fills the frame (the loop
+	// is the window, 1280x800), its content a dark terminal with a 210x374 inline image. The VP9 encode differs from the
+	// mp4 of the same cut by sub-level noise, enough for the box finder to pick the image alone as "the subject" (0 px from
+	// the top, 18 px from the left); the mp4 found none. The frame has no field: its four corners are the window's rounded
+	// bezel (0.0014-0.0045 relative luminance, the top pair lifted by the toolbar highlight) against a lit interior.
+	test("a full-window loop frame whose only 'subject' is an inline image is not edge-clipped (loop-terminal.webm @ 7.5 s)", async () => {
+		const img = await decode(new URL("./__fixtures__/terminal-window-image-block.jpg", import.meta.url).pathname);
+		expect(checkEdgeClipping(img, PROFILES["site-sibling"]!)).toEqual([]);
 	});
 
 	test("a real framed window on a flat field is still judged: the ring guard needs the border to match the frame, not just be flat", () => {
@@ -378,5 +396,60 @@ describe("false positives found re-linting site/public/media", () => {
 		const img = field(1280, 800);
 		paintWindow(img, { x: 119, y: 319, w: 451, h: 8, radius: 0 });
 		expect(checkEdgeClipping(img, still)).toEqual([]);
+	});
+});
+
+describe("a whole window with a near-black bottom is not reported as cropped", () => {
+	// Incident (`bun studio publish`, film-poster.jpg at 41 s): the window is whole, with its rounded bottom corners and
+	// 72 px of headroom, but its dark bottom is almost the colour of the dark-navy field below. The detector ended the
+	// box 11 px short, inside the content, and read the last row of cards as "structure crossing the bottom edge". The
+	// same frame as a PNG was boxed correctly: JPEG quantisation of the near-black rows was enough to flip it.
+	test("film-poster.jpg @ 41 s (real JPEG): the window's bottom is found where it is, and nothing is sliced", async () => {
+		const img = await decode(new URL("./__fixtures__/poster-dark-bottom.jpg", import.meta.url).pathname);
+		const { box } = analyzeSubject(img);
+		expect(box!.y + box!.h).toBeGreaterThan(925); // the window ends at row ~930 of 1080
+		expect(codes(checkEdgeClipping(img, PROFILES.still!))).not.toContain("frame/window-cropped");
+	});
+
+	test("a genuinely cropped bottom is still reported (the guard does not hide the defect)", () => {
+		const img = field(1920, 1080);
+		paintWindow(img, { x: 200, y: 65, w: 1520, h: 950, radius: 12, cropBottom: 40 });
+		expect(codes(checkEdgeClipping(img, still))).toContain("frame/window-cropped");
+	});
+});
+
+describe("a title card over a textured background has no subject to run off the frame", () => {
+	// Incident (`bun studio lint site/public/media`, film.mp4 @ 19.48 s): the "Atlas Desktop" title card, no window at all.
+	// `bleedingSides` models the field as a blend of a side's two CORNERS; the background image has a bright aurora band
+	// crossing the right edge (rgb 45,85,171 at mid-height, corners 5,7,43 and 18,42,153), so 81% of that edge "differed
+	// from the field" and the card was reported as content running off the right edge. A window's bezel is FLAT along its
+	// edge; a textured background is not. The decoded video frame is the fixture: JPEG/PNG stills of it do not reproduce.
+	test("the real decoded frame of that title card (a 1.2 s clip fixture) is not edge-clipped", async () => {
+		const video = new URL("./__fixtures__/title-card-aurora.mp4", import.meta.url).pathname;
+		const img = await decode(video, { at: 0.6 });
+		expect(checkEdgeClipping(img, PROFILES["site-film"]!)).toEqual([]);
+	});
+
+	test("a content block flush with the right edge on a smooth field is still reported", () => {
+		const img = field(1920, 1080);
+		paintWindow(img, { x: 900, y: 140, w: 1020, h: 800, radius: 0 });
+		expect(codes(checkEdgeClipping(img, still))).toContain("frame/edge-clipped");
+	});
+});
+
+describe("scrolled content touching the window's bottom is not a cropped window", () => {
+	// Incident (`bun studio lint site/public/media`, film.mp4 @ 38.97 s): the project panel scrolled, so a chart and the
+	// health list run down to the window's last row. The WINDOW is whole: rounded bottom corners, shadow, 72 px of field
+	// below it. "Edge contrast 26" (limit 25) read live content at the bottom as a sliced control. What distinguishes a
+	// cut window from a window with content at its edge is the corners: a cropped bottom has square corners.
+	test("film.mp4 @ 38.97 s (real JPEG of that frame): whole window, scrolled content, no window-cropped", async () => {
+		const img = await decode(new URL("./__fixtures__/window-scrolled-content.jpg", import.meta.url).pathname);
+		expect(codes(checkEdgeClipping(img, PROFILES["site-film"]!))).not.toContain("frame/window-cropped");
+	});
+
+	test("a window whose bottom was cropped (square corners) with content at the edge is still reported", () => {
+		const img = field(1920, 1080);
+		paintWindow(img, { x: 200, y: 65, w: 1520, h: 950, radius: 12, cropBottom: 40 });
+		expect(codes(checkEdgeClipping(img, still))).toContain("frame/window-cropped");
 	});
 });

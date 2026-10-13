@@ -18,9 +18,9 @@ All footage is real: recorded from the Atlas Desktop debug build (window capture
 | `film-poster.jpg` | also the hero image of the repository README. Re-render only it with `bun studio still atlas-1-0`, publish with `bun studio publish atlas-1-0 --stills` (both lint it first: the window must be whole, with its titlebar, corners and headroom). Before 2026-10-12 it was cropped at the window's top (`crop y:40`) |
 | `film-thumbs.jpg` / `film-thumbs.vtt` | scrub preview sprite (rendered by the studio) |
 | `film-chapters.json` / `manifest.json` | chapter list for the player (written by `bun studio publish`); content hashes of the published files |
-| `film-vertical.mp4` / `film-vertical-poster.jpg` | 1080x1920, 30s, social cut with a shorter voiceover |
+| `film-vertical.mp4` / `film-vertical-poster.jpg` | 1080x1920, 30s, social cut with a shorter voiceover; a keyframe at least every 2 s |
 | `loop-{workspace,panel,logs,terminal,agents,mcp}.mp4` / `.webm` / `-poster.jpg` | 1280x800 (16:10), silent, 9-14s, <600KB. Recorded by `recipes/site-media.ts` (`bun studio run`), cut and encoded by `bun studio loops` (`studio/src/site-media.ts` says what each is made of). The poster is the loop's first frame |
-| `loop-tui.mp4` / `.webm` / `-poster.jpg` | 1280x800, silent, 10.2s, <600KB, the new `atlas dev` log UX; cut from the vhs take (`bun studio capture tui tui`) by `bun studio loops` |
+| `loop-tui.mp4` / `.webm` / `-poster.jpg` | 1280x800, 24 fps, silent, 8s, <600KB, the current `atlas dev` log UX; cut from the vhs take (`bun studio capture tui tui`) by `bun studio loops` |
 | `shot-{workspace,panel,logs,terminal,agents}.jpg` | 2000px wide stills of the real app: the window PNG of the matching `shot` step of the recipe |
 
 ## How the lint judges them

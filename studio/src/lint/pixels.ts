@@ -145,7 +145,8 @@ export function bleedingSides(img: Image, band = 4, thresh = 30): Array<"top" | 
  * occupancy against the whole frame (`frac`), the second against the span the first one found. Both orders are tried
  * and the one that yields the larger, denser box wins.
  */
-export function subjectBox(mask: Uint8Array, w: number, h: number, frac = 0.4, minFrame = 0.15): Rect | undefined {
+export function subjectBox(img: Image, mask: Uint8Array, frac = 0.4, minFrame = 0.15): Rect | undefined {
+	const { w, h } = img;
 	// the heaviest run of qualifying rows/columns. Runs separated by a gap of at most `gap` (a dark band, a seam: real
 	// windows are not uniformly different from the field) are merged; a headline or caption farther away stays a
 	// separate run and loses to the window because runs are ranked by how many rows/columns they cover.
@@ -207,7 +208,7 @@ export function subjectBox(mask: Uint8Array, w: number, h: number, frac = 0.4, m
 	const b = find(false);
 	const big = (r: Rect | undefined) => r !== undefined && r.w >= w * minFrame && r.h >= h * minFrame;
 	const best = big(a) && big(b) ? (a!.w * a!.h >= b!.w * b!.h ? a! : b!) : big(a) ? a : big(b) ? b : undefined;
-	return best && mergeAligned(mask, w, h, best);
+	return best && mergeAligned(mask, img, best);
 }
 
 /**
@@ -216,13 +217,26 @@ export function subjectBox(mask: Uint8Array, w: number, h: number, frac = 0.4, m
  * edges are one rectangle, so grow the box over every row below/above it that has subject at BOTH box edges (the bezel
  * lines), however empty the middle is.
  */
-function mergeAligned(mask: Uint8Array, w: number, h: number, box: Rect): Rect {
+function mergeAligned(mask: Uint8Array, img: Image, box: Rect): Rect {
+	const { w, h, data } = img;
+	// the window's own bezel colour at its left and right edge columns, from the middle of the box (always window there)
+	const mid = box.y + Math.round(box.h / 2);
+	const edgeColour = (x: number): [number, number, number] => meanRgb(img, { x, y: mid - 8, w: 1, h: 16 });
+	const bezel = [edgeColour(box.x + 6), edgeColour(box.x + box.w - 7)];
+	const near = (x: number, y: number, ref: [number, number, number]) => {
+		const i = (y * w + x) * 3;
+		return Math.abs(data[i]! - ref[0]) + Math.abs(data[i + 1]! - ref[1]) + Math.abs(data[i + 2]! - ref[2]) < 24;
+	};
+	// a bezel column is present when the background model says "subject" there, or when the pixel is the window's own
+	// bezel colour: a near-black window bottom is barely different from the field in the model, but never the same colour
 	const hasEdges = (y: number) => {
 		let l = 0;
 		let r = 0;
 		for (let k = 0; k < 6; k++) {
-			l += mask[y * w + Math.min(w - 1, box.x + 4 + k)]!;
-			r += mask[y * w + Math.max(0, box.x + box.w - 5 - k)]!;
+			const xl = Math.min(w - 1, box.x + 4 + k);
+			const xr = Math.max(0, box.x + box.w - 5 - k);
+			l += mask[y * w + xl]! || (near(xl, y, bezel[0]!) ? 1 : 0);
+			r += mask[y * w + xr]! || (near(xr, y, bezel[1]!) ? 1 : 0);
 		}
 		return l >= 4 && r >= 4;
 	};

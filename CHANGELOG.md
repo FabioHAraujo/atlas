@@ -4,6 +4,34 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
 
+## [1.4.0] — 2026-10-13
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Added
+
+- **Go to definition that works.** ⌘-click (with an underline on ⌘-hover) and F12 jump to the exact place, also into `node_modules` `.d.ts` files and Rust's standard library and crates (opened read-only). ⇧F12 lists references, ⌥F12 and ⌘F12 go to type definition and implementation, and ⌃- / ⌃⇧- go back and forward through your jumps.
+- **Language servers start on their own.** Open a file and its server installs and starts with progress in the status bar, no setup: TypeScript uses your project's own `typescript`, dependency files share the project's server instead of starting another, and an old terminal host is explained with a button to restart it instead of a silent "no language server".
+- **A welcome worth opening.** The first screen assembles the Atlas globe from tiles of light, locks it with its own sound, and lights a tile for every project *Find my projects* discovers; starting your first stack completes the globe. It plays once and Esc or a click skips it.
+- **Sounds, sparingly.** Short sounds for meaningful moments only: your stack is up, a service failed, an agent needs you or finished, an update is ready, discovery finished. They respect macOS's *Play user interface sound effects*, stay quiet in the background, and can be tuned or turned off in Settings → General → Sounds.
+- **A richer error screen**: a likely cause, *Copy as Markdown*, system details, the last things the app did, and prompts you can paste to an AI agent to fix, report or explain the error.
+- **Release channels: Stable, Beta and Alpha.** Stable stays the default, so nothing changes for you unless you switch. Pick a channel in Settings → General → Updates → *Update channel*, or with `atlas update channel beta` (`ATLAS_UPDATE_CHANNEL` overrides it for scripts, `ATLAS_CHANNEL` does for the installer). Atlas never downgrades by itself; when your build is newer than what a channel offers it says so and `atlas update --downgrade` installs the older one on request. See [Versioning and release channels](docs/versioning.md).
+- **Prereleases use `-alpha.N`, `-beta.N` and `-rc.N` versions** and are published as GitHub *pre-releases*, so the Stable channel and the "Latest release" badge never point at them. Each release now also lists a `SHA256SUMS` file and a CycloneDX SBOM, and its `manifest.json` records the channel, the commit and, for a Stable release, the beta it was promoted from.
+
+### Changed
+
+- **`bun run release` takes a channel** (`alpha`, `beta`, `rc`, `stable`, `patch`) instead of `minor`/`major`. A Stable release is a soaked beta plus version metadata: the tool refuses it when anything else changed, or when the beta is younger than 48 hours (`--force-soak` overrides and says so in the release notes). `patch` is now a hotfix cut from `release/X.Y`. See [Releasing](docs/release.md).
+- **Readable in every theme.** Every text, icon, field border and focus ring now meets WCAG AA (4.5:1 for text, 3:1 for controls) on the surface it actually sits on, in all six bundled themes, light and dark: sidebar, panel, logs, editor (syntax colours included), settings, menus, tooltips, dialogs, toasts and What's new. Light themes were the worst off: the sidebar sat over the translucent macOS material and secondary text used the "disabled" grey. Theme colours that already read are kept; the rest are lifted in lightness only, keeping their hue.
+- **The terminal's minimum contrast defaults to 4.5**, so every ANSI colour reads on every theme's background. If you set it yourself, your value is kept.
+- **The welcome screen paints its copy with your dark theme**, since its stage is always a night sky, so it stays readable when the app is in a light theme.
+- **For contributors and agents:** `bun run desktop:agent` runs an isolated Atlas on a virtual display that never appears on your screens, and `atlas desktop debug` can take screenshots, record, click, type, wait and audit contrast without focusing anything. Debug builds no longer build a DMG, so Finder stops popping up. See [AGENTS.md](AGENTS.md).
+
+### Fixed
+
+- Settings → Appearance → Languages crashed with `undefined is not an object (evaluating 'languageLabels[i]')`, and language labels could be paired with the wrong language.
+- The welcome animation was drawn small in the top-left corner on Retina screens.
+- The site could serve an old cached copy of the film after it was re-cut; media URLs now carry the version of the published file.
+
 ## [1.4.0-beta.1] — 2026-10-13
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

@@ -1,14 +1,11 @@
 // Content and build-time data of the landing page (pages/index.astro keeps only the markup).
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { mediaVersion } from "./media";
 import { SITE } from "./site";
 
-/** `/media/<f>?v=<content hash>`: media is cached for 30 days, so a recut needs a new URL.
- * Videos are not in git (`scripts/fetch-media.sh`), so a fresh checkout builds without the hash. */
+/** `/media/<f>?v=<version>`; the version comes from the tracked manifest (see media.ts). */
 export const mediaUrl = (f: string) => {
-	const p = `public/media/${f}`;
-	if (!existsSync(p)) return `/media/${f}`;
-	return `/media/${f}?v=${createHash("sha1").update(readFileSync(p)).digest("hex").slice(0, 10)}`;
+	const v = mediaVersion(f);
+	return v ? `/media/${f}?v=${v}` : `/media/${f}`;
 };
 
 export const FAQ = [

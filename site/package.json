@@ -6,7 +6,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "check": "astro check && tsc -p scripts && tsc -p functions && tsc -p functions/tsconfig.test.json && bun test functions"
+    "check": "astro check && tsc -p scripts && tsc -p functions && tsc -p functions/tsconfig.test.json && bun test functions src"
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.3.2",

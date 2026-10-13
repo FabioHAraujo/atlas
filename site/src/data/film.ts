@@ -7,8 +7,41 @@ export const FILM_DURATION: number = film.duration;
 export const THUMB: { step: number; w: number; h: number; cols: number } = film.thumb;
 export const CHAPTERS: { t: number; title: string }[] = film.chapters;
 
-/** `m:ss`. */
-export const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+/** The ONE rule for every display of the film's length (heading, button, aria-labels, the player's total): whole seconds, rounded. */
+export const filmSeconds = (s: number) => (Number.isFinite(s) && s > 0 ? Math.round(s) : 0);
+
+/** `m:ss` of a length. */
+export const filmClock = (s: number) => {
+	const n = filmSeconds(s);
+	return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+};
+
+/** "1 minute 18 seconds": the spoken form, for aria-labels and alt text. */
+export const filmWords = (s: number) => {
+	const n = filmSeconds(s), m = Math.floor(n / 60), r = n % 60;
+	const part = (v: number, unit: string) => `${v} ${unit}${v === 1 ? "" : "s"}`;
+	return [m && part(m, "minute"), (r || !m) && part(r, "second")].filter(Boolean).join(" ");
+};
+
+/** `m:ss` of the playhead: floored, so the clock never shows the end before the picture does. */
+export const fmt = (s: number) => {
+	const n = Number.isFinite(s) && s > 0 ? Math.floor(s) : 0;
+	return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+};
+
+/**
+ * What a phone gets. The film is 16:9; in a portrait phone's column it would play in a 360 px box, letterboxed, with
+ * controls that do not fit. Until the whole film exists vertically, tapping play on a portrait phone (or small portrait
+ * tablet) hands the video to the native fullscreen player (it rotates to landscape and has its own controls), and when
+ * the browser cannot do that the player says "rotate your phone" instead of staying silent.
+ */
+export const mobileFilmUi = (e: { portrait: boolean; width: number; nativeFullscreen: boolean }) => {
+	const phone = e.portrait && e.width <= 820;
+	return { fullscreenOnPlay: phone && e.nativeFullscreen, rotateHint: phone };
+};
+
+/** A 16:9 film in a portrait fullscreen is letterboxed to a strip: ask the visitor to turn the phone (the lock to landscape is not available everywhere). */
+export const needsRotate = (e: { fullscreen: boolean; portrait: boolean }) => e.fullscreen && e.portrait;
 
 /** Index of the chapter playing at time `t` (-1 before the first). */
 export const chapterAt = (t: number) => CHAPTERS.findLastIndex((c) => t >= c.t);

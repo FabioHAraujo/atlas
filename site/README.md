@@ -19,12 +19,12 @@ bun run check      # astro check + type-check of scripts/ and functions/ (CI run
 | `src/pages/download.astro` | the download page: resolves the latest release at build time (`src/data/release.ts`, from the release's `manifest.json`), highlights the visitor's OS, lists coming-soon platforms with a notify form (`/api/waitlist` + `topic`), checksums, requirements |
 | `functions/` | Cloudflare Pages Functions: `release.json`, `changelog/`, `changelog.json` (the release engine, see [docs/site.md](../docs/site.md)), `api/waitlist` |
 | `src/components/Rail.astro` | the icon-only section rail (tooltip on hover/focus, progress hairline); state comes from one scroll handler in `src/lib/page.ts` |
-| `src/components/Hero.astro` | the live board (atlas.yaml, dependency graph, log river). Server-rendered in its final state |
-| `src/lib/hero.ts` | the boot choreography (GSAP) that rewinds and plays the board once |
+| `src/components/Hero.astro` | the first screen: the pitch, the install/download calls to action, and the product (the `loop-panel` loop, poster = LCP image, video started after load, never under reduced motion or Data Saver) |
+| `src/components/islands/FilmDialog.svelte` | the "Play the film" button and the dialog that mounts the player on first press. Portrait phones hand the video to native fullscreen (iOS) or get a "turn your phone" prompt (the film is 16:9 until a vertical cut of the whole film exists) |
 | `src/lib/motion.ts` | GSAP + ScrollTrigger + **Lenis** (the only smooth-scroll engine) and the word-rise heading reveal |
 | `src/lib/page.ts` | everything scroll-driven (rail, nav ink, pins, scrubs, lazy clips); loaded after first paint |
-| `src/data/stack.ts` | the demo stack shown in the hero (orbit-shop, same as the footage) |
-| `src/data/film.ts` | film chapters, duration and thumbnail grid for the player |
+| `src/data/stack.ts` | the demo atlas.yaml shown in the "one file" section (orbit-shop, same as the footage) |
+| `src/data/film.ts` | film chapters, thumbnail grid and the ONE rule for every display of the film's length (`filmSeconds`/`filmClock`/`filmWords`: round to whole seconds); nothing on the site types the length by hand (`film.test.ts` enforces it) |
 | `src/components/islands/FilmPlayer.svelte` | the custom film player (no bytes but the poster until play) |
 | `src/pages/docs/`, `src/pages/changelog/` | rendered from the repo's `docs/*.md` and `CHANGELOG.md`, on the paper register |
 | `src/layouts/Base.astro`, `DocsLayout.astro` | head/SEO and docs chrome |
@@ -33,7 +33,7 @@ bun run check      # astro check + type-check of scripts/ and functions/ (CI run
 
 ## Motion rules
 
-`prefers-reduced-motion`: no Lenis, no ScrollTrigger, no board replay, no log movement, no video autoplay; the HTML/CSS already renders every final state. Without JavaScript the page is complete as static HTML. Continuous animation (log rivers) is CSS-only and paused off screen and in hidden tabs.
+`prefers-reduced-motion`: no Lenis, no ScrollTrigger, no log movement, no video autoplay (the hero shows its poster); the HTML/CSS already renders every final state. Without JavaScript the page is complete as static HTML. Continuous animation (log rivers) is CSS-only and paused off screen and in hidden tabs.
 
 ## Film assets
 

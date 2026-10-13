@@ -6,7 +6,6 @@ import Clip from "../components/Clip.astro";
 import DownloadLinks from "../components/DownloadLinks.astro";
 import StackVisualizer from "../components/islands/StackVisualizer.svelte";
 import TerminalReplay from "../components/islands/TerminalReplay.svelte";
-import FilmPlayer from "../components/islands/FilmPlayer.svelte";
 import InstallCopy from "../components/islands/InstallCopy.svelte";
 import Waitlist from "../components/islands/Waitlist.svelte";
 import { FAQ, JSON_LD, LOG_RIVER, codeSpans, mediaUrl } from "../data/landing";
@@ -175,16 +174,6 @@ import { SITE } from "../data/site";
 		</div>
 	</section>
 
-	<!-- FILM -->
-	<section id="film" class="sec on-deep film screen" data-sec="film">
-		<div class="wrap">
-			<h2 class="display rise">All of it, in 78 seconds.</h2>
-		</div>
-		<div class="filmwrap">
-			<FilmPlayer client:visible poster={mediaUrl("film-poster.jpg")} mp4={mediaUrl("film.mp4")} webm={mediaUrl("film.webm")} captions={mediaUrl("film.vtt")} thumbs={mediaUrl("film-thumbs.jpg")} label="Atlas product film, 1 minute 18 seconds" />
-		</div>
-	</section>
-
 	<!-- FAQ + WAITLIST: paper -->
 	<section id="faq" class="sec on-paper faq" data-sec="faq" data-ground="paper">
 		<div class="wrap fq">
@@ -313,12 +302,6 @@ import { SITE } from "../data/site";
 	.tuiclip { display: none; }
 	@media (min-height: 860px) and (min-width: 901px) { .tuiclip { display: block; max-width: 70%; justify-self: end; margin-top: -3rem; position: relative; } }
 
-	/* film: the player gets the screen */
-	.film { align-content: center; gap: clamp(0.6rem, 1.6svh, 1.2rem); padding-top: clamp(5rem, 11svh, 6.5rem); }
-	.film :global(.rise) { max-width: 24ch; font-size: clamp(2rem, min(4.6vw, 8svh), 4.2rem); }
-	.filmwrap { width: min(calc((100svh - 18rem) * 16 / 9), 1500px, 100% - 2rem); margin: 0 auto; }
-	@media (max-height: 1000px) { .filmwrap :global(.chapters) { display: none; } }
-
 	/* faq */
 	.faq { min-height: 0; display: block; padding: clamp(4rem, 9vw, 8rem) 0; }
 	.fq { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: clamp(1.5rem, 5vw, 5rem); }
@@ -352,7 +335,6 @@ import { SITE } from "../data/site";
 	@media (max-width: 900px) {
 		/* Phones: chapters flow at their natural height (no forced full-screen blocks, no pinned scenes), one idea each. */
 		.screen { min-height: 0; align-content: start; padding: clamp(3.5rem, 12vw, 5rem) 0 clamp(2.4rem, 8vw, 4rem); }
-		.hero ~ .screen:first-of-type { padding-top: clamp(3.5rem, 12vw, 5rem); }
 		section :global(.rise) { font-size: clamp(2.3rem, 10.6vw, 3.6rem); max-width: 16ch; }
 		.lead, .pcopy .lead, .file .two .lead { font-size: 1.125rem; line-height: 1.45; max-width: 40ch; }
 		.prose-sm, .file :global(.prose-sm), .pcopy .prose-sm, .file .two .prose-sm { display: block; font-size: 1rem; line-height: 1.6; }
@@ -387,11 +369,6 @@ import { SITE } from "../data/site";
 		.mcpclip { display: block; margin-top: 0.4rem; }
 		.tuiclip { display: none; }
 		.river2 .strip::before { font-size: 0.9rem; }
-		/* film: full width, poster first; chapters are a tap list under the poster, and a bottom sheet while playing */
-		.film { padding-top: clamp(4.5rem, 14vw, 6rem); }
-		.filmwrap { width: min(100% - 1rem, 40rem); }
-		.filmwrap :global(.chapters) { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
-		.filmwrap :global(.chapters button) { text-align: left; }
 		/* FAQ: 56px rows, bigger type */
 		.faq { padding: clamp(3.5rem, 12vw, 5rem) 0; }
 		.prose-sm :global(a.ln), .fine :global(a.ln), .lead :global(a.ln) { display: inline-block; }

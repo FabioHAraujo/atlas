@@ -1,14 +1,10 @@
 // Landing page choreography. Everything here is skipped under prefers-reduced-motion, where the HTML and CSS
 // already render every final state (no hidden content, no scrub, no autoplay).
 import { gsap, ScrollTrigger, reduced, touch, startScroll, stopScroll, scroller, riseHeadings } from "./motion";
-import { playHero } from "./hero";
 
 const doc = document.documentElement;
 const $$ = <T extends Element>(s: string) => [...document.querySelectorAll<T>(s)];
 const calm = reduced();
-
-// Hero runs regardless of Lenis; it only needs gsap.
-const stopHero = playHero();
 
 // Nav gets a ground after the hero. Plain scroll checks, not ScrollTrigger ranges: a range with a computed end drops its
 // class once lazy media grows the page.
@@ -208,7 +204,6 @@ addEventListener("load", () => ScrollTrigger.refresh(), { once: true });
 addEventListener(
 	"pagehide",
 	() => {
-		stopHero?.();
 		stopScroll();
 		clipIO.disconnect();
 		riverIO.disconnect();

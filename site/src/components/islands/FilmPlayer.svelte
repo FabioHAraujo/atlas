@@ -1,10 +1,13 @@
-<script lang="ts">
-	// Custom film player. Idle cost: one poster image, no video bytes (preload="none" until first play).
-	// First play creates nothing new: the <video> is in the DOM from the start with preload="none".
-	import { onMount } from "svelte";
-	import { CHAPTERS, FILM_DURATION, chapterAt, fmt, thumbStyle } from "../../data/film";
+<!-- Mounted by FilmDialog (a Svelte island), not by an .astro page: Astro only extracts CSS of components a page imports, so the player carries its own styles in its JS. -->
+<svelte:options css="injected" />
 
-	let { poster, mp4, webm, captions, thumbs, label }: { poster: string; mp4: string; webm: string; captions: string; thumbs: string; label: string } = $props();
+<script lang="ts">
+	// Custom film player, mounted inside the hero's dialog (FilmDialog). Idle cost: nothing but the poster (preload="none"
+	// until the first play). The dialog's button starts it inside the visitor's tap, so sound is allowed.
+	import { onMount } from "svelte";
+	import { CHAPTERS, FILM_DURATION, chapterAt, filmClock, filmSeconds, fmt, needsRotate, thumbStyle } from "../../data/film";
+
+	let { poster, mp4, webm, captions, thumbs, words, autostart }: { poster: string; mp4: string; webm: string; captions: string; thumbs: string; words: string; autostart?: { nativeFullscreen: boolean } } = $props();
 
 	let root: HTMLDivElement;
 	let video: HTMLVideoElement;
@@ -23,9 +26,10 @@
 	let cue = $state("");
 	let chromeVisible = $state(true);
 	let fs = $state(false);
+	let portrait = $state(false);
 	let pipOk = $state(false);
 	let coarse = $state(false);
-	let panel = $state<"" | "chapters" | "speed">("");
+	let panel = $state<"" | "chapters" | "speed" | "more">("");
 	let hover = $state<{ x: number; t: number } | null>(null);
 	let scrubbing = $state(false);
 	let live = $state("");
@@ -40,14 +44,27 @@
 		queueMicrotask(() => (live = msg));
 	}
 
-	async function play() {
+	type NativeVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitExitFullscreen?: () => void };
+
+	/** Start (or restart) playback. Must be called inside the user's gesture. `nativeFullscreen`: hand the video to the OS player first. */
+	export async function play(opts: { nativeFullscreen?: boolean } = {}) {
 		started = true;
 		if (ended) video.currentTime = 0;
 		try {
 			await video.play();
+			if (opts.nativeFullscreen) await fullscreen(true);
 		} catch {
 			say("Playback was blocked. Press play again.");
 		}
+	}
+	/** Pause and rewind to the poster (the dialog closed). */
+	export function stop() {
+		video?.pause();
+		if (video && video.currentTime > 0) video.currentTime = 0;
+		time = 0;
+		ended = false;
+		started = false;
+		panel = "";
 	}
 	const toggle = () => (video.paused || video.ended ? play() : video.pause());
 	function seek(t: number) {
@@ -85,12 +102,13 @@
 		panel = "";
 		say(`Speed ${r}x`);
 	}
-	async function fullscreen() {
-		const v = video as HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitExitFullscreen?: () => void; webkitDisplayingFullscreen?: boolean };
-		if (document.fullscreenElement) await document.exitFullscreen();
+	/** `native`: phone tap, prefer the <video>'s own fullscreen (iOS rotates it and draws the OS controls); otherwise the player goes fullscreen. */
+	async function fullscreen(native = false) {
+		const v = video as NativeVideo;
+		if (document.fullscreenElement) return document.exitFullscreen();
 		// iPhone Safari: only the <video> itself can go fullscreen (native player), the custom bar cannot follow.
-		else if (!root.requestFullscreen && v.webkitEnterFullscreen) v.webkitEnterFullscreen();
-		else await root.requestFullscreen().catch(() => v.webkitEnterFullscreen?.());
+		if ((native || !root.requestFullscreen) && v.webkitEnterFullscreen) return v.webkitEnterFullscreen();
+		await root.requestFullscreen().catch(() => v.webkitEnterFullscreen?.());
 		// landscape on phones is what fullscreen is for
 		try {
 			await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.("landscape");
@@ -181,6 +199,8 @@
 
 	onMount(() => {
 		mounted = true;
+		// Mounted by the tap that opened the dialog (same task, still inside the user gesture): start the film now.
+		if (autostart) void play(autostart);
 		coarse = matchMedia("(pointer: coarse)").matches;
 		pipOk = !!document.pictureInPictureEnabled && "requestPictureInPicture" in video;
 		try {
@@ -190,15 +210,21 @@
 			fs = document.fullscreenElement === root;
 			if (!fs) screen.orientation?.unlock?.();
 		};
+		const mq = matchMedia("(orientation: portrait)");
+		const onOri = () => (portrait = mq.matches);
+		onOri();
+		mq.addEventListener("change", onOri);
 		document.addEventListener("fullscreenchange", onFs);
 		return () => {
 			document.removeEventListener("fullscreenchange", onFs);
+			mq.removeEventListener("change", onOri);
 			clearTimeout(hideTimer);
 		};
 	});
 
 	function onLoaded() {
 		duration = video.duration || FILM_DURATION;
+		mediaLoaded = !!video.duration;
 		track = video.textTracks[0];
 		if (track) {
 			track.mode = ccOn ? "hidden" : "disabled";
@@ -212,6 +238,9 @@
 		const b = video.buffered;
 		for (let i = 0; i < b.length; i++) if (b.start(i) <= video.currentTime && b.end(i) >= video.currentTime) buffered = b.end(i);
 	}
+	/** The film's length as everything else on the page states it: the published length until the media says otherwise, one rule (filmClock). */
+	const total = $derived(filmClock(mediaLoaded ? duration : filmSeconds(FILM_DURATION)));
+	let mediaLoaded = $state(false);
 </script>
 
 <div
@@ -221,7 +250,7 @@
 	class:fs
 	bind:this={root}
 	role="group"
-	aria-label={label}
+	aria-label={`Atlas product film, ${words}`}
 	onpointermove={poke}
 	onfocusin={poke}
 	onkeydown={onKey}
@@ -232,7 +261,7 @@
 		preload="none"
 		playsinline
 		crossorigin="anonymous"
-		aria-label={label}
+		aria-label={`Atlas product film, ${words}`}
 		onclick={onSurface}
 		ondblclick={() => !coarse && fullscreen()}
 		onplay={() => ((playing = true), (ended = false), say("Playing"))}
@@ -250,13 +279,17 @@
 		<track kind="captions" src={captions} srclang="en" label="English" />
 	</video>
 
+	{#if needsRotate({ fullscreen: fs, portrait })}
+		<p class="turn" role="status"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M3 9v6M21 9v6" /></svg>Turn your phone sideways to fill the screen</p>
+	{/if}
+
 	{#if cue && ccOn && started}
 		<p class="cue" class:lift={chromeVisible}><span>{cue}</span></p>
 	{/if}
 
 	{#if !started}
-		<button type="button" class="big" onclick={play}>
-			<span class="blk"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 3.5v17l15-8.5z" /></svg><b>Play the film</b><small aria-label="1 minute 18 seconds">1:18</small></span>
+		<button type="button" class="big" onclick={() => play()} aria-label={`Play the film, ${words}`}>
+			<span class="blk"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 3.5v17l15-8.5z" /></svg><b>Play</b><small>{total}</small></span>
 		</button>
 	{/if}
 
@@ -268,7 +301,7 @@
 			<p class="end-p">Install it in one line, or grab the .dmg.</p>
 			<div class="end-b">
 				<a class="btn solid" href="/#install" onclick={() => document.fullscreenElement && document.exitFullscreen()}>Install Atlas</a>
-				<button type="button" class="btn" onclick={play}>Watch again</button>
+				<button type="button" class="btn" onclick={() => play()}>Watch again</button>
 			</div>
 		</div>
 	{/if}
@@ -283,7 +316,7 @@
 				aria-valuemin="0"
 				aria-valuemax={Math.round(duration)}
 				aria-valuenow={Math.round(time)}
-				aria-valuetext={`${fmt(time)} of ${fmt(duration)}, chapter ${CHAPTERS[current]?.title ?? ""}`}
+				aria-valuetext={`${fmt(time)} of ${total}, chapter ${CHAPTERS[current]?.title ?? ""}`}
 				onpointermove={onBarMove}
 				onpointerdown={onBarDown}
 				onpointerup={onBarUp}
@@ -309,18 +342,18 @@
 				<button type="button" class="ic" onclick={toggle} aria-label={playing ? "Pause" : "Play"} aria-keyshortcuts="k Space">
 					{#if playing}<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>{:else}<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 3.5v17l15-8.5z" /></svg>{/if}
 				</button>
-				<button type="button" class="ic sk" onclick={() => skip(-5)} aria-label="Back 5 seconds" aria-keyshortcuts="j"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4" /></svg><b>5</b></button>
-				<button type="button" class="ic sk" onclick={() => skip(5)} aria-label="Forward 5 seconds" aria-keyshortcuts="l"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2M20 4v4h-4" /></svg><b>5</b></button>
-				<div class="vol">
+				<button type="button" class="ic sk wide-only" onclick={() => skip(-5)} aria-label="Back 5 seconds" aria-keyshortcuts="j"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4" /></svg><b>5</b></button>
+				<button type="button" class="ic sk wide-only" onclick={() => skip(5)} aria-label="Forward 5 seconds" aria-keyshortcuts="l"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 12a8 8 0 1 1-3-6.2M20 4v4h-4" /></svg><b>5</b></button>
+				<div class="vol wide-only">
 					<button type="button" class="ic" onclick={() => setMuted(!muted)} aria-label={muted ? "Unmute" : "Mute"} aria-keyshortcuts="m">
 						{#if muted || volume === 0}<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4zM17 9l5 6M22 9l-5 6" /></svg>{:else}<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4zM17 8a5 5 0 0 1 0 8" /></svg>{/if}
 					</button>
 					<input type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} oninput={(e) => setVolume(Number(e.currentTarget.value))} aria-label="Volume" />
 				</div>
-				<p class="tm" aria-hidden="true">{fmt(time)} <span>/ {fmt(duration)}</span></p>
-				<p class="ch" aria-hidden="true">{CHAPTERS[current]?.title}</p>
+				<p class="tm" aria-hidden="true">{fmt(time)} <span>/ {total}</span></p>
+				<p class="ch wide-only" aria-hidden="true">{CHAPTERS[current]?.title}</p>
 				<span class="sp"></span>
-				<div class="menu">
+				<div class="menu wide-only">
 					<button type="button" class="ic txt" onclick={() => (panel = panel === "speed" ? "" : "speed")} aria-label={`Playback speed ${rate}x`} aria-expanded={panel === "speed"} aria-haspopup="true">{rate}x</button>
 					{#if panel === "speed"}
 						<ul class="pop" role="menu" aria-label="Speed">
@@ -328,9 +361,9 @@
 						</ul>
 					{/if}
 				</div>
-				<button type="button" class="ic txt" class:on={ccOn} onclick={() => setCaptions(!ccOn)} aria-label="Captions" aria-pressed={ccOn} aria-keyshortcuts="c">CC</button>
+				<button type="button" class="ic txt cc-row" class:on={ccOn} onclick={() => setCaptions(!ccOn)} aria-label="Captions" aria-pressed={ccOn} aria-keyshortcuts="c">CC</button>
 				<div class="menu">
-					<button type="button" class="ic txt wide" onclick={() => (panel = panel === "chapters" ? "" : "chapters")} aria-expanded={panel === "chapters"} aria-haspopup="true">Chapters</button>
+					<button type="button" class="ic txt chbtn" onclick={() => (panel = panel === "chapters" ? "" : "chapters")} aria-label="Chapters" aria-expanded={panel === "chapters"} aria-haspopup="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg><span class="wide-only">Chapters</span></button>
 					{#if panel === "chapters"}
 						{#if coarse}<button type="button" class="scrim" aria-label="Close chapters" onclick={() => (panel = "")}></button>{/if}
 						<ul class="pop chap" class:sheet={coarse} role="menu" aria-label="Chapters">
@@ -341,8 +374,23 @@
 						</ul>
 					{/if}
 				</div>
-				{#if pipOk}<button type="button" class="ic" onclick={pip} aria-label="Picture in picture"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 5h18v14H3zM12 12h7v5h-7z" /></svg></button>{/if}
-				<button type="button" class="ic" onclick={fullscreen} aria-label={fs ? "Exit full screen" : "Full screen"} aria-keyshortcuts="f"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
+				<div class="menu narrow-only">
+					<button type="button" class="ic" onclick={() => (panel = panel === "more" ? "" : "more")} aria-label="More controls" aria-expanded={panel === "more"} aria-haspopup="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="19" cy="12" r="1.9" /></svg></button>
+					{#if panel === "more"}
+						<button type="button" class="scrim" aria-label="Close menu" onclick={() => (panel = "")}></button>
+						<ul class="pop sheet" role="menu" aria-label="More controls">
+							<li class="sh" role="presentation"><b>Controls</b><button type="button" class="x" aria-label="Close menu" onclick={() => (panel = "")}>×</button></li>
+							<li role="none"><button type="button" role="menuitem" onclick={() => (skip(-5), (panel = ""))}><span>Back 5 seconds</span></button></li>
+							<li role="none"><button type="button" role="menuitem" onclick={() => (skip(5), (panel = ""))}><span>Forward 5 seconds</span></button></li>
+							<li role="none"><button type="button" role="menuitemcheckbox" aria-checked={muted} onclick={() => (setMuted(!muted), (panel = ""))}><span>{muted ? "Unmute" : "Mute"}</span></button></li>
+							<li role="none" class="cc-more"><button type="button" role="menuitemcheckbox" aria-checked={ccOn} onclick={() => (setCaptions(!ccOn), (panel = ""))}><span>Captions</span></button></li>
+							{#each RATES as r}<li role="none"><button type="button" role="menuitemradio" aria-checked={r === rate} onclick={() => setRate(r)}><span>Speed {r}x</span></button></li>{/each}
+							{#if pipOk}<li role="none"><button type="button" role="menuitem" onclick={() => (pip(), (panel = ""))}><span>Picture in picture</span></button></li>{/if}
+						</ul>
+					{/if}
+				</div>
+				{#if pipOk}<button type="button" class="ic wide-only" onclick={pip} aria-label="Picture in picture"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 5h18v14H3zM12 12h7v5h-7z" /></svg></button>{/if}
+				<button type="button" class="ic" onclick={() => fullscreen()} aria-label={fs ? "Exit full screen" : "Full screen"} aria-keyshortcuts="f"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
 			</div>
 		</div>
 	{/if}
@@ -350,15 +398,9 @@
 	<p class="sr-only" aria-live="polite">{live}</p>
 </div>
 
-<!-- Kept in the layout while playing (hidden, not removed) so the page below never jumps when the film starts -->
-<ol class="chapters" class:gone={started} aria-hidden={started} aria-label="Film chapters" inert={started}>
-		{#each CHAPTERS as c, i}
-			<li><button type="button" onclick={() => (seek(c.t), play())}><time>{fmt(c.t)}</time>{c.title}</button></li>
-		{/each}
-	</ol>
 
 <style>
-	.player { position: relative; aspect-ratio: 16 / 9; width: 100%; background: #0b0c10; border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14), 0 40px 80px -30px rgb(3 6 60 / 0.8); color: #fff; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+	.player { position: relative; container: player / inline-size; aspect-ratio: 16 / 9; width: 100%; background: #0b0c10; border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14), 0 40px 80px -30px rgb(3 6 60 / 0.8); color: #fff; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 	.player.fs { border-radius: 0; box-shadow: none; }
 	.player.hide { cursor: none; }
 	video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #0b0c10; }
@@ -373,6 +415,7 @@
 	.big:active .blk { transform: translateY(2px); }
 	.big:focus-visible { outline: 3px solid var(--wait); outline-offset: -6px; }
 
+	.turn { position: absolute; left: 0; right: 0; top: 18%; margin: 0; display: grid; justify-items: center; gap: 0.5rem; padding-inline: 1.5rem; text-align: center; font: 700 1.1rem/1.3 var(--font); pointer-events: none; text-shadow: 0 1px 8px rgb(0 0 0 / 0.8); }
 	.spin { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px; border: 4px solid rgb(255 255 255 / 0.3); border-top-color: #fff; border-radius: 50%; animation: sp 0.8s linear infinite; pointer-events: none; }
 	@keyframes sp { to { transform: rotate(360deg); } }
 
@@ -404,7 +447,8 @@
 	.ic:hover { background: rgb(255 255 255 / 0.16); }
 	.ic:focus-visible { outline: 2px solid var(--wait); outline-offset: -2px; }
 	.ic.txt { font: 800 0.95rem/1 var(--font); font-stretch: 85%; }
-	.ic.txt.wide { padding: 0 0.8rem; }
+	.ic.txt.chbtn { gap: 0.4rem; padding: 0 0.8rem; }
+	@container player (max-width: 560px) { .ic.txt.chbtn { padding: 0 0.2rem; } }
 	.ic.on { background: #fff; color: var(--ink); }
 	.sk b { position: absolute; font: 800 0.58rem/1 var(--font); top: 50%; left: 50%; transform: translate(-50%, -38%); }
 	.vol { display: flex; align-items: center; }
@@ -427,13 +471,6 @@
 	.end-p { margin: 0; max-width: 38ch; color: var(--fg-2); font-size: clamp(0.95rem, 1.6vw, 1.2rem); }
 	.end-b { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-top: 0.4rem; }
 
-	/* chapter list under the idle player: plain text, clickable */
-	.chapters { list-style: none; margin: 1rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem; }
-	.chapters button { background: transparent; border: 0; color: var(--fg-2); font: 600 0.95rem var(--font); cursor: pointer; padding: 0.35rem 0; display: inline-flex; gap: 0.5rem; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 0.22em; text-decoration-thickness: 1.5px; }
-	.chapters button:hover { color: #fff; text-decoration-color: currentColor; }
-	.chapters.gone { visibility: hidden; }
-	.chapters time { font: 500 0.82rem var(--mono); opacity: 0.7; padding-top: 0.12rem; }
-	@media (pointer: coarse) { .chapters button { min-height: 44px; align-items: center; font-size: 1rem; } .chapters time { font-size: 0.875rem; padding-top: 0; } }
 
 	/* Touch + phones. Controls: 44-48px targets, a 44px-tall scrub strip, chapters as a bottom sheet, no hover-only UI. */
 	@media (pointer: coarse) {
@@ -454,9 +491,11 @@
 		.sheet button { min-height: 52px; padding-inline: 1rem; }
 		.scrim { position: fixed; inset: 0; z-index: 89; width: 100%; height: 100%; padding: 0; border: 0; background: rgb(8 12 70 / 0.6); cursor: default; }
 	}
-	@media (max-width: 640px) {
-		.player { border-radius: 8px; }
-		.ch, .vol { display: none; }
+	/* Narrow players (a phone's column, a small window): the row holds only play, time, CC, chapters, more, full screen
+	   (six 44px targets plus the clock fit in 320px); everything else lives in the "more" sheet. Driven by the PLAYER's
+	   width, not the viewport's, so it holds wherever the dialog ends up. */
+	@container player (max-width: 560px) {
+		.wide-only { display: none !important; }
 		.bar { padding: 2rem 0.5rem calc(0.3rem + env(safe-area-inset-bottom)); }
 		.fs .bar { padding-inline: max(0.5rem, env(safe-area-inset-left)) max(0.5rem, env(safe-area-inset-right)); }
 		.tm { margin: 0 0.2rem; font-size: 0.8125rem; }
@@ -471,6 +510,10 @@
 		.end-p { font-size: 0.9375rem; }
 		.end-b .btn { padding: 0.6rem 0.9rem; min-height: 44px; }
 	}
-	@media (max-width: 640px) and (orientation: portrait) { .row { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .row::-webkit-scrollbar { display: none; } }
+	/* 320px phones: captions move into the "more" sheet so play, clock, chapters, more and full screen fit at 44px each */
+	@container player (max-width: 360px) { .cc-row { display: none !important; } .tm { margin: 0 0.1rem; } .row { gap: 0; } .bar { padding-inline: 0.25rem; } }
+	@container player (min-width: 361px) { .cc-more { display: none !important; } }
+	@container player (min-width: 561px) { .narrow-only { display: none !important; } }
+	@media (max-width: 640px) { .player { border-radius: 8px; } }
 	@media (prefers-reduced-motion: reduce) { .bar, .cue, .vol input { transition: none; } .spin { animation-duration: 2s; } }
 </style>

@@ -373,7 +373,17 @@ mod tests {
     fn channel_is_persisted_in_the_given_file_only() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("sub").join("update-channel");
-        assert_eq!(channel::read_from(&file), Channel::Stable);
+        assert_eq!(
+            channel::read_from(&file),
+            Channel::Alpha,
+            "no file = default"
+        );
+        persist_channel(&file, Channel::Stable).unwrap();
+        assert_eq!(
+            channel::read_from(&file),
+            Channel::Stable,
+            "an explicit choice wins"
+        );
         persist_channel(&file, Channel::Alpha).unwrap();
         assert_eq!(channel::read_from(&file), Channel::Alpha);
         assert_eq!(std::fs::read_to_string(&file).unwrap().trim(), "alpha");

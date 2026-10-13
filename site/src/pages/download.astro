@@ -5,11 +5,14 @@ import Waitlist from "../components/islands/Waitlist.svelte";
 import ShareLink from "../components/islands/ShareLink.svelte";
 import { channelReleases, latestRelease, fmtDate, fmtSize } from "../data/release";
 import { SITE } from "../data/site";
+import { DEFAULT_CHANNEL, type Channel } from "../../functions/_lib/channels";
 import copy from "../../../crates/atlas-core/data/channels.json";
 
-// Beta and Alpha: the copy is the one the CLI and Atlas Desktop use; what each offers is resolved like the edge does it.
+// The primary download is the DEFAULT channel (Alpha until a real Stable exists); the other channels are cards below it. The copy is
+// the one the CLI and Atlas Desktop use; what each offers is resolved like the edge does it.
 const others = await channelReleases();
-const otherChannels = copy.channels.filter((c) => c.id !== "stable");
+const main = copy.channels.find((c) => c.id === DEFAULT_CHANNEL)!;
+const otherChannels = copy.channels.filter((c) => c.id !== DEFAULT_CHANNEL);
 
 const rel = await latestRelease();
 const dmgUrl = rel.dmg?.url ?? SITE.releases;
@@ -56,7 +59,7 @@ const reqs: [string, string][] = [
 
 			<!-- The page opens on the platform that is available today; the script only changes the copy for other visitors -->
 			<div class="grid">
-				<article class="primary" aria-labelledby="mac-h" data-card="macos-arm">
+				<article class="primary" aria-labelledby="mac-h" data-card="macos-arm" data-default-channel={DEFAULT_CHANNEL}>
 					<div class="top">
 						<span class="badge"><i class="dot go"></i> Available now</span>
 						<span class="you" data-you hidden>Your Mac</span>
@@ -68,6 +71,7 @@ const reqs: [string, string][] = [
 						<span class="meta" data-size>{rel.dmg ? `${fmtSize(rel.dmg.size)} · Apple silicon` : "Apple silicon"}</span>
 					</div>
 					{copy.stage === "alpha" && <p class="stage" data-stage>{copy.stage_note}</p>}
+					<p class="stage" data-primary-channel>This is the <b>{main.label}</b> channel: {main.promise}</p>
 					<p class="note" data-intel hidden>This download is for Apple silicon. Intel Macs are coming soon: use Notify me below.</p>
 					<div class="cli">
 						<p class="cli-h">Or install the command line and the app from a terminal</p>
@@ -92,10 +96,10 @@ const reqs: [string, string][] = [
 
 			<section class="channels" aria-labelledby="ch-h" data-channels>
 				<h2 id="ch-h" class="h">Other channels</h2>
-				<p class="sub">The download above is the Stable channel. Beta and Alpha get new work sooner and break more often. You can switch at any time with <code>atlas update channel</code> or in Settings.</p>
+				<p class="sub">The download above is the {main.label} channel{DEFAULT_CHANNEL === "stable" ? "" : ", the default while Atlas is in alpha"}. {DEFAULT_CHANNEL === "stable" ? "Beta and Alpha get new work sooner and break more often." : "Beta and Stable move slower and break less: Stable only ships builds that already ran as a beta."} You can switch at any time with <code>atlas update channel</code> or in Settings.</p>
 				<ul class="cards">
 					{otherChannels.map((c) => {
-						const r = others[c.id as "beta" | "alpha"];
+						const r = others[c.id as Channel] ?? null;
 						return (
 							<li class="card chan" data-channel={c.id} data-risk={c.risk}>
 								<div class="ct chan-t">
@@ -215,9 +219,11 @@ const reqs: [string, string][] = [
 		}
 		document.documentElement.dataset.release = r.version;
 	};
-	// Other channels: /channels.json carries the same copy as the page and what each channel offers right now. A channel that offers
-	// nothing newer than Stable ("release" is Stable's own tag) shows the honest empty state instead of repeating the Stable download.
+	// Other channels: /channels.json carries the same copy as the page and what each channel offers right now. A channel other than
+	// Stable that offers nothing newer than Stable ("release" is Stable's own tag) shows the honest empty state instead of repeating the
+	// Stable download. The default channel is the primary card (hydrated from /release.json), so it is skipped here.
 	interface Chan { id: string; label: string; release: (Rel & { tag: string }) | null }
+	const defaultChannel = document.querySelector<HTMLElement>("[data-default-channel]")?.dataset.defaultChannel;
 	const fmt = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
 	const offer = (c: Chan, stable: string | undefined) => {
 		const box = $(`[data-channel="${c.id}"] [data-offer]`);
@@ -231,7 +237,7 @@ const reqs: [string, string][] = [
 			box.append(el);
 			return el;
 		};
-		if (!r || r.tag === stable) {
+		if (!r || (c.id !== "stable" && r.tag === stable)) {
 			add("p", "chan-none", (p) => { p.dataset.none = ""; p.textContent = `No ${c.label} release yet.`; });
 			return;
 		}
@@ -256,7 +262,7 @@ const reqs: [string, string][] = [
 		.then((r) => (r.ok ? (r.json() as Promise<{ channels: Chan[] }>) : Promise.reject()))
 		.then(({ channels }) => {
 			const stable = channels.find((c) => c.id === "stable")?.release?.tag;
-			for (const c of channels) if (c.id !== "stable") offer(c, stable);
+			for (const c of channels) if (c.id !== defaultChannel) offer(c, stable);
 		})
 		.catch(() => {
 			// Same as /release.json: the built cards stay.

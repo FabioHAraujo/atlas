@@ -14,6 +14,11 @@ import type { ReleaseInfo } from "./release";
 export const CHANNELS = ["stable", "beta", "alpha"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
+/** The channel a visitor gets when they did not choose one: the site's Download button, `/release.json` and `/changelog*`.
+ * Mirrors `#[default]` on `atlas_core::channel::Channel` (channels.test.ts reads that file and fails if they differ). Pre-GA it
+ * is Alpha; flipping it back to Stable is this line plus the Rust attribute. */
+export const DEFAULT_CHANNEL: Channel = "alpha";
+
 /** Type guard for user input (`?channel=`): exact lowercase names only. */
 export const isChannel = (x: unknown): x is Channel => CHANNELS.includes(x as Channel);
 

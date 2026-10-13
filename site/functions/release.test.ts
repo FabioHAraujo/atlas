@@ -36,10 +36,20 @@ type Handler = (ctx: { request: Request }) => Promise<Response>;
 const call = (h: unknown, path: string) => (h as Handler)({ request: new Request(`https://x.test${path}`) });
 
 describe("GET /release.json", () => {
-	test("defaults to stable and now says which channel and whether it is a prerelease", async () => {
+	test("defaults to the default channel (alpha pre-GA): the newest build it accepts, and says which channel and whether it is a prerelease", async () => {
 		const body = await (await call(releaseJson, "/release.json")).json();
-		expect(body).toMatchObject({ version: "1.3.0", tag: "v1.3.0", channel: "stable", prerelease: false });
+		expect(body).toMatchObject({ version: "1.4.0-beta.1", tag: "v1.4.0-beta.1", channel: "alpha", prerelease: true });
 		expect(body.dmg.sha256).toBe("bb");
+	});
+	test("?channel=stable is still selectable and never a prerelease", async () => {
+		const body = await (await call(releaseJson, "/release.json?channel=stable")).json();
+		expect(body).toMatchObject({ version: "1.3.0", tag: "v1.3.0", channel: "stable", prerelease: false });
+	});
+	test("no channel asked and nothing newer than stable: the default channel serves stable's release (never an empty download)", async () => {
+		feed.splice(0, feed.length, "v1.3.0");
+		const body = await (await call(releaseJson, "/release.json")).json();
+		expect(body).toMatchObject({ version: "1.3.0", channel: "alpha", prerelease: false });
+		feed.splice(0, feed.length, "v1.4.0-beta.1", "v1.3.0");
 	});
 	test("?channel=beta follows the newest beta", async () => {
 		expect(await (await call(releaseJson, "/release.json?channel=beta")).json()).toMatchObject({ version: "1.4.0-beta.1", channel: "beta", prerelease: true });
@@ -85,8 +95,13 @@ describe("GET /channels.json", () => {
 });
 
 describe("GET /changelog.json", () => {
-	test("default channel is stable (unchanged shape plus per-entry kind)", async () => {
+	test("default channel is the default (alpha pre-GA): the history at its newest tag, with per-entry kind", async () => {
 		const body = await (await call(changelogJson, "/changelog.json")).json();
+		expect(body.tag).toBe("v1.4.0-beta.1");
+		expect(body.entries.map((e: { version: string }) => e.version)).toEqual(["1.4.0-beta.1", "1.3.0"]);
+	});
+	test("?channel=stable keeps the stable history (unchanged shape plus per-entry kind)", async () => {
+		const body = await (await call(changelogJson, "/changelog.json?channel=stable")).json();
 		expect(body.tag).toBe("v1.3.0");
 		expect(body.entries.map((e: { version: string }) => e.version)).toEqual(["1.3.0"]);
 		expect(body.entries[0]).toMatchObject({ kind: "stable", superseded: false });

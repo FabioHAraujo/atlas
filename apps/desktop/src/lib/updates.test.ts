@@ -2,6 +2,8 @@
 import { describe, expect, test } from "bun:test";
 import {
 	CHECK_EVERY_MS,
+	CHANNELS,
+	DEFAULT_CHANNEL,
 	EMPTY_PREFS,
 	EMPTY_PROGRESS,
 	badgesFor,
@@ -156,6 +158,26 @@ describe("offerLine", () => {
 		expect(offerLine(view("none", "1.3.0"))).toBe("Nothing newer than what you run");
 		expect(offerLine(view("downgrade", "1.3.0"))).toBe("Offers 1.3.0, older than yours");
 		expect(offerLine(view("none", null))).toBe("Offer unknown");
+	});
+});
+
+describe("DEFAULT_CHANNEL", () => {
+	// Incident guard: the pre-load fallback of the channel cards was a hard-coded "stable"; it must follow the Rust default.
+	test("is the variant marked #[default] on atlas_core::channel::Channel", async () => {
+		const rs = await Bun.file(
+			new URL("../../../../crates/atlas-core/src/channel.rs", import.meta.url),
+		).text();
+		const rustDefault = rs.match(/#\[default\]\s*(\w+)/)?.[1]?.toLowerCase();
+		expect(DEFAULT_CHANNEL).toBe(rustDefault);
+		expect(CHANNELS).toContain(DEFAULT_CHANNEL);
+	});
+	test("a profile with no channel file is shown following the default, before and after the real state loads", () => {
+		const followed = (c) =>
+			cardState(parseChannelViews(fixture.views), "1.4.0", c)
+				.filter((x) => x.following)
+				.map((x) => x.view.channel);
+		expect(followed(DEFAULT_CHANNEL)).toEqual([DEFAULT_CHANNEL]);
+		expect(parseChannelState(fixture.state_default).channel).toBe(DEFAULT_CHANNEL);
 	});
 });
 

@@ -406,6 +406,12 @@ export function blurbOf(n: ParsedNotes): string {
 
 export type Channel = "stable" | "beta" | "alpha";
 export const CHANNELS: readonly Channel[] = ["stable", "beta", "alpha"];
+/**
+ * What a machine follows before its user picks a channel: the variant marked `#[default]` on
+ * `atlas_core::channel::Channel` (a test reads that file). Used only while the real state
+ * (`update_channel_get`) has not arrived; Alpha until the first Stable that meets the GA criteria.
+ */
+export const DEFAULT_CHANNEL: Channel = "alpha";
 export type ChannelAction = "none" | "update" | "downgrade";
 export type Risk = "low" | "medium" | "high";
 

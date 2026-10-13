@@ -4,6 +4,12 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
 
+## [Unreleased]
+
+### Changed
+
+- **Alpha is now the default update channel.** Until a Stable release meets the [general availability criteria](docs/versioning.md#general-availability), an install or update that never chose a channel (no `~/.atlas/update-channel`, no `ATLAS_UPDATE_CHANNEL`) follows Alpha, the newest build from `main`: `atlas update`, Atlas Desktop, `install.sh`, `bootstrap.sh` and the website's Download button all offer it. If you run Stable 1.4.0 and never picked a channel, `atlas update` now offers the newest alpha (an upgrade, never a downgrade). Stable and Beta work as before: choose one with `atlas update channel stable`, in Settings → General → Updates, or `ATLAS_CHANNEL=stable` for the installer, and it is kept. When a real Stable ships, the default goes back to Stable with a one-line change.
+
 ## [1.5.0-alpha.2] — 2026-10-13
 
 > `v1.5.0-alpha.1` was tagged but never published: a flaky file-watcher test failed its release build. This is the same release with that test fixed.

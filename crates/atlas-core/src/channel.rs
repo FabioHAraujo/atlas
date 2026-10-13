@@ -15,13 +15,16 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Where a client looks for updates.
+/// Where a client looks for updates. [`Channel::default`] is what a machine follows until its
+/// user picks one (absent or unreadable `update-channel`): **Alpha** until the first Stable that
+/// meets the general availability criteria (`docs/versioning.md`). Mirrored by `DEFAULT_CHANNEL`
+/// in `site/functions/_lib/channels.ts` and `scripts/bootstrap.sh`; tests fail if they differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Channel {
-    #[default]
     Stable,
     Beta,
+    #[default]
     Alpha,
 }
 
@@ -251,7 +254,7 @@ pub fn file() -> PathBuf {
     crate::paths::atlas_home().join("update-channel")
 }
 
-/// The channel stored in `path`; absent or unreadable content is the default (Stable).
+/// The channel stored in `path`; absent or unreadable content is the default ([`Channel::default`]).
 pub fn read_from(path: &Path) -> Channel {
     std::fs::read_to_string(path)
         .ok()
@@ -274,7 +277,7 @@ pub fn effective(override_: Option<&str>, stored: Channel) -> Channel {
     override_.and_then(|s| s.parse().ok()).unwrap_or(stored)
 }
 
-/// The channel this machine follows: [`ENV`], else the shared file, else Stable.
+/// The channel this machine follows: [`ENV`], else the shared file, else [`Channel::default`].
 pub fn current() -> Channel {
     effective(std::env::var(ENV).ok().as_deref(), read_from(&file()))
 }
@@ -302,7 +305,9 @@ mod tests {
         for bad in ["", "nightly", "canary", "latest", "next", "stable2"] {
             assert!(bad.parse::<Channel>().is_err(), "{bad}");
         }
-        assert_eq!(Channel::default(), Channel::Stable);
+        // Pre-GA: the channel nobody chose is Alpha. Flipping it back to Stable is this one line
+        // plus the `#[default]` on `Channel` (see `docs/versioning.md`).
+        assert_eq!(Channel::default(), Channel::Alpha);
     }
 
     #[test]
@@ -452,12 +457,17 @@ mod tests {
     fn the_channel_file_is_shared_and_tolerates_garbage() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("update-channel");
-        assert_eq!(read_from(&file), Channel::Stable, "absent = default");
+        assert_eq!(read_from(&file), Channel::Alpha, "absent = default");
+        // An explicit Stable is a choice, not "absent": it survives the default being Alpha.
+        write_to(&file, Channel::Stable).unwrap();
+        assert_eq!(read_from(&file), Channel::Stable, "explicit stable is kept");
         write_to(&file, Channel::Alpha).unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "alpha\n");
         assert_eq!(read_from(&file), Channel::Alpha);
         std::fs::write(&file, "nightly\n").unwrap();
-        assert_eq!(read_from(&file), Channel::Stable, "garbage = default");
+        assert_eq!(read_from(&file), Channel::Alpha, "garbage = default");
+        std::fs::write(&file, "").unwrap();
+        assert_eq!(read_from(&file), Channel::Alpha, "empty = default");
         write_to(&file, Channel::Beta).unwrap();
         assert_eq!(read_from(&file), Channel::Beta);
     }
@@ -467,6 +477,33 @@ mod tests {
         assert_eq!(effective(Some("beta"), Channel::Alpha), Channel::Beta);
         assert_eq!(effective(Some("bogus"), Channel::Alpha), Channel::Alpha);
         assert_eq!(effective(None, Channel::Beta), Channel::Beta);
+    }
+
+    /// Pre-GA the default is Alpha. A 1.4.0 Stable user who never picked a channel has no file:
+    /// they must be offered the newest alpha as an upgrade (never a downgrade), and Stable stays
+    /// selectable for whoever chose it.
+    #[test]
+    fn a_stable_install_without_a_channel_file_is_offered_the_newest_alpha() {
+        let dir = tempfile::tempdir().unwrap();
+        let followed = effective(None, read_from(&dir.path().join("update-channel")));
+        assert_eq!(followed, Channel::Alpha);
+        let tags = ["v1.4.0", "v1.5.0-alpha.2", "v1.5.0-alpha.1", "v1.4.0-rc.1"];
+        let tag = resolve(followed, tags, Some("v1.4.0")).unwrap();
+        assert_eq!(tag, "v1.5.0-alpha.2");
+        assert_eq!(
+            decide(&v("1.4.0"), &parse_tag(&tag).unwrap()),
+            Decision::Upgrade
+        );
+        // Nothing newer than Stable exists yet: Alpha is never worse than Stable, so it offers Stable.
+        assert_eq!(
+            resolve(followed, ["v1.4.0"], Some("v1.4.0")).as_deref(),
+            Some("v1.4.0")
+        );
+        // Someone who chose Stable still gets only releases.
+        assert_eq!(
+            resolve(Channel::Stable, tags, Some("v1.4.0")).as_deref(),
+            Some("v1.4.0")
+        );
     }
 
     #[test]

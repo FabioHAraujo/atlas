@@ -57,7 +57,7 @@ Same live state behind all of it: the TUI, the desktop app and the MCP server ne
 curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh
 ```
 
-Downloads the latest release, verifies its SHA-256, puts `atlas` in `~/.atlas/bin` and wires your `PATH` and the bundled agent skills. Needs only `curl`: no GitHub login, no `sudo`. Prefer a `.dmg`? Grab it from the [latest release](https://github.com/codeatlasdev/atlas/releases/latest). Want the installer to also offer agent setup (omp, Claude Code, Codex)? Use [`scripts/bootstrap.sh`](scripts/bootstrap.sh). Manual install, building from source and uninstalling → [docs/installation.md](docs/installation.md).
+Downloads the newest release of the default update channel (the newest alpha while Atlas is in alpha; [pick another](docs/installation.md#install-a-beta-or-alpha)), verifies its SHA-256, puts `atlas` in `~/.atlas/bin` and wires your `PATH` and the bundled agent skills. Needs only `curl`: no GitHub login, no `sudo`. Prefer a `.dmg`? Grab it from the [latest release](https://github.com/codeatlasdev/atlas/releases/latest). Want the installer to also offer agent setup (omp, Claude Code, Codex)? Use [`scripts/bootstrap.sh`](scripts/bootstrap.sh). Manual install, building from source and uninstalling → [docs/installation.md](docs/installation.md).
 
 ```bash
 atlas update    # checks every 6h; `atlas dev` offers to update before starting (Y/n)

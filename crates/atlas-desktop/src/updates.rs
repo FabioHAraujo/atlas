@@ -504,6 +504,8 @@ fn fixture_views() -> serde_json::Value {
         },
         "state": channel_state_at(&file, None),
         "state_override": channel_state_at(&file, Some("alpha")),
+        // A profile that never chose a channel: no `update-channel` file, no env override.
+        "state_default": channel_state_at(&dir.path().join("none"), None),
     })
 }
 
@@ -703,6 +705,20 @@ mod tests {
             !channel_state_at(&file, Some("bogus")).env_override,
             "invalid override is ignored"
         );
+    }
+
+    /// Pre-GA default: an app whose user never chose a channel (no `~/.atlas/update-channel`, no
+    /// env override) follows Alpha, so the card marked "Following" is Alpha's. An explicit Stable
+    /// stays Stable.
+    #[test]
+    fn channel_state_without_a_file_follows_the_default_and_keeps_an_explicit_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("update-channel");
+        let st = channel_state_at(&file, None);
+        assert_eq!(st.channel, Channel::Alpha);
+        assert!(!st.env_override);
+        atlas_core::channel::write_to(&file, Channel::Stable).unwrap();
+        assert_eq!(channel_state_at(&file, None).channel, Channel::Stable);
     }
 
     #[test]

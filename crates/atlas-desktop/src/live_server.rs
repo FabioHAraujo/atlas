@@ -700,8 +700,8 @@ mod tests {
         let root = d.path().canonicalize().unwrap();
         let (tx, mut rx) = broadcast::channel(8);
         let _w = watch(&root, tx).expect("watcher");
-        // FSEvents can replay the tempdir's own creation late under load (failed the
-        // v1.5.0-alpha.1 release run): wait until the watcher is quiet, then drop it.
+        // The watcher can report the tempdir itself late under load, which is a Full reload by design
+        // (a directory change): flaked the v1.5.0-alpha.1 release build. Drain until quiet first.
         tokio::time::sleep(Duration::from_millis(200)).await;
         while tokio::time::timeout(DEBOUNCE * 3, rx.recv()).await.is_ok() {}
         std::fs::write(root.join("a.css"), "a{}").unwrap();

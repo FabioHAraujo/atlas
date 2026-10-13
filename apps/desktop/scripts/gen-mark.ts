@@ -16,7 +16,12 @@ function box(d: string) {
 	const xs = n.filter((_, i) => i % 2 === 0);
 	const ys = n.filter((_, i) => i % 2 === 1);
 	const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-	return { cx: +((x0 + x1) / 2).toFixed(1), cy: +((y0 + y1) / 2).toFixed(1), w: +(x1 - x0).toFixed(1), h: +(y1 - y0).toFixed(1) };
+	return {
+		cx: +((x0 + x1) / 2).toFixed(1),
+		cy: +((y0 + y1) / 2).toFixed(1),
+		w: +(x1 - x0).toFixed(1),
+		h: +(y1 - y0).toFixed(1),
+	};
 }
 
 const rows = paths.map((d, id) => ({ id, ...box(d), d }));

@@ -80,11 +80,14 @@
 	</Contain>
 {/snippet}
 
+<!--
+	Only what the shell chrome outside a layer reads (sidebar rows, the edge peek, the `.content` wash, the nav chips):
+	`--space-accent` and `--space-tint`. `--space-accent-text` and `--space-on-accent` are read only below a layer
+	(panel, project header, editor, viewers), and every layer carries all four itself (`shell.layerVars`, SpacePager).
+-->
 <div
 	class="app"
 	style:--space-accent={shell.active ? shell.accent(shell.active.id) : undefined}
-	style:--space-accent-text={shell.active ? shell.accentText(shell.active.id) : undefined}
-	style:--space-on-accent={shell.active ? shell.onAccent(shell.active.id) : undefined}
 	style:--space-tint={shell.active ? shell.tint(shell.active.id) : undefined}
 >
 	<div class="sidebar-slot" class:hidden={!docks.sidebar} inert={!docks.sidebar}>

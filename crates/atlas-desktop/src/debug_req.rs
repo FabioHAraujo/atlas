@@ -58,6 +58,15 @@ pub enum Req {
     Perf {
         secs: u64,
     },
+    /// Record the raw trackpad scroll stream the app receives for `secs` seconds into a JSON trace at `out`.
+    GestureRecord {
+        out: PathBuf,
+        secs: u64,
+    },
+    /// Replay a trace JSON through the swipe engine in-process (never OS input), at its recorded pace.
+    GestureReplay {
+        trace: PathBuf,
+    },
     Shot {
         out: PathBuf,
         target: Target,
@@ -85,13 +94,18 @@ fn str_field<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
 }
 
 fn out_path(v: &Value, exts: &[&str]) -> Result<PathBuf, String> {
-    let raw = str_field(v, "out").ok_or("out is required (an absolute file path)")?;
+    out_path_named(v, "out", exts)
+}
+
+fn out_path_named(v: &Value, key: &str, exts: &[&str]) -> Result<PathBuf, String> {
+    let raw =
+        str_field(v, key).ok_or_else(|| format!("{key} is required (an absolute file path)"))?;
     let p = Path::new(raw);
     if !p.is_absolute() {
-        return Err(format!("out must be absolute, got {raw:?}"));
+        return Err(format!("{key} must be absolute, got {raw:?}"));
     }
     if p.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err("out must not contain `..`".into());
+        return Err(format!("{key} must not contain `..`"));
     }
     let ext = p
         .extension()
@@ -99,7 +113,7 @@ fn out_path(v: &Value, exts: &[&str]) -> Result<PathBuf, String> {
         .unwrap_or_default()
         .to_ascii_lowercase();
     if !exts.contains(&ext.as_str()) {
-        return Err(format!("out must end in .{}", exts.join(" or .")));
+        return Err(format!("{key} must end in .{}", exts.join(" or .")));
     }
     Ok(p.to_path_buf())
 }
@@ -166,6 +180,19 @@ pub fn parse(v: &Value) -> Result<Req, String> {
             };
             Ok(Req::Perf { secs })
         }
+        "gesture_record" => {
+            let secs = v["seconds"]
+                .as_u64()
+                .filter(|n| (1..=MAX_RECORD_SECS).contains(n))
+                .ok_or_else(|| format!("seconds must be 1..={MAX_RECORD_SECS}"))?;
+            Ok(Req::GestureRecord {
+                out: out_path(v, &["json"])?,
+                secs,
+            })
+        }
+        "gesture_replay" => Ok(Req::GestureReplay {
+            trace: out_path_named(v, "trace", &["json"])?,
+        }),
         "wait" => {
             let (selector, expr) = (str_field(v, "selector"), str_field(v, "expr"));
             if selector.is_some() == expr.is_some() {
@@ -225,7 +252,7 @@ pub fn parse(v: &Value) -> Result<Req, String> {
             })
         }
         other => Err(format!(
-            "unknown cmd {other:?}; expected info|logs|eval|state|wait|click|type|a11y|contrast|perf|shot|record"
+            "unknown cmd {other:?}; expected info|logs|eval|state|wait|click|type|a11y|contrast|perf|shot|record|gesture_record|gesture_replay"
         )),
     }
 }
@@ -235,6 +262,45 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn gesture_requests_validate_their_paths_and_bound_the_recording() {
+        assert_eq!(
+            parse(&json!({"cmd":"gesture_record","out":"/tmp/a.json","seconds":5})).unwrap(),
+            Req::GestureRecord {
+                out: "/tmp/a.json".into(),
+                secs: 5
+            }
+        );
+        for bad in [
+            json!(0),
+            json!(MAX_RECORD_SECS + 1),
+            json!("x"),
+            Value::Null,
+        ] {
+            assert!(
+                parse(&json!({"cmd":"gesture_record","out":"/tmp/a.json","seconds":bad})).is_err()
+            );
+        }
+        // The recorder writes a file as the app: absolute, no `..`, .json only.
+        for out in ["a.json", "/tmp/../etc/a.json", "/tmp/a.txt"] {
+            assert!(
+                parse(&json!({"cmd":"gesture_record","out":out,"seconds":5})).is_err(),
+                "{out}"
+            );
+        }
+        assert!(
+            parse(&json!({"cmd":"gesture_replay"}))
+                .unwrap_err()
+                .contains("trace is required")
+        );
+        assert_eq!(
+            parse(&json!({"cmd":"gesture_replay","trace":"/tmp/t.json"})).unwrap(),
+            Req::GestureReplay {
+                trace: "/tmp/t.json".into()
+            }
+        );
+    }
 
     #[test]
     fn wait_needs_exactly_one_of_selector_or_expr_and_a_bounded_timeout() {

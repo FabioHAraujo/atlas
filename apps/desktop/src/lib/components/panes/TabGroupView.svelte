@@ -24,6 +24,7 @@
 	import { fileIcon } from "#lib/icons.ts";
 	import { swipe } from "#lib/shell/swipe.ts";
 	import { tabSwipe } from "#lib/shell/gestures.ts";
+	import { pushZones } from "#lib/shell/nativeSwipe.ts";
 	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import Contain from "#lib/errors/Contain.svelte";
 	import CrashProbe from "#lib/errors/CrashProbe.svelte";
@@ -44,6 +45,12 @@
 	$effect(() => {
 		const id = g?.activeTab;
 		if (id && !seen[id]) seen[id] = true;
+	});
+	// The native swipe zone of this group says which neighbours exist (`can` reads `order` and `activeTab` inside
+	// closures, which the `use:swipe` argument does not track): tell the engine again whenever they change.
+	$effect(() => {
+		void [g?.order.length, g?.activeTab];
+		pushZones();
 	});
 	// A space that became current fills in its other tabs one per timer tick: they are hidden, so
 	// nothing visible changes, and a 19-editor space never costs a frame.

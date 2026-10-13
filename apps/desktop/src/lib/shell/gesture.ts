@@ -182,3 +182,18 @@ export function createGesture(opts: GestureOptions = {}): Gesture {
 		cancel: reset,
 	};
 }
+
+/**
+ * The Back/Forward view for an engine frame: the same `GestureView` the DOM recognizer produces, so one renderer
+ * (`mirror` in gestures.ts) draws both. `amount` is toward next in page widths (+1 = next); `offset` follows the
+ * finger (negative = fingers left = next); half a page is the commit point, so it is where `progress` reaches 1.
+ */
+export function historyView(f: { amount: number; stage: string }, width: number): GestureView {
+	if (f.stage === "rest" || f.amount === 0) return IDLE;
+	return {
+		phase: "tracking",
+		offset: -f.amount * width,
+		progress: Math.min(1, Math.abs(f.amount) / 0.5),
+		dir: f.amount > 0 ? 1 : -1,
+	};
+}

@@ -1,0 +1,321 @@
+{
+  "when": "2026-10-13T18:54:54.932Z",
+  "spaces": 13,
+  "rounds": 40,
+  "warmup": 4,
+  "layers": 3,
+  "dom": 1307,
+  "budget": {
+    "stallP95Ms": 8,
+    "flushP95Ms": 8,
+    "nodesP95": 120
+  },
+  "n": 36,
+  "flushMs": {
+    "p50": 6,
+    "p95": 8,
+    "max": 8
+  },
+  "paintMs": {
+    "p50": 38,
+    "p95": 62,
+    "max": 82
+  },
+  "stallMs": {
+    "p50": 12,
+    "p95": 54,
+    "max": 70
+  },
+  "nodes": {
+    "p50": 541,
+    "p95": 544,
+    "max": 570
+  },
+  "records": {
+    "p50": 266,
+    "p95": 288,
+    "max": 288
+  },
+  "samples": [
+    {
+      "flushMs": 6,
+      "nodes": 286,
+      "paintMs": 34,
+      "records": 234,
+      "stallMs": 19
+    },
+    {
+      "flushMs": 5,
+      "nodes": 290,
+      "paintMs": 35,
+      "records": 207,
+      "stallMs": 10
+    },
+    {
+      "flushMs": 6,
+      "nodes": 283,
+      "paintMs": 30,
+      "records": 218,
+      "stallMs": 10
+    },
+    {
+      "flushMs": 6,
+      "nodes": 283,
+      "paintMs": 27.999999999992724,
+      "records": 218,
+      "stallMs": 13
+    },
+    {
+      "flushMs": 6,
+      "nodes": 283,
+      "paintMs": 30,
+      "records": 218,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 6,
+      "nodes": 290,
+      "paintMs": 37.99999999999272,
+      "records": 207,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 5,
+      "nodes": 283,
+      "paintMs": 30.000000000007276,
+      "records": 218,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 6,
+      "nodes": 283,
+      "paintMs": 33,
+      "records": 218,
+      "stallMs": 10.999999999992724
+    },
+    {
+      "flushMs": 7,
+      "nodes": 290,
+      "paintMs": 33,
+      "records": 207,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 6,
+      "nodes": 541,
+      "paintMs": 32.999999999992724,
+      "records": 266,
+      "stallMs": 21.999999999992724
+    },
+    {
+      "flushMs": 7,
+      "nodes": 286,
+      "paintMs": 44.00000000000728,
+      "records": 234,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 6,
+      "nodes": 283,
+      "paintMs": 33,
+      "records": 218,
+      "stallMs": 10
+    },
+    {
+      "flushMs": 5,
+      "nodes": 528,
+      "paintMs": 30.000000000007276,
+      "records": 244,
+      "stallMs": 13
+    },
+    {
+      "flushMs": 6,
+      "nodes": 286,
+      "paintMs": 51.00000000000728,
+      "records": 237,
+      "stallMs": 20
+    },
+    {
+      "flushMs": 6,
+      "nodes": 283,
+      "paintMs": 44.99999999999272,
+      "records": 218,
+      "stallMs": 10.999999999992724
+    },
+    {
+      "flushMs": 6,
+      "nodes": 283,
+      "paintMs": 46,
+      "records": 218,
+      "stallMs": 10
+    },
+    {
+      "flushMs": 5.000000000014552,
+      "nodes": 570,
+      "paintMs": 36,
+      "records": 277,
+      "stallMs": 21.999999999985448
+    },
+    {
+      "flushMs": 7,
+      "nodes": 286,
+      "paintMs": 39,
+      "records": 237,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 7,
+      "nodes": 541,
+      "paintMs": 37,
+      "records": 266,
+      "stallMs": 23.000000000014552
+    },
+    {
+      "flushMs": 6,
+      "nodes": 544,
+      "paintMs": 44.00000000001455,
+      "records": 285,
+      "stallMs": 47
+    },
+    {
+      "flushMs": 6,
+      "nodes": 286,
+      "paintMs": 39,
+      "records": 237,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 5,
+      "nodes": 541,
+      "paintMs": 32,
+      "records": 266,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 6,
+      "nodes": 544,
+      "paintMs": 62,
+      "records": 288,
+      "stallMs": 53
+    },
+    {
+      "flushMs": 6.999999999985448,
+      "nodes": 544,
+      "paintMs": 42.99999999998545,
+      "records": 282,
+      "stallMs": 10.999999999985448
+    },
+    {
+      "flushMs": 7,
+      "nodes": 544,
+      "paintMs": 39.00000000001455,
+      "records": 282,
+      "stallMs": 11
+    },
+    {
+      "flushMs": 7,
+      "nodes": 286,
+      "paintMs": 42,
+      "records": 237,
+      "stallMs": 10
+    },
+    {
+      "flushMs": 7,
+      "nodes": 283,
+      "paintMs": 40,
+      "records": 218,
+      "stallMs": 19
+    },
+    {
+      "flushMs": 4.999999999985448,
+      "nodes": 283,
+      "paintMs": 34.99999999998545,
+      "records": 218,
+      "stallMs": 10
+    },
+    {
+      "flushMs": 5,
+      "nodes": 541,
+      "paintMs": 38,
+      "records": 266,
+      "stallMs": 14
+    },
+    {
+      "flushMs": 8,
+      "nodes": 544,
+      "paintMs": 51,
+      "records": 285,
+      "stallMs": 27
+    },
+    {
+      "flushMs": 6,
+      "nodes": 544,
+      "paintMs": 37.00000000001455,
+      "records": 285,
+      "stallMs": 12
+    },
+    {
+      "flushMs": 6,
+      "nodes": 544,
+      "paintMs": 36,
+      "records": 285,
+      "stallMs": 12
+    },
+    {
+      "flushMs": 6,
+      "nodes": 544,
+      "paintMs": 41.99999999998545,
+      "records": 285,
+      "stallMs": 50.00000000001455
+    },
+    {
+      "flushMs": 8.000000000014552,
+      "nodes": 544,
+      "paintMs": 82,
+      "records": 288,
+      "stallMs": 69.99999999998545
+    },
+    {
+      "flushMs": 6,
+      "nodes": 544,
+      "paintMs": 28.999999999985448,
+      "records": 285,
+      "stallMs": 10
+    },
+    {
+      "flushMs": 8.000000000014552,
+      "nodes": 544,
+      "paintMs": 49,
+      "records": 282,
+      "stallMs": 42
+    },
+    {
+      "flushMs": 5.999999999985448,
+      "nodes": 544,
+      "paintMs": 31.999999999985448,
+      "records": 288,
+      "stallMs": 50
+    },
+    {
+      "flushMs": 7,
+      "nodes": 544,
+      "paintMs": 45,
+      "records": 282,
+      "stallMs": 15
+    },
+    {
+      "flushMs": 5,
+      "nodes": 544,
+      "paintMs": 34,
+      "records": 288,
+      "stallMs": 52.99999999998545
+    },
+    {
+      "flushMs": 7,
+      "nodes": 544,
+      "paintMs": 43,
+      "records": 285,
+      "stallMs": 54
+    }
+  ]
+}

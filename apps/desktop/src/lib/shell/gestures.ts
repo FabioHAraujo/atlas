@@ -11,11 +11,12 @@
  * edge hint); nothing here touches Svelte state until a gesture commits.
  */
 import { shell } from "#lib/shell/shell.svelte.ts";
-import { neighbour } from "#lib/shell/space.ts";
+import { edgeNeighbour, neighbour } from "#lib/shell/space.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
-import type { GestureView } from "#lib/shell/gesture.ts";
+import { historyView, type GestureView } from "#lib/shell/gesture.ts";
 import type { SwipeOptions } from "#lib/shell/swipe.ts";
 import { spacePager } from "#lib/shell/pager.ts";
+import { tabPager, type TabHost } from "#lib/shell/tabPager.ts";
 
 const content = () => document.querySelector<HTMLElement>("main.content");
 
@@ -60,60 +61,43 @@ function hintAccent(dir: 1 | -1 | 0) {
 	else edge.style.removeProperty("--hint-accent");
 }
 
+/** Generation counter of the DOM-wheel fallback (the native engine stamps its own). */
+let wheelSeq = 0;
+
 /** Space switching: two-finger swipe over the sidebar. */
 export function spaceSwipe(): SwipeOptions {
 	return {
 		commitFrac: 0.3,
-		can: (d) => neighbour(shell.spaceIds, shell.activeId, d) !== null,
-		// DOM wheel path: finger travel in px over the sidebar maps 1:1 to the pager (`amount` = fraction
-		// of a page, +1 = next). The recognizer decides the release (`onEnd`); the pager springs from there.
+		// no wrap: past the first or last space a swipe only stretches
+		can: (d) => edgeNeighbour(shell.spaceIds, shell.activeId, d) !== null,
+		// DOM wheel path (platforms without the native engine): finger travel over the sidebar follows the
+		// pager 1:1 (`amount` = fraction of a page, +1 = next) as frames of a local generation; the recognizer's
+		// release is the decision and the switch lands without a settle animation (no second physics here).
 		onView: (v) => {
-			if (v.phase !== "idle") spacePager.track(-v.offset / (content()?.clientWidth || 1));
+			if (v.phase !== "idle")
+				spacePager.frame({
+					zone: "space",
+					seq: wheelSeq + 1,
+					amount: -v.offset / (content()?.clientWidth || 1),
+					stage: "track",
+				});
 			hintAccent(v.phase === "idle" ? 0 : v.dir);
 		},
-		onEnd: (end) => spacePager.settle(end.kind === "commit" ? end.dir : 0),
-		// Native path: AppKit's amount (incl. its settle frames) drives the pager; `settle(dir)` is the
-		// decision and the pager commits the switch itself. `track(0)` after tracking is a cancel.
+		onEnd: (end) => {
+			const seq = ++wheelSeq;
+			spacePager.commit({ zone: "space", seq, dir: end.kind === "commit" ? end.dir : 0 });
+			spacePager.frame({ zone: "space", seq, amount: 0, stage: "rest" });
+		},
+		// Native path: the engine's frames and one decision per generation drive the pager.
 		native: {
 			zone: "space",
-			onUpdate: (u) => {
-				spacePager.track(u.amount);
-				hintAccent(u.complete || u.amount === 0 ? 0 : u.amount > 0 ? 1 : -1);
+			onFrame: (f) => {
+				spacePager.frame(f);
+				hintAccent(f.stage === "rest" || f.amount === 0 ? 0 : f.amount > 0 ? 1 : -1);
 			},
-			onCommit: (c) => spacePager.settle(c.dir),
+			onCommit: (c) => spacePager.commit(c),
 		},
 	};
-}
-
-/** Groups whose native tab swipe committed: the remaining settle frames are not drawn (cleared when the tracker completes). */
-const swallowed = new Set<string>();
-
-/**
- * Two-page tab drag: the active pane and the tab it would land on move together, 1:1 with the
- * fingers (`amount` = fraction of a page, +1 = next). The neighbour is shown (`visibility`) only
- * while it moves; panes are laid out at full size even when hidden. A neighbour that was never
- * mounted (lazy tabs) simply is not there: the current pane slides over the empty body.
- */
-function dragTabs(
-	group: HTMLElement,
-	order: string[],
-	active: string | undefined,
-	amount: number,
-	rest: boolean,
-) {
-	const body = group.querySelector<HTMLElement>(":scope > .body");
-	const strip = group.querySelector<HTMLElement>(":scope > .strip");
-	if (!body || !strip) return;
-	const w = body.clientWidth;
-	const i = order.indexOf(active ?? "");
-	const next = order[i + (amount > 0 ? 1 : -1)];
-	for (const pane of body.querySelectorAll<HTMLElement>(":scope > .pane")) {
-		const id = pane.dataset.tab;
-		const x = id === active ? -amount * w : id === next ? (Math.sign(amount) - amount) * w : 0;
-		pane.style.transform = rest || !x ? "" : `translate3d(${x}px,0,0)`;
-		pane.style.visibility = !rest && id === next ? "visible" : "";
-	}
-	strip.style.transform = rest ? "" : `translate3d(${-amount * 24}px,0,0)`;
 }
 
 /** Tab switching: two-finger swipe over a tab strip. `ids` are the group's tabs in order. */
@@ -123,6 +107,7 @@ export function tabSwipe(
 	ids: () => string[],
 	active: () => string | undefined,
 ): SwipeOptions {
+	const activate = (id: string) => ws.activate(id);
 	const target = (d: 1 | -1) => {
 		const all = ids();
 		const i = all.indexOf(active() ?? "");
@@ -142,29 +127,47 @@ export function tabSwipe(
 			const id = end.kind === "commit" ? target(end.dir) : undefined;
 			if (id) ws.activate(id);
 		},
-		// Native path: the zone is the whole group (strip and pane), so it works over the content and
-		// on overflowing strips; the pane follows the fingers and the strip nudges with it.
+		// Native path: the zone is the whole group (strip and pane), so it works over the content and on
+		// overflowing strips; the engine's frames move the active pane and the tab it lands on together.
 		native: {
 			zone: "tab",
 			id: groupId,
 			el: group,
-			onUpdate: (u) => {
-				const el = group();
-				if (!el) return;
-				// After the commit the new tab is already active: AppKit's remaining settle frames
-				// (amount → ±1) must not slide it again.
-				const rest = swallowed.has(groupId) || u.complete;
-				if (u.complete) swallowed.delete(groupId);
-				dragTabs(el, ids(), active(), u.amount, rest);
+			onFrame: (f) => {
+				const body = bodyHost(group, ids, active, activate);
+				if (body) tabPager.frame(groupId, body, f);
 			},
 			onCommit: (c) => {
-				swallowed.add(groupId);
-				const id = target(c.dir);
-				if (id) ws.activate(id);
+				const body = bodyHost(group, ids, active, activate);
+				if (body) tabPager.commit(groupId, body, c);
 			},
 		},
 	};
 }
+
+/** The tab pager's view of a group element: its body and strip, the order and the activation. */
+function bodyHost(
+	group: () => HTMLElement | null,
+	ids: () => string[],
+	active: () => string | undefined,
+	activate: (id: string) => void,
+): TabHost | null {
+	const el = group();
+	const body = el?.querySelector<HTMLElement>(":scope > .body");
+	if (!el || !body) return null;
+	return {
+		pane: (id) =>
+			body.querySelector<HTMLElement>(`:scope > .pane[data-tab="${CSS.escape(id)}"]`) ?? undefined,
+		strip: () => el.querySelector<HTMLElement>(":scope > .strip"),
+		width: () => body.clientWidth,
+		order: ids,
+		active,
+		activate,
+	};
+}
+
+/** Highest history generation already applied (a duplicate decision must not step twice). */
+let historyApplied = 0;
 
 /** Back / Forward: swipe over the content where nothing can scroll horizontally (Safari's gesture). */
 export function historySwipe(): SwipeOptions {
@@ -174,5 +177,19 @@ export function historySwipe(): SwipeOptions {
 		can: (d) => shell.canGo(d),
 		onView: (v) => mirror(v, 72),
 		onEnd: (end) => end.kind === "commit" && shell.go(end.dir),
+		// Native path: the engine's frames draw the same nudge and chip fill; its decision (once per generation)
+		// steps the history. Zones where something scrolls horizontally are excluded natively.
+		native: {
+			zone: "history",
+			onFrame: (f) => {
+				mirror(historyView(f, content()?.clientWidth || 1), 72);
+			},
+			onCommit: (c) => {
+				if (c.dir !== 0 && c.seq > historyApplied) {
+					historyApplied = c.seq;
+					shell.go(c.dir > 0 ? 1 : -1);
+				}
+			},
+		},
 	};
 }

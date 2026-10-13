@@ -11,6 +11,7 @@ import {
 	accentTextOf,
 	directionOf,
 	hueOf,
+	mountedWindow,
 	neighbour,
 	onAccent,
 	spreadHues,
@@ -165,4 +166,86 @@ test("the identity swatches (oklch .68 .16 h) take a black check on EVERY hue", 
 		const fill = fromOklch({ l: 0.68, c: 0.16, h });
 		expect([h, contrast("#000000", fill) >= 4.5]).toEqual([h, true]);
 	}
+});
+
+// Selection stall (13 spaces, measured): a layer mounting inside the commit costs ~17 ms p50 / 54 ms tail. The set of
+// mounted spaces is therefore a pure function of the order, so the pager can keep it stable across a commit.
+describe("mountedWindow: which spaces stay mounted around the active one", () => {
+	const ids = ["a", "b", "c", "d", "e"];
+	test("active plus one neighbour each side, in sidebar order", () => {
+		expect(mountedWindow(ids, "c")).toEqual(["b", "c", "d"]);
+	});
+	test("wraps at the ends, still in sidebar order", () => {
+		expect(mountedWindow(ids, "a")).toEqual(["a", "b", "e"]);
+		expect(mountedWindow(ids, "e")).toEqual(["a", "d", "e"]);
+	});
+	test("two spaces: both, once each; one space: just it", () => {
+		expect(mountedWindow(["a", "b"], "a")).toEqual(["a", "b"]);
+		expect(mountedWindow(["a"], "a")).toEqual(["a"]);
+	});
+	test("no active space (or one that is gone) mounts nothing", () => {
+		expect(mountedWindow(ids, null)).toEqual([]);
+		expect(mountedWindow(ids, "zzz")).toEqual([]);
+		expect(mountedWindow([], "a")).toEqual([]);
+	});
+	test("a selection between adjacent spaces changes at most one mounted layer", () => {
+		for (let i = 0; i < ids.length; i++) {
+			const from = mountedWindow(ids, ids[i]);
+			const to = mountedWindow(ids, ids[(i + 1) % ids.length]);
+			expect(to.filter((x) => !from.includes(x)).length).toBeLessThanOrEqual(1);
+		}
+	});
+});
+
+import { edgeNeighbour } from "./space.ts";
+
+test("swiping does not wrap: past the first or last space there is nothing to go to (only a rubber band)", () => {
+	const ids = ["a", "b", "c"];
+	expect(edgeNeighbour(ids, "a", -1)).toBeNull();
+	expect(edgeNeighbour(ids, "c", 1)).toBeNull();
+	expect(edgeNeighbour(ids, "b", -1)).toBe("a");
+	expect(edgeNeighbour(ids, "b", 1)).toBe("c");
+	// one space, an unknown current space: nowhere to swipe
+	expect(edgeNeighbour(["a"], "a", 1)).toBeNull();
+	expect(edgeNeighbour(ids, "zz", 1)).toBeNull();
+	expect(edgeNeighbour(ids, null, 1)).toBeNull();
+});
+
+import { stableWindow } from "./space.ts";
+
+// Incident (selection bench, 13 spaces, A->B->A between adjacent spaces): `mountedWindow` is active +/- 1, so every
+// selection unmounted one layer and mounted another (~260 nodes inside the commit, 30 ms stalls on 1 selection in 4).
+// Going back and forth between two spaces must not remount anything: a layer that is still within two places of the
+// active space stays mounted (and is never needed on a path the user is walking), and the ring at distance two is
+// what the pager mounts while idle, so that the next step's layer already exists when the commit happens.
+describe("stableWindow: the mounted set does not churn when the user steps back and forth", () => {
+	const ids = ["a", "b", "c", "d", "e", "f", "g"];
+	test("the first window is exactly active +/- 1 (nothing is mounted ahead of the user)", () => {
+		expect(stableWindow(ids, "d", [])).toEqual(["c", "d", "e"]);
+		expect(stableWindow(ids, null, ["a"])).toEqual([]);
+	});
+	test("a layer that was mounted and is within two places of the new active space is kept", () => {
+		// d -> e: c is now two away (kept); f is one away (needed)
+		expect(stableWindow(ids, "e", ["c", "d", "e"])).toEqual(["c", "d", "e", "f"]);
+		// and back to d: nothing is mounted or unmounted (f is two away and kept)
+		expect(stableWindow(ids, "d", ["c", "d", "e", "f"])).toEqual(["c", "d", "e", "f"]);
+	});
+	test("a layer more than two places away is dropped, so the set stays bounded", () => {
+		expect(stableWindow(ids, "g", ["c", "d", "e", "f"])).toEqual(["a", "e", "f", "g"]);
+		expect(stableWindow(ids, "a", ["d", "e"])).toEqual(["a", "b", "g"]);
+	});
+	test("walking back and forth between two spaces never changes the set after the first step each way", () => {
+		let held = stableWindow(ids, "a", []);
+		const seen: string[][] = [];
+		for (let i = 0; i < 6; i++) {
+			held = stableWindow(ids, i % 2 === 0 ? "b" : "a", held);
+			seen.push(held);
+		}
+		expect(new Set(seen.slice(2).map((s) => s.join()))).toEqual(new Set([seen[2]!.join()]));
+		expect(seen[2]!.length).toBeLessThanOrEqual(5);
+	});
+	test("with few spaces everything is mounted once, in sidebar order", () => {
+		expect(stableWindow(["a", "b"], "a", [])).toEqual(["a", "b"]);
+		expect(stableWindow(["a", "b", "c"], "b", ["a", "b", "c"])).toEqual(["a", "b", "c"]);
+	});
 });

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { useSpace } from "#lib/shell/spaceCtx.ts";
-	import { flip } from "svelte/animate";
 	import { tick } from "svelte";
 	import { api, type ServiceDef } from "#lib/api.ts";
 	import { openService } from "#lib/actions.svelte.ts";
@@ -10,6 +9,7 @@
 	import ServiceCard from "./ServiceCard.svelte";
 	import type { ServiceRow } from "./overview.ts";
 	import { gridStep, shellIn } from "./panel.ts";
+	import { flipPlan, orderChanged, type Box } from "./flip.ts";
 
 	type Cmd = "start_service" | "stop_service" | "restart_service";
 
@@ -63,6 +63,33 @@
 		grid?.querySelector<HTMLElement>(`[data-service="${CSS.escape(services[to].name)}"]`)?.focus();
 	}
 
+	// Cards that move slide to their new place (FLIP). Measured only when the ORDER changed: Svelte's `animate:`
+	// reads every cell's rect on every update of a row (a forced layout per cpu/state tick), see flip.ts.
+	let order: string[] | null = null;
+	let before: Record<string, Box> = {};
+	const rects = () =>
+		Object.fromEntries(
+			[...(grid?.children ?? [])].map((c) => [(c as HTMLElement).dataset.cell!, c.getBoundingClientRect()]),
+		);
+	$effect.pre(() => {
+		const next = services.map((s) => s.name);
+		if (orderChanged(order, next)) before = rects();
+		const moved = orderChanged(order, next);
+		order = next;
+		if (!moved) return;
+		void tick().then(() => {
+			const plan = flipPlan(before, rects());
+			for (const c of grid?.children ?? []) {
+				const d = plan[(c as HTMLElement).dataset.cell!];
+				if (d)
+					c.animate([{ translate: `${d.dx}px ${d.dy}px` }, { translate: "0 0" }], {
+						duration: 220,
+						easing: "ease",
+					});
+			}
+		});
+	});
+
 	// The grid only exists once there are services: follow the element, not the mount.
 	$effect(() => {
 		const el = grid;
@@ -85,7 +112,7 @@
 	data-tour="service-card"
 >
 	{#each services as s, i (s.name)}
-		<div animate:flip={{ duration: 220 }} class="cell">
+		<div class="cell" data-cell={s.name}>
 			<ServiceCard
 				{projectId}
 				service={s}

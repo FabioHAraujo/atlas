@@ -321,6 +321,8 @@ async fn handle<R: Runtime>(app: &AppHandle<R>, raw: &Value) -> Result<Value, St
             );
             page_eval(app, &body, Duration::from_secs(secs) + EVAL_TIMEOUT).await
         }
+        Req::GestureRecord { out, secs } => gesture_record(app, out, secs).await,
+        Req::GestureReplay { trace } => gesture_replay(app, trace).await,
         Req::Shot {
             out,
             target,
@@ -329,6 +331,90 @@ async fn handle<R: Runtime>(app: &AppHandle<R>, raw: &Value) -> Result<Value, St
         } => shot(app, out, target, full, window).await,
         Req::Record { out, stop, fps } => record(app, out, stop, fps).await,
     }
+}
+
+/// `gesture-record`: arm the swipe monitor's recorder, wait, write what the trackpad did to `out` as a trace the
+/// engine tests and the bench replay (`Trace` in `lib/shell/trace.ts`; `expect` is filled in by hand afterwards).
+#[cfg(target_os = "macos")]
+async fn gesture_record<R: Runtime>(
+    app: &AppHandle<R>,
+    out: PathBuf,
+    secs: u64,
+) -> Result<Value, String> {
+    let real: &dyn std::any::Any = app;
+    let real = real
+        .downcast_ref::<AppHandle>()
+        .ok_or("needs the Wry runtime")?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    real.run_on_main_thread(move || {
+        let _ = tx.send(crate::swipe_mac::record_start());
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv().map_err(|e| e.to_string())??;
+    tokio::time::sleep(Duration::from_secs(secs)).await;
+    let (tx, rx) = std::sync::mpsc::channel();
+    real.run_on_main_thread(move || {
+        let _ = tx.send(crate::swipe_mac::record_stop());
+    })
+    .map_err(|e| e.to_string())?;
+    let events = rx.recv().map_err(|e| e.to_string())??;
+    let trace = json!({
+        "name": out.file_stem().and_then(|s| s.to_str()).unwrap_or("recorded"),
+        "source": format!("recorded:{} {}s on this Mac's trackpad", chrono::Local::now().format("%Y-%m-%d %H:%M"), secs),
+        "expect": { "zone": "space", "steps": 0, "untouched": false },
+        "events": events,
+    });
+    std::fs::write(
+        &out,
+        serde_json::to_vec_pretty(&trace).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("{}: {e}", out.display()))?;
+    Ok(json!({ "out": out, "events": events.len() }))
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn gesture_record<R: Runtime>(_: &AppHandle<R>, _: PathBuf, _: u64) -> Result<Value, String> {
+    Err("gesture recording is macOS only".into())
+}
+
+/// Page-side replay (the gesture bench): the page sends the samples, native feeds them to the engine at their
+/// pace and answers when the last settle is at rest. Debug builds only (this file is).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn gesture_replay_samples(
+    app: AppHandle,
+    events: Vec<crate::swipe_engine::Sample>,
+) -> Result<Value, String> {
+    let r = crate::swipe_mac::replay(&app, events).await;
+    serde_json::to_value(r).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn gesture_replay_samples(_events: Vec<Value>) -> Result<Value, String> {
+    Err("gesture replay is macOS only".into())
+}
+
+/// `gesture-replay`: inject a trace through the swipe engine's own entry point at its recorded pace.
+#[cfg(target_os = "macos")]
+async fn gesture_replay<R: Runtime>(app: &AppHandle<R>, trace: PathBuf) -> Result<Value, String> {
+    let real: &dyn std::any::Any = app;
+    let real = real
+        .downcast_ref::<AppHandle>()
+        .ok_or("needs the Wry runtime")?;
+    let raw = std::fs::read_to_string(&trace).map_err(|e| format!("{}: {e}", trace.display()))?;
+    #[derive(serde::Deserialize)]
+    struct T {
+        events: Vec<crate::swipe_engine::Sample>,
+    }
+    let t: T = serde_json::from_str(&raw).map_err(|e| format!("{}: {e}", trace.display()))?;
+    let r = crate::swipe_mac::replay(real, t.events).await;
+    serde_json::to_value(r).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn gesture_replay<R: Runtime>(_: &AppHandle<R>, _: PathBuf) -> Result<Value, String> {
+    Err("gesture replay is macOS only".into())
 }
 
 /// `shot`: a page snapshot (whole page, an element, a rect; `full` grows the view to the content first) or, with

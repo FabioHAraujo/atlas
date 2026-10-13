@@ -1,46 +1,41 @@
-//! Native two-finger swipe tracking (Arc/Safari style): an `NSEvent` local monitor for
-//! scroll-wheel events, hit-tested against zones the frontend pushes, handing the gesture to
-//! AppKit's `trackSwipeEvent` (1:1 amount, rubber band, velocity decision, settle animation).
+//! Native two-finger swipe, AppKit side. A thin adapter: an `NSEvent` local monitor for scroll-wheel events
+//! turns each event into an engine [`Sample`], [`Engine`] (swipe_engine.rs) decides everything (claim, 1:1
+//! tracking, rubber band, release decision, critically damped settle), and this module only
 //!
-//! The monitor sees every event before WKWebView, on the main thread, with the real
-//! `phase`/`momentumPhase` the DOM never exposes. While a swipe is tracked the events (and the
-//! momentum tail) are swallowed. Per tracker callback we emit `swipe://update`, once on the
-//! decision `swipe://commit`; the frontend only writes transforms.
-
-use std::ptr::NonNull;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+//!  * resolves the zone under the pointer (zones pushed by the frontend),
+//!  * swallows the events the engine claims (the page must not scroll under a swipe, momentum tail included),
+//!  * runs the engine's clock: a display-rate timer while a gesture is in flight,
+//!  * reports frames and decisions to the frontend, stamped with the gesture's `seq`,
+//!  * records the raw event stream (`gesture-record`) and replays one through the same code path (`replay`).
+//!
+//! AppKit's own `trackSwipeEvent` is not used: its `gestureAmount` is a fixed `scrollingDeltaX / 1000` whatever
+//! the view size (measured), so a half-page drag needs a 500 pt reach, and its settle is opaque (it raced the JS
+//! pager). The engine owns the physics; the only thing taken from AppKit is the event stream.
 
 use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool};
+use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSEvent, NSEventMask, NSEventPhase, NSEventSwipeTrackingOptions, NSHapticFeedbackManager,
-    NSHapticFeedbackPattern, NSHapticFeedbackPerformanceTime, NSHapticFeedbackPerformer, NSWindow,
+    NSEvent, NSEventMask, NSEventPhase, NSHapticFeedbackManager, NSHapticFeedbackPattern,
+    NSHapticFeedbackPerformanceTime, NSHapticFeedbackPerformer, NSWindow,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::ptr::NonNull;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Horizontal travel (pt) before a gesture may become a swipe (WebKit's 15 pt).
-const MIN_DX: f64 = 15.0;
-/// Vertical travel (pt) after which the whole gesture belongs to scrolling.
-const MAX_DY: f64 = 10.0;
-/// A tracker that never reports `isComplete` cannot swallow scrolling longer than this.
-const STALE: Duration = Duration::from_secs(1);
-/// |gestureAmount| past which a release commits (haptic tick on crossing).
-const COMMIT_AMOUNT: f64 = 0.5;
+use crate::swipe_engine::{Engine, Hit, Momentum, PAGE_TRAVEL, Phase, Sample, Step};
 
-#[derive(Clone, Copy, Deserialize)]
-struct Rect {
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub struct Rect {
     x: f64,
     y: f64,
     w: f64,
     h: f64,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct Zone {
     zone: String,
     id: Option<String>,
@@ -52,60 +47,82 @@ pub struct Zone {
     pinned: bool,
 }
 
+/// Every frame of a gesture, to the frontend. `seq` grows once per claimed gesture. `native`: the stage draws
+/// the slide from snapshots, so the frontend must not move layers for this generation.
 #[derive(Serialize, Clone)]
-struct Update<'a> {
+struct FrameMsg<'a> {
     zone: &'a str,
     id: Option<&'a str>,
+    seq: u64,
     amount: f64,
-    phase: &'static str,
-    complete: bool,
+    stage: crate::swipe_engine::Stage,
+    native: bool,
 }
 
+/// The release decision, once per `seq`.
 #[derive(Serialize, Clone)]
-struct Commit<'a> {
+struct CommitMsg<'a> {
     zone: &'a str,
     id: Option<&'a str>,
+    seq: u64,
     dir: i8,
 }
 
+/// Rects where something scrolls horizontally itself (terminal, editor, an overflowing list): the Back/Forward swipe
+/// never claims inside them. Pushed by the frontend next to the zones.
+static SCROLLERS: Mutex<Vec<Rect>> = Mutex::new(Vec::new());
+
 /// Zones, front to back (later entries are nested deeper: the first hit from the end wins).
 static ZONES: Mutex<Vec<Zone>> = Mutex::new(Vec::new());
-/// Bumped when a new gesture starts; a tracker callback of an older generation is ignored.
-static GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// Per-gesture state of the monitor. Main thread only (the monitor block and tracker
-/// callbacks both run there), so a `Mutex` is just for `static` and is never contended.
-#[derive(Default)]
-struct Gesture {
-    /// `Began` seen; accumulating until the gate opens.
-    dx: f64,
-    dy: f64,
-    /// This gesture belongs to scrolling (vertical, or no zone): leave it alone until `Began`.
-    refused: bool,
-    /// AppKit owns the gesture; swallow until the tracker completes.
-    tracking: bool,
-    /// Last tracker callback, for the stale timeout.
-    last: Option<Instant>,
+/// The engine plus what the adapter needs around it. Main thread only (the monitor and the timer both run
+/// there); the `Mutex` is for the `static`.
+struct Adapter {
+    engine: Engine,
+    /// Every decision since the last `replay` started (for the report).
+    commits: Vec<(u64, i8)>,
+    /// The zone the current gesture claimed.
+    zone: Option<Zone>,
+    rec: Option<Recording>,
 }
 
-static GESTURE: Mutex<Gesture> = Mutex::new(Gesture {
-    dx: 0.0,
-    dy: 0.0,
-    refused: false,
-    tracking: false,
-    last: None,
-});
+static ADAPTER: Mutex<Option<Adapter>> = Mutex::new(None);
 
-/// Whether native tracking is available: system "Swipe between pages" = two fingers.
+/// A raw trace under recording: what the monitor saw, and what the engine did with it.
+struct Recording {
+    events: Vec<RecEvent>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RecEvent {
+    #[serde(flatten)]
+    pub sample: Sample,
+    /// `Some` once a gesture claimed this event: the engine's amount after it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claimed: Option<bool>,
+}
+
+/// Whether native tracking is available (the app is on macOS and the monitor is installed).
 pub fn enabled() -> bool {
     NSEvent::isSwipeTrackingFromScrollEventsEnabled()
+}
+
+/// The zones the engine hit-tests right now (the bench aims its traces at these).
+pub fn zones_json() -> serde_json::Value {
+    serde_json::to_value(&*ZONES.lock()).unwrap_or_default()
+}
+
+pub fn set_scrollers(rects: Vec<Rect>) {
+    *SCROLLERS.lock() = rects;
 }
 
 pub fn set_zones(zones: Vec<Zone>) {
     *ZONES.lock() = zones;
 }
 
-/// Innermost zone containing the top-left point `(x, y)` that can move in `dir`.
+/// Innermost zone containing the top-left point `(x, y)` that can move in either direction.
 fn hit(x: f64, y: f64) -> Option<Zone> {
     let zones = ZONES.lock();
     zones
@@ -116,22 +133,46 @@ fn hit(x: f64, y: f64) -> Option<Zone> {
             x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h
         })
         .filter(|z| (z.zone != "history" || z.pinned) && (z.prev || z.next))
+        .filter(|z| z.zone != "history" || !in_scroller(x, y))
         .cloned()
 }
 
-fn phase_name(p: NSEventPhase) -> &'static str {
+fn in_scroller(x: f64, y: f64) -> bool {
+    SCROLLERS
+        .lock()
+        .iter()
+        .any(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
+}
+
+fn phase_of(p: NSEventPhase) -> Phase {
     if p.contains(NSEventPhase::Began) {
-        "began"
+        Phase::Began
     } else if p.contains(NSEventPhase::Ended) {
-        "ended"
+        Phase::Ended
     } else if p.contains(NSEventPhase::Cancelled) {
-        "cancelled"
+        Phase::Cancelled
+    } else if p.contains(NSEventPhase::MayBegin) {
+        Phase::MayBegin
+    } else if p.contains(NSEventPhase::Changed) || p.contains(NSEventPhase::Stationary) {
+        Phase::Changed
     } else {
-        "changed"
+        Phase::None
     }
 }
 
-fn tick() {
+fn momentum_of(p: NSEventPhase) -> Momentum {
+    if p.contains(NSEventPhase::Began) {
+        Momentum::Began
+    } else if p.contains(NSEventPhase::Ended) || p.contains(NSEventPhase::Cancelled) {
+        Momentum::Ended
+    } else if p.is_empty() {
+        Momentum::None
+    } else {
+        Momentum::Changed
+    }
+}
+
+fn tick_haptic() {
     let p = NSHapticFeedbackManager::defaultPerformer();
     p.performFeedbackPattern_performanceTime(
         NSHapticFeedbackPattern::Alignment,
@@ -139,27 +180,7 @@ fn tick() {
     );
 }
 
-/// Install the monitor. Main thread (Tauri `setup`).
-pub fn install(app: &AppHandle) {
-    let app = app.clone();
-    let block = RcBlock::new(move |ev: NonNull<NSEvent>| -> *mut NSEvent {
-        // SAFETY: AppKit passes a live event for the duration of the call.
-        let ev = unsafe { ev.as_ref() };
-        if on_scroll(&app, ev) {
-            std::ptr::null_mut()
-        } else {
-            ev as *const NSEvent as *mut NSEvent
-        }
-    });
-    // SAFETY: the block returns null or the event it was given. The monitor lives for the
-    // whole process, so the returned token is intentionally leaked.
-    let token = unsafe {
-        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::ScrollWheel, &block)
-    };
-    std::mem::forget(token);
-}
-
-/// Top-left point of the event in the main window's content view, if it is the main window.
+/// Top-left point of the event in the main window's content view, if it belongs to the main window.
 fn point_in_main(app: &AppHandle, ev: &NSEvent, mtm: MainThreadMarker) -> Option<(f64, f64)> {
     let main = app.get_window("main")?.ns_window().ok()?;
     let win: Retained<NSWindow> = ev.window(mtm)?;
@@ -175,126 +196,312 @@ fn point_in_main(app: &AppHandle, ev: &NSEvent, mtm: MainThreadMarker) -> Option
     Some((p.x, if content.isFlipped() { p.y } else { h - p.y }))
 }
 
+/// The one place an `NSEvent` becomes a [`Sample`]. `scrollingDeltaX` is already direction-corrected by AppKit
+/// (natural scrolling: fingers left = negative), which is what the engine's convention is. The replay cannot
+/// cover this function (it starts from samples); everything after it is the same code in both paths.
+fn sample_of(ev: &NSEvent, p: (f64, f64)) -> Sample {
+    Sample {
+        // `NSEvent.timestamp` is the event's own hardware time (s since boot): jitter-free pacing.
+        t: ev.timestamp() * 1000.0,
+        phase: phase_of(ev.phase()),
+        momentum: momentum_of(ev.momentumPhase()),
+        dx: ev.scrollingDeltaX(),
+        dy: ev.scrollingDeltaY(),
+        precise: ev.hasPreciseScrollingDeltas(),
+        x: p.0,
+        y: p.1,
+    }
+}
+
+/// Install the monitor. Main thread (Tauri `setup`).
+pub fn install(app: &AppHandle) {
+    *ADAPTER.lock() = Some(Adapter {
+        engine: Engine::new(),
+        commits: Vec::new(),
+        zone: None,
+        rec: None,
+    });
+    let app = app.clone();
+    let block = RcBlock::new(move |ev: NonNull<NSEvent>| -> *mut NSEvent {
+        // SAFETY: AppKit passes a live event for the duration of the call.
+        let ev = unsafe { ev.as_ref() };
+        if on_event(&app, ev) {
+            std::ptr::null_mut()
+        } else {
+            ev as *const NSEvent as *mut NSEvent
+        }
+    });
+    // SAFETY: the block returns null or the event it was given. The monitor lives for the whole process, so
+    // the returned token is intentionally leaked.
+    let token = unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::ScrollWheel, &block)
+    };
+    std::mem::forget(token);
+}
+
 /// Returns true to swallow the event.
-fn on_scroll(app: &AppHandle, ev: &NSEvent) -> bool {
+fn on_event(app: &AppHandle, ev: &NSEvent) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
     };
-    let mut g = GESTURE.lock();
-    let phase = ev.phase();
-    let momentum = ev.momentumPhase();
-
-    // Fingers down again: a new gesture preempts a tracker still settling (its handler sees the
-    // bumped generation and stops).
-    if phase.contains(NSEventPhase::Began) || phase.contains(NSEventPhase::MayBegin) {
-        *g = Gesture::default();
-        GENERATION.fetch_add(1, Ordering::SeqCst);
-    }
-    if g.tracking {
-        // AppKit drives the gesture; keep the page from scrolling under it, momentum included.
-        if g.last.is_some_and(|t| t.elapsed() > STALE) {
-            *g = Gesture::default();
-            return false;
-        }
-        return true;
-    }
-    if g.refused || !momentum.is_empty() || !ev.hasPreciseScrollingDeltas() {
-        return false;
-    }
-    if phase.contains(NSEventPhase::Ended) || phase.contains(NSEventPhase::Cancelled) {
-        *g = Gesture::default();
-        return false;
-    }
-    if !phase.contains(NSEventPhase::Changed) || !enabled() {
-        return false;
-    }
-    g.dx += ev.scrollingDeltaX();
-    g.dy += ev.scrollingDeltaY();
-    if g.dy.abs() > MAX_DY && g.dy.abs() * 2.0 >= g.dx.abs() {
-        g.refused = true;
-        return false;
-    }
-    if g.dx.abs() < MIN_DX || g.dx.abs() <= 2.0 * g.dy.abs() {
-        return false;
-    }
-    let Some((x, y)) = point_in_main(app, ev, mtm) else {
-        g.refused = true;
+    let Some(p) = point_in_main(app, ev, mtm) else {
         return false;
     };
-    let Some(zone) = hit(x, y) else {
-        g.refused = true;
+    on_sample(app, &sample_of(ev, p))
+}
+
+/// Remember a decision for the replay report.
+fn note(a: &mut Adapter, step: &Step) {
+    if let Some(c) = step.commit {
+        a.commits.push((c.seq, c.dir));
+    }
+}
+
+/// The engine's entry for a sample, real or replayed: same code, same decisions.
+pub fn on_sample(app: &AppHandle, s: &Sample) -> bool {
+    let mut guard = ADAPTER.lock();
+    let Some(a) = guard.as_mut() else {
         return false;
     };
-    // `gestureAmount` is positive toward "next": fingers moving left under natural scrolling.
-    // Let AppKit own the direction sign; bounds say which way exists.
-    let (min, max) = (-(zone.prev as u8 as f64), zone.next as u8 as f64);
-    g.tracking = true;
-    g.last = Some(Instant::now());
-    let generation = GENERATION.load(Ordering::SeqCst);
-    drop(g);
+    let was_busy = a.engine.busy();
+    let step = a.engine.feed(s, |x, y| {
+        let z = hit(x, y)?;
+        a.zone = Some(z.clone());
+        Some(Hit {
+            prev: z.prev,
+            next: z.next,
+            width: PAGE_TRAVEL,
+        })
+    });
+    note(a, &step);
+    let zone = a.zone.clone();
+    if let Some(r) = a.rec.as_mut() {
+        r.events.push(RecEvent {
+            sample: Sample {
+                t: s.t - r.events.first().map_or(s.t, |e| e.sample.t),
+                ..*s
+            },
+            amount: step.frame.map(|f| f.amount),
+            claimed: Some(step.swallow),
+        });
+    }
+    let busy = a.engine.busy();
+    drop(guard);
+    publish(app, zone.as_ref(), &step);
+    if busy && !was_busy {
+        crate::swipe_clock::start(app);
+    }
+    step.swallow
+}
 
-    let app = app.clone();
-    let crossed = std::cell::Cell::new(false);
-    // Sign of the last movement: the amount at `Ended` can be 0 right at the decision.
-    let sign = std::cell::Cell::new(1);
-    let handler = RcBlock::new(
-        move |amount: f64, phase: NSEventPhase, complete: Bool, stop: NonNull<Bool>| {
-            if GENERATION.load(Ordering::SeqCst) != generation {
-                // SAFETY: AppKit's out-parameter, valid for the call.
-                unsafe { *stop.as_ptr() = Bool::YES };
-                return;
-            }
-            let name = phase_name(phase);
-            let complete = complete.as_bool();
-            if amount != 0.0 {
-                sign.set(if amount > 0.0 { 1 } else { -1 });
-            }
-            let past = amount.abs() >= COMMIT_AMOUNT;
-            if past != crossed.get() && name == "changed" {
-                crossed.set(past);
-                tick();
-            }
-            let id = zone.id.as_deref();
-            let _ = app.emit(
-                "swipe://update",
-                Update {
-                    zone: &zone.zone,
-                    id,
-                    amount,
-                    phase: name,
-                    complete,
-                },
+/// Advance the engine clock; the display-rate timer calls this while a gesture is in flight.
+pub fn on_tick(app: &AppHandle, now_ms: f64) -> bool {
+    let mut guard = ADAPTER.lock();
+    let Some(a) = guard.as_mut() else {
+        return false;
+    };
+    let step = a.engine.tick(now_ms);
+    note(a, &step);
+    let zone = a.zone.clone();
+    let busy = a.engine.busy();
+    drop(guard);
+    publish(app, zone.as_ref(), &step);
+    crate::page_layers::on_tick(app, now_ms);
+    // The overlay's ack watchdog keeps the clock running until the overlay is down.
+    busy || crate::page_layers::is_up()
+}
+
+fn publish(app: &AppHandle, zone: Option<&Zone>, step: &Step) {
+    let Some(z) = zone else { return };
+    let id = z.id.as_deref();
+    if step.threshold.is_some() {
+        tick_haptic();
+    }
+    let space = z.zone == "space";
+    let mut native = false;
+    if let Some(c) = step.commit
+        && space
+    {
+        crate::page_layers::on_commit(c.seq, c.dir);
+    }
+    if let Some(f) = step.frame {
+        if space {
+            native = crate::page_layers::on_frame(
+                app,
+                f.seq,
+                f.amount,
+                f.stage == crate::swipe_engine::Stage::Rest,
+                None,
+                crate::swipe_clock::now_ms(),
             );
-            if name == "ended" {
-                let _ = app.emit(
-                    "swipe://commit",
-                    Commit {
-                        zone: &zone.zone,
-                        id,
-                        dir: sign.get(),
-                    },
-                );
+        }
+        let _ = app.emit(
+            "swipe://frame",
+            FrameMsg {
+                zone: &z.zone,
+                id,
+                seq: f.seq,
+                amount: f.amount,
+                stage: f.stage,
+                native,
+            },
+        );
+    }
+    if let Some(c) = step.commit {
+        let _ = app.emit(
+            "swipe://commit",
+            CommitMsg {
+                zone: &z.zone,
+                id,
+                seq: c.seq,
+                dir: c.dir,
+            },
+        );
+    }
+}
+
+/// Arm the recorder: from now on every scroll event the main window sees is appended (claimed or not).
+pub fn record_start() -> Result<(), String> {
+    let mut g = ADAPTER.lock();
+    let a = g.as_mut().ok_or("the swipe monitor is not installed")?;
+    if a.rec.is_some() {
+        return Err("already recording".into());
+    }
+    a.rec = Some(Recording { events: Vec::new() });
+    Ok(())
+}
+
+/// Stop recording and return the trace: `t` is ms from the first event, deltas as AppKit reported them.
+pub fn record_stop() -> Result<Vec<RecEvent>, String> {
+    let mut g = ADAPTER.lock();
+    let a = g.as_mut().ok_or("the swipe monitor is not installed")?;
+    a.rec
+        .take()
+        .map(|r| r.events)
+        .ok_or_else(|| "not recording".into())
+}
+
+/// What a replay did, read back from the real adapter: the frames and decisions the frontend was sent.
+#[derive(Serialize, Default)]
+pub struct ReplayReport {
+    /// The engine's `seq` before and after: gestures it claimed during the replay.
+    pub first_seq: u64,
+    pub last_seq: u64,
+    /// What the engine decided, in order: (generation, dir) per commit: the ground truth the bench compares to.
+    pub commits: Vec<(u64, i8)>,
+    pub events: usize,
+    pub swallowed: usize,
+    pub passed: usize,
+}
+
+/// Feed `events` through [`on_sample`] (the code path of a real event after `sample_of`) at their own pace,
+/// ticking with the real display clock in between. Runs on the main thread: it hops there per event, so the
+/// webview and the display link keep running between events like they do for real input. Never touches the OS
+/// input stream, so it cannot move the user's pointer or any other app.
+pub async fn replay(app: &AppHandle, events: Vec<Sample>) -> ReplayReport {
+    let mut report = ReplayReport::default();
+    let Some(first) = events.first().map(|e| e.t) else {
+        return report;
+    };
+    report.first_seq = ADAPTER.lock().as_mut().map_or(0, |a| {
+        a.commits.clear();
+        a.engine.seq()
+    });
+    let t0 = tokio::time::Instant::now();
+    let base = crate::swipe_clock::now_ms();
+    for s in events {
+        tokio::time::sleep_until(
+            t0 + std::time::Duration::from_secs_f64((s.t - first).max(0.0) / 1000.0),
+        )
+        .await;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let a = app.clone();
+        // Re-time the sample into the live clock so engine ticks (real uptime) and events agree.
+        let s = Sample {
+            t: base + (s.t - first),
+            ..s
+        };
+        if app
+            .run_on_main_thread(move || {
+                let _ = tx.send(on_sample(&a, &s));
+            })
+            .is_err()
+        {
+            break;
+        }
+        let swallowed = tokio::task::spawn_blocking(move || rx.recv().unwrap_or(false))
+            .await
+            .unwrap_or(false);
+        report.events += 1;
+        if swallowed {
+            report.swallowed += 1
+        } else {
+            report.passed += 1
+        }
+    }
+    // The settle runs on the display clock after the last event: let it finish before reporting.
+    while ADAPTER.lock().as_ref().is_some_and(|a| a.engine.busy()) {
+        tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+    }
+    if let Some(a) = ADAPTER.lock().as_ref() {
+        report.last_seq = a.engine.seq();
+        report.commits.clone_from(&a.commits);
+    }
+    report
+}
+
+/// Programmatic page change (keyboard, click, history): the engine's own spring, clock and decision, so it
+/// looks and commits exactly like a swipe. Returns whether the engine took it (not while fingers are on the pad).
+#[tauri::command]
+pub async fn swipe_go(app: AppHandle, zone: String, id: Option<String>, dir: i8) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let a = app.clone();
+    if app
+        .run_on_main_thread(move || {
+            let mut g = ADAPTER.lock();
+            let Some(ad) = g.as_mut() else {
+                let _ = tx.send(false);
+                return;
+            };
+            let was_busy = ad.engine.busy();
+            let Some(step) = ad.engine.go(dir, crate::swipe_clock::now_ms()) else {
+                let _ = tx.send(false);
+                return;
+            };
+            let z = Zone {
+                zone,
+                id,
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 0.0,
+                    h: 0.0,
+                },
+                prev: true,
+                next: true,
+                pinned: false,
+            };
+            ad.zone = Some(z.clone());
+            note(ad, &step);
+            drop(g);
+            publish(&a, Some(&z), &step);
+            if !was_busy {
+                crate::swipe_clock::start(&a);
             }
-            let mut g = GESTURE.lock();
-            g.last = Some(Instant::now());
-            if complete {
-                *g = Gesture::default();
-            }
-        },
-    );
-    ev.trackSwipeEventWithOptions_dampenAmountThresholdMin_max_usingHandler(
-        NSEventSwipeTrackingOptions::LockDirection,
-        min,
-        max,
-        &handler,
-    );
-    true
+            let _ = tx.send(true);
+        })
+        .is_err()
+    {
+        return false;
+    }
+    rx.recv().unwrap_or(false)
 }
 
 /// Frontend → native: the swipe zones of the current layout (CSS px in the main webview).
 #[tauri::command]
-pub fn swipe_zones(zones: Vec<Zone>) {
+pub fn swipe_zones(zones: Vec<Zone>, scrollers: Option<Vec<Rect>>) {
     set_zones(zones);
+    set_scrollers(scrollers.unwrap_or_default());
 }
 
 /// Whether native swipe tracking is active (otherwise the frontend keeps its wheel recognizer).
@@ -316,6 +523,9 @@ pub async fn swipe_native(app: AppHandle) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ZONES` and `SCROLLERS` are process statics: tests that set them take turns.
+    static SERIAL: Mutex<()> = Mutex::new(());
 
     fn zone(
         name: &str,
@@ -342,6 +552,8 @@ mod tests {
 
     #[test]
     fn innermost_zone_wins_and_needs_a_neighbour() {
+        let _t = SERIAL.lock();
+        set_scrollers(vec![]);
         // Outer first (the frontend sorts by area, largest first), nested last.
         set_zones(vec![
             zone(
@@ -394,11 +606,54 @@ mod tests {
         assert!(hit(10.0, 10.0).is_none());
     }
 
+    /// The Back/Forward swipe over the content must never steal a horizontal scroll: where a terminal, an editor or an
+    /// overflowing list sits under the pointer the `history` zone does not claim, whatever its `pinned` flag says.
     #[test]
-    fn phase_names_follow_appkit_flags() {
-        assert_eq!(phase_name(NSEventPhase::Began), "began");
-        assert_eq!(phase_name(NSEventPhase::Ended), "ended");
-        assert_eq!(phase_name(NSEventPhase::Cancelled), "cancelled");
-        assert_eq!(phase_name(NSEventPhase::Changed), "changed");
+    fn history_never_claims_where_something_scrolls_horizontally() {
+        let _t = SERIAL.lock();
+        set_zones(vec![zone(
+            "history",
+            None,
+            [0.0, 0.0, 1000.0, 800.0],
+            true,
+            true,
+            true,
+        )]);
+        set_scrollers(vec![Rect {
+            x: 100.0,
+            y: 100.0,
+            w: 300.0,
+            h: 200.0,
+        }]);
+        assert!(hit(150.0, 150.0).is_none(), "over a horizontal scroller");
+        assert_eq!(
+            hit(600.0, 600.0).map(|z| z.zone).as_deref(),
+            Some("history")
+        );
+        // Only history yields: a tab group or the sidebar keeps its swipe over a scroller (its strip scrolls).
+        set_zones(vec![zone(
+            "tab",
+            Some("g"),
+            [0.0, 0.0, 1000.0, 800.0],
+            true,
+            true,
+            false,
+        )]);
+        assert!(hit(150.0, 150.0).is_some());
+        set_scrollers(vec![]);
+    }
+
+    #[test]
+    fn phases_map_from_appkit_flags() {
+        assert_eq!(phase_of(NSEventPhase::Began), Phase::Began);
+        assert_eq!(phase_of(NSEventPhase::Ended), Phase::Ended);
+        assert_eq!(phase_of(NSEventPhase::Cancelled), Phase::Cancelled);
+        assert_eq!(phase_of(NSEventPhase::Changed), Phase::Changed);
+        assert_eq!(phase_of(NSEventPhase::MayBegin), Phase::MayBegin);
+        assert_eq!(phase_of(NSEventPhase::empty()), Phase::None);
+        assert_eq!(momentum_of(NSEventPhase::empty()), Momentum::None);
+        assert_eq!(momentum_of(NSEventPhase::Began), Momentum::Began);
+        assert_eq!(momentum_of(NSEventPhase::Changed), Momentum::Changed);
+        assert_eq!(momentum_of(NSEventPhase::Ended), Momentum::Ended);
     }
 }

@@ -3,7 +3,7 @@ import { afterAll, expect, mock, test } from "bun:test";
 
 mock.module("@tauri-apps/api/core", () => ({ invoke: async () => null }));
 mock.module("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
-mock.module("@codeatlasdev/ui", () => ({ toast: { error() {}, info() {} } }));
+await (await import("../../../test/uiKit.ts")).installUiKit();
 mock.module("#lib/api.ts", () => ({ errText: String }));
 mock.module("#lib/host.ts", () => ({
 	host: { ptyKill: async () => {}, ptyList: async () => [], ptyCreate: async () => ({ pty: "p1" }) },

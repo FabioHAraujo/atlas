@@ -94,9 +94,45 @@ export function neighbour(ids: string[], current: string | null, delta: 1 | -1):
 	return ids[(i + delta + ids.length) % ids.length];
 }
 
+/**
+ * The neighbour a swipe can reach: like `neighbour` but without wrapping. Keyboard cycling wraps (⌃Tab) and the
+ * pager mounts the wrapped neighbours, but a swipe past the first or last space is a rubber band, never a jump
+ * to the other end.
+ */
+export function edgeNeighbour(ids: string[], current: string | null, delta: 1 | -1): string | null {
+	const i = current ? ids.indexOf(current) : -1;
+	return i < 0 ? null : (ids[i + delta] ?? null);
+}
+
+/** The spaces kept mounted around `active`: it and its two neighbours (wrap included), in `ids` order. */
+export function mountedWindow(ids: string[], active: string | null): string[] {
+	if (!active || !ids.includes(active)) return [];
+	const keep = new Set([active, neighbour(ids, active, -1), neighbour(ids, active, 1)]);
+	return ids.filter((id) => keep.has(id));
+}
+
 /** Direction of a switch from `from` to `to` (1 = content enters from the right). */
 export function directionOf(ids: string[], from: string | null, to: string | null): 1 | -1 {
 	const a = from ? ids.indexOf(from) : -1;
 	const b = to ? ids.indexOf(to) : -1;
 	return b >= a ? 1 : -1;
+}
+
+/**
+ * The spaces to keep mounted: `mountedWindow` (active and its neighbours, which must exist) plus any layer that is
+ * already mounted (`held`) and still within two places of the active space (wrap included). Stepping back and forth
+ * between two spaces then changes nothing after the first step each way, where a plain window mounts one layer and
+ * unmounts another on every selection. In `ids` order.
+ */
+export function stableWindow(ids: string[], active: string | null, held: string[]): string[] {
+	const i = active ? ids.indexOf(active) : -1;
+	if (i < 0) return [];
+	const near = new Set(mountedWindow(ids, active));
+	for (const id of held) {
+		const j = ids.indexOf(id);
+		if (j < 0) continue;
+		const d = Math.abs(j - i);
+		if (Math.min(d, ids.length - d) <= 2) near.add(id);
+	}
+	return ids.filter((id) => near.has(id));
 }

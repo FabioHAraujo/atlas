@@ -1,35 +1,25 @@
 /**
  * Frontend half of the native trackpad swipe (`crates/atlas-desktop/src/swipe_mac.rs`).
  *
- * AppKit recognizes the gesture before the webview sees it, tracks it (1:1 amount, rubber band,
- * velocity decision, settle animation) and reports it over two events:
- *  - `swipe://update`  every tracker callback: `{ zone, id?, amount, phase, complete }`
- *  - `swipe://commit`  once when the fingers lifted on a switch: `{ zone, id?, dir }`
- * This module pushes the zone rects the native side hit-tests (`swipe_zones`) and dispatches
- * the events to the handler registered for that zone. Handlers only write transforms.
+ * The Rust engine (`swipe_engine.rs`) recognizes the gesture from the raw `NSEvent` stream before the webview
+ * sees it and owns all motion and decisions. It reports over two events, both stamped with the gesture's `seq`:
+ *  - `swipe://frame`   every engine frame: `{ zone, id?, seq, amount, stage: "track" | "settle" | "rest" }`
+ *  - `swipe://commit`  once per `seq` when the fingers lift: `{ zone, id?, seq, dir }` (`dir` 0 = cancel)
+ * This module pushes the zone rects the engine hit-tests (`swipe_zones`) and dispatches the events to the
+ * handler registered for that zone. Handlers only write transforms; they never decide anything.
  *
- * When native tracking is unavailable (not macOS, or "Swipe between pages" is off in System
- * Settings) `nativeActive()` stays false and `swipe.ts` keeps its DOM wheel recognizer.
+ * When native tracking is unavailable (not macOS) `nativeActive()` stays false and `swipe.ts` keeps its DOM
+ * wheel recognizer.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { CommitMsg, FrameMsg } from "#lib/shell/pager.ts";
+import { availability, availabilityKey, trailing } from "#lib/shell/trailing.ts";
 
 export type SwipeZone = "space" | "tab" | "history";
 
-export interface SwipeUpdate {
-	zone: SwipeZone;
-	id?: string;
-	/** AppKit gestureAmount: 0 = rest, +1 = one full page toward next. May rubber-band past ±1. */
-	amount: number;
-	phase: "began" | "changed" | "ended" | "cancelled";
-	complete: boolean;
-}
-
-export interface SwipeCommit {
-	zone: SwipeZone;
-	id?: string;
-	dir: 1 | -1;
-}
+export type SwipeFrame = FrameMsg & { zone: SwipeZone };
+export type SwipeCommit = CommitMsg & { zone: SwipeZone };
 
 export interface NativeSwipe {
 	zone: SwipeZone;
@@ -38,21 +28,22 @@ export interface NativeSwipe {
 	can: (dir: 1 | -1) => boolean;
 	/** Zone-specific: only count the zone when this is true (history: nothing scrolls under the pointer). */
 	pinned?: () => boolean;
-	/** `amount` while tracking, including AppKit's settle frames. */
-	onUpdate: (u: SwipeUpdate) => void;
-	/** Fingers lifted on a switch. Called once, before the settle frames finish. */
+	/** Every engine frame, settle and rest included. */
+	onFrame: (f: SwipeFrame) => void;
+	/** The release decision, once per generation. */
 	onCommit: (c: SwipeCommit) => void;
 }
 
 interface Entry {
 	el: HTMLElement;
 	spec: NativeSwipe;
+	/** `availability` at the last push: an unchanged one needs no new push. */
+	avail: string;
 }
 
 let native = false;
 let ready: Promise<void> | null = null;
 const entries = new Set<Entry>();
-let raf = 0;
 let last = "";
 
 /** Is the native recognizer driving swipes? Resolved once at startup by `initNativeSwipe`. */
@@ -68,8 +59,8 @@ export function initNativeSwipe(): Promise<void> {
 			native = false;
 		}
 		if (!native) return;
-		await listen<SwipeUpdate>("swipe://update", (e) => {
-			for (const x of entries) if (matches(x, e.payload)) x.spec.onUpdate(e.payload);
+		await listen<SwipeFrame>("swipe://frame", (e) => {
+			for (const x of entries) if (matches(x, e.payload)) x.spec.onFrame(e.payload);
 		});
 		await listen<SwipeCommit>("swipe://commit", (e) => {
 			for (const x of entries) if (matches(x, e.payload)) x.spec.onCommit(e.payload);
@@ -94,11 +85,32 @@ function rectOf(el: HTMLElement) {
 }
 
 /**
+ * Rects (CSS px, clipped to the viewport) of everything under the content that scrolls horizontally itself: the
+ * terminal, editors, `data-gesture="own"` surfaces and anything that overflows in x. The Back/Forward swipe never
+ * claims inside them (the engine reads this list next to the zones). The tab strip is not one: it has its own zone.
+ */
+export function scrollerRects(root: ParentNode = document): { x: number; y: number; w: number; h: number }[] {
+	const out: { x: number; y: number; w: number; h: number }[] = [];
+	for (const el of root.querySelectorAll<HTMLElement>(
+		".xterm, .cm-scroller, [data-gesture='own'], .scroll-x",
+	)) {
+		const r = rectOf(el);
+		if (r) out.push(r);
+	}
+	for (const el of root.querySelectorAll<HTMLElement>("main.content *")) {
+		if (el.scrollWidth <= el.clientWidth + 1 || el.closest(".strip")) continue;
+		if (!/auto|scroll|overlay/.test(getComputedStyle(el).overflowX)) continue;
+		const r = rectOf(el);
+		if (r) out.push(r);
+	}
+	return out;
+}
+
+/**
  * Push the zones now. Order matters natively (later = deeper wins): outer zones first. DOM order
  * of registration is not nesting order, so sort by area, largest first.
  */
 function push() {
-	raf = 0;
 	if (!native) return;
 	const zones = [];
 	for (const { el, spec } of entries) {
@@ -114,15 +126,34 @@ function push() {
 		});
 	}
 	zones.sort((a, b) => b.rect.w * b.rect.h - a.rect.w * a.rect.h);
-	const key = JSON.stringify(zones);
+	const scrollers = scrollerRects();
+	const key = JSON.stringify([zones, scrollers]);
+	toldKey = availabilityKey(entries);
 	if (key === last) return;
 	last = key;
-	void invoke("swipe_zones", { zones });
+	void invoke("swipe_zones", { zones, scrollers });
 }
 
-/** Coalesce pushes to one per frame. */
-export function pushZones() {
-	if (native && !raf) raf = requestAnimationFrame(push);
+/**
+ * Push the zones once the burst of changes is over. A commit re-renders the whole space and every swipe surface
+ * asks for a push; measuring in that frame forced layout on fresh DOM changes (a 30-50 ms stall measured by the
+ * gesture bench), and nobody can start a swipe within 120 ms of a layout change.
+ */
+const schedulePush = trailing(() => {
+	if (native) push();
+}, 120);
+
+/** Availability of every entry at the last push: a request that changes nothing the engine is told is dropped. */
+let toldKey = "";
+
+/**
+ * Ask for a push. `geometry` = the layout may have moved (resize, a pane opened): always push, measuring rects.
+ * Otherwise (a selection, a re-render) only when some entry's availability changed, which costs no layout read.
+ */
+export function pushZones(geometry = false) {
+	if (!native) return;
+	if (!geometry && availabilityKey(entries) === toldKey) return;
+	schedulePush();
 }
 
 /**
@@ -133,22 +164,42 @@ export function registerZone(
 	el: HTMLElement,
 	spec: NativeSwipe,
 ): { update(s: NativeSwipe): void; destroy(): void } {
-	const entry: Entry = { el, spec };
+	const onResize = () => pushZones(true);
+	const entry: Entry = { el, spec, avail: availability(spec) };
 	entries.add(entry);
-	const ro = new ResizeObserver(pushZones);
+	const ro = new ResizeObserver(() => pushZones(true));
 	ro.observe(el);
-	addEventListener("resize", pushZones);
-	pushZones();
+	addEventListener("resize", onResize);
+	pushZones(true);
 	return {
 		update(s) {
 			entry.spec = s;
+			// A re-render hands over a new options object each time: only a change in what the engine is told counts.
+			const now = availability(s);
+			if (now === entry.avail) return;
+			entry.avail = now;
 			pushZones();
 		},
 		destroy() {
 			entries.delete(entry);
 			ro.disconnect();
-			removeEventListener("resize", pushZones);
-			pushZones();
+			removeEventListener("resize", onResize);
+			pushZones(true);
 		},
+	};
+}
+
+/** The engine's own programmatic page change (`swipe_go`): its spring and clock. False = refused or not native. */
+export function engineGo(zone: SwipeZone, dir: 1 | -1, id?: string): Promise<boolean> {
+	if (!native) return Promise.resolve(false);
+	return invoke<boolean>("swipe_go", { zone, id: id ?? null, dir });
+}
+
+/** What the page has registered, for the gesture bench and `debug eval`: native on, entries, last pushed key. */
+export function swipeDebug() {
+	return {
+		native,
+		entries: entries.size,
+		pushed: last ? (JSON.parse(last) as unknown[][]).map((a) => a.length) : null,
 	};
 }

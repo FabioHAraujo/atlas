@@ -103,6 +103,15 @@ pub enum DebugCmd {
         #[arg(long, default_value_t = 2)]
         seconds: u64,
     },
+    /// Record the raw trackpad scroll stream (phases, deltas, pointer) for N seconds into a JSON trace. Do real
+    /// swipes in the app meanwhile; add the expectation (`expect`) to the file and keep it as a fixture.
+    GestureRecord {
+        path: PathBuf,
+        #[arg(long, default_value_t = 10)]
+        seconds: u64,
+    },
+    /// Replay a trace in-process through the swipe engine at its recorded pace (never OS input)
+    GestureReplay { trace: PathBuf },
 }
 
 /// `x,y,w,h` in CSS px; the bridge rejects non-positive sizes, this rejects what is not four numbers.
@@ -214,6 +223,14 @@ pub fn to_request(cmd: &DebugCmd) -> Result<(Value, Duration)> {
             json!({ "cmd": "perf", "seconds": seconds }),
             extra(seconds * 1000),
         ),
+        DebugCmd::GestureRecord { path, seconds } => (
+            json!({ "cmd": "gesture_record", "out": absolute(path)?, "seconds": seconds }),
+            extra(seconds * 1000),
+        ),
+        DebugCmd::GestureReplay { trace } => (
+            json!({ "cmd": "gesture_replay", "trace": absolute(trace)? }),
+            extra(30_000),
+        ),
     })
 }
 
@@ -289,6 +306,22 @@ mod tests {
 
     fn refused(args: &[&str]) -> bool {
         Cli::try_parse_from(std::iter::once("debug").chain(args.iter().copied())).is_err()
+    }
+
+    #[test]
+    fn gesture_record_and_replay_map_to_the_bridge_with_absolute_paths() {
+        let v = req(&["gesture-record", "/tmp/s.json", "--seconds", "8"]);
+        assert_eq!(
+            v,
+            json!({"cmd":"gesture_record","out":"/tmp/s.json","seconds":8})
+        );
+        // seconds defaults to 10
+        assert_eq!(req(&["gesture-record", "/tmp/s.json"])["seconds"], 10);
+        assert_eq!(
+            req(&["gesture-replay", "/tmp/s.json"]),
+            json!({"cmd":"gesture_replay","trace":"/tmp/s.json"})
+        );
+        assert!(refused(&["gesture-record"]));
     }
 
     #[test]

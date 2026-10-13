@@ -1,6 +1,6 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
 import { expect, test } from "bun:test";
-import { createGesture } from "./gesture.ts";
+import { createGesture, historyView } from "./gesture.ts";
 import { canScrollX, consumedBy } from "./scrollable.ts";
 import {
 	CLOSE_DELAY,
@@ -199,4 +199,17 @@ test("slowing fingers that never decay below the peak fraction keep tracking", (
 	for (const d of [10, 12, 12, 11, 11, 10]) g.feed(d, 0, (t += 8), 400);
 	expect(g.poll(t + 1)).toBeNull();
 	expect(g.active).toBe(true);
+});
+
+test("history frames map to the old Back/Forward view: offset follows the finger (amount is toward next), progress fills to the commit point", () => {
+	// amount +0.25 = fingers moved left a quarter page: direction next, offset negative (finger-signed)
+	const v = historyView({ zone: "history", seq: 1, amount: 0.25, stage: "track" }, 800);
+	expect(v.phase).toBe("tracking");
+	expect(v.dir).toBe(1);
+	expect(v.offset).toBe(-200);
+	expect(v.progress).toBeCloseTo(0.5, 5); // half a page commits
+	const back = historyView({ zone: "history", seq: 1, amount: -0.6, stage: "settle" }, 800);
+	expect(back.dir).toBe(-1);
+	expect(back.progress).toBe(1);
+	expect(historyView({ zone: "history", seq: 1, amount: 0, stage: "rest" }, 800).phase).toBe("idle");
 });

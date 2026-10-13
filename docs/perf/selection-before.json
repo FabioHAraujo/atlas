@@ -1,0 +1,293 @@
+{
+  "when": "2026-10-13T18:09:33.298Z",
+  "spaces": 13,
+  "rounds": 40,
+  "warmup": 4,
+  "layers": 3,
+  "dom": 1442,
+  "budget": {
+    "stallP95Ms": 8,
+    "flushP95Ms": 8,
+    "nodesP95": 120
+  },
+  "n": 36,
+  "flushMs": {
+    "p50": 8,
+    "p95": 10,
+    "max": 11
+  },
+  "paintMs": {
+    "p50": 43,
+    "p95": 50,
+    "max": 54
+  },
+  "stallMs": {
+    "p50": 44,
+    "p95": 53,
+    "max": 53
+  },
+  "nodes": {
+    "p50": 378,
+    "p95": 378,
+    "max": 378
+  },
+  "records": {
+    "p50": 263,
+    "p95": 266,
+    "max": 266
+  },
+  "samples": [
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 43,
+      "records": 263,
+      "stallMs": 46
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 43,
+      "records": 263,
+      "stallMs": 49.99999999999272
+    },
+    {
+      "flushMs": 9.999999999992724,
+      "nodes": 378,
+      "paintMs": 53.99999999999272,
+      "records": 263,
+      "stallMs": 50
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 47.00000000000728,
+      "records": 263,
+      "stallMs": 41
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 50,
+      "records": 263,
+      "stallMs": 53.00000000000728
+    },
+    {
+      "flushMs": 7,
+      "nodes": 378,
+      "paintMs": 48,
+      "records": 263,
+      "stallMs": 44.99999999999272
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 46,
+      "records": 263,
+      "stallMs": 43
+    },
+    {
+      "flushMs": 10.999999999992724,
+      "nodes": 378,
+      "paintMs": 42.99999999999272,
+      "records": 263,
+      "stallMs": 46
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 41,
+      "records": 263,
+      "stallMs": 46
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 42.00000000000728,
+      "records": 266,
+      "stallMs": 43
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 41,
+      "records": 263,
+      "stallMs": 45.00000000000728
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 43,
+      "records": 266,
+      "stallMs": 44
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 44,
+      "records": 263,
+      "stallMs": 42.00000000000728
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 42,
+      "records": 263,
+      "stallMs": 46
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 48,
+      "records": 266,
+      "stallMs": 44.99999999999272
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 40.00000000000728,
+      "records": 266,
+      "stallMs": 39
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 42,
+      "records": 266,
+      "stallMs": 42.00000000000728
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 44,
+      "records": 266,
+      "stallMs": 40
+    },
+    {
+      "flushMs": 7,
+      "nodes": 378,
+      "paintMs": 45,
+      "records": 263,
+      "stallMs": 43
+    },
+    {
+      "flushMs": 7.999999999992724,
+      "nodes": 378,
+      "paintMs": 39.99999999999272,
+      "records": 266,
+      "stallMs": 43
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 44,
+      "records": 263,
+      "stallMs": 45
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 34.000000000007276,
+      "records": 263,
+      "stallMs": 40.00000000000728
+    },
+    {
+      "flushMs": 8.000000000014552,
+      "nodes": 378,
+      "paintMs": 44.00000000000728,
+      "records": 266,
+      "stallMs": 46
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 41,
+      "records": 266,
+      "stallMs": 40
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 45,
+      "records": 266,
+      "stallMs": 42
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 43.00000000001455,
+      "records": 263,
+      "stallMs": 49
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 42,
+      "records": 266,
+      "stallMs": 43.99999999998545
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 43,
+      "records": 266,
+      "stallMs": 41
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 44,
+      "records": 266,
+      "stallMs": 43
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 43,
+      "records": 266,
+      "stallMs": 44
+    },
+    {
+      "flushMs": 7.999999999985448,
+      "nodes": 378,
+      "paintMs": 40.99999999998545,
+      "records": 266,
+      "stallMs": 40
+    },
+    {
+      "flushMs": 7.999999999985448,
+      "nodes": 378,
+      "paintMs": 45.99999999998545,
+      "records": 263,
+      "stallMs": 50
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 41,
+      "records": 266,
+      "stallMs": 43
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 44,
+      "records": 263,
+      "stallMs": 52.99999999998545
+    },
+    {
+      "flushMs": 9,
+      "nodes": 378,
+      "paintMs": 42,
+      "records": 263,
+      "stallMs": 43.00000000001455
+    },
+    {
+      "flushMs": 8,
+      "nodes": 378,
+      "paintMs": 50,
+      "records": 263,
+      "stallMs": 51
+    }
+  ]
+}

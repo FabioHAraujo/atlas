@@ -17,7 +17,7 @@ use objc2::runtime::{AnyClass, AnyObject};
 use objc2::{msg_send, sel};
 use objc2_foundation::{NSNumber, NSString};
 
-use crate::agent_mode::{Rect, virtual_origin};
+use crate::agent_mode::{AGENT_VENDOR, ActiveDisplay, ModeSize, Rect, virtual_origin};
 
 /// CoreGraphics registers a virtual display's modes shortly after its first configuration completes (measured: the
 /// list was empty on an agent start right after `place`, populated on others). Ask again, briefly, instead of giving
@@ -38,12 +38,38 @@ pub fn poll_until<T>(
     None
 }
 
+/// Display configuration is global to the machine: two agent instances starting together reconfigure it at the
+/// same time and CoreGraphics then lists no modes for one of them. Holding this exclusive `flock` while a display
+/// is created and placed makes concurrent starts take turns. Released on drop (and by the OS if the process dies).
+pub struct ConfigLock {
+    /// Held for its `Drop`: closing the descriptor releases the lock.
+    _file: std::fs::File,
+}
+
+impl ConfigLock {
+    pub fn acquire(path: &std::path::Path) -> std::io::Result<Self> {
+        use std::os::fd::AsRawFd;
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(path)?;
+        // SAFETY: a valid open fd; LOCK_EX blocks until the other instance's display is configured.
+        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Self { _file: f })
+    }
+}
+
 /// What `Display` needs from the OS; faked in tests.
 pub trait Backend {
     /// Create the display, `pixels` large, 2x HiDPI; returns its `CGDirectDisplayID`.
     fn create(&mut self, pixels: (u32, u32), hidpi: bool) -> Result<u32, String>;
-    /// Bounds of every currently active display (the user's), top-left origin.
+    /// Bounds of every active display that is the user's, top-left origin.
     fn real_bounds(&self) -> Vec<Rect>;
+    /// Bounds of the virtual displays other agent instances own (active, but never the user's).
+    fn sibling_bounds(&self) -> Vec<Rect>;
     /// Move display `id` so its top-left is `(x, y)` in global coordinates.
     fn place(&mut self, id: u32, x: f64, y: f64) -> Result<(), String>;
     /// Select the 2x HiDPI mode (logical size = half the pixels). CoreGraphics lists no modes for a virtual display
@@ -63,13 +89,45 @@ pub struct Display<B: Backend> {
     pub bounds: Rect,
 }
 
+/// What `select_retina` reports when CoreGraphics never listed a mode: the one failure that a fresh display can fix.
+pub const NO_MODES: &str = "the virtual display has no modes (waited 10 s after placing it)";
+
+/// Displays tried before giving up on a start whose new display comes up without modes.
+pub const CREATE_ATTEMPTS: u32 = 3;
+
 impl<B: Backend> Display<B> {
     /// `logical` = size in points; `scale` = 1 (standard) or 2 (retina).
     pub fn create(mut backend: B, logical: (u32, u32), scale: u32) -> Result<Self, String> {
+        let mut last = String::new();
+        for _ in 0..CREATE_ATTEMPTS {
+            match Self::try_create(&mut backend, logical, scale) {
+                Ok((id, bounds)) => {
+                    return Ok(Self {
+                        backend,
+                        id,
+                        bounds,
+                    });
+                }
+                // A display that came up without modes is destroyed by `try_create`; a new one often has them.
+                Err(e) if e == NO_MODES => last = e,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last)
+    }
+
+    /// One display, end to end. On any error the display it made is already destroyed.
+    fn try_create(backend: &mut B, logical: (u32, u32), scale: u32) -> Result<(u32, Rect), String> {
         let real = backend.real_bounds();
         let pixels = crate::agent_mode::backing_pixels(logical, scale);
         let id = backend.create(pixels, scale == 2)?;
-        let (x, y) = virtual_origin(&real);
+        // Right of everything on screen, other agents' displays included, so instances never share a spot.
+        let all: Vec<Rect> = real
+            .iter()
+            .chain(&backend.sibling_bounds())
+            .copied()
+            .collect();
+        let (x, y) = virtual_origin(&all);
         // Placing configures the display (this is what makes CoreGraphics list its modes), then the retina mode
         // (a 1x display is already in its only mode).
         if let Err(e) = backend.place(id, x, y).and_then(|()| {
@@ -90,11 +148,7 @@ impl<B: Backend> Display<B> {
                 "the virtual display landed on a real one ({bounds:?}); refusing to use it"
             ));
         }
-        Ok(Self {
-            backend,
-            id,
-            bounds,
-        })
+        Ok((id, bounds))
     }
 }
 
@@ -123,10 +177,14 @@ mod tests {
     struct Fake {
         log: Rc<RefCell<Log>>,
         real: Vec<Rect>,
+        /// Other agents' virtual displays: active, but not the user's.
+        siblings: Vec<Rect>,
         /// Where the OS puts the new display regardless of the request (to test the overlap guard).
         lands: Option<Rect>,
         fail_place: bool,
         fail_retina: bool,
+        /// The first N `select_retina` calls fail with "no modes" (the flake), then it works.
+        retina_flakes: u32,
     }
 
     impl Backend for Fake {
@@ -140,10 +198,17 @@ mod tests {
             if self.fail_retina {
                 return Err("no HiDPI mode".into());
             }
+            if self.retina_flakes > 0 {
+                self.retina_flakes -= 1;
+                return Err(NO_MODES.into());
+            }
             Ok(())
         }
         fn real_bounds(&self) -> Vec<Rect> {
             self.real.clone()
+        }
+        fn sibling_bounds(&self) -> Vec<Rect> {
+            self.siblings.clone()
         }
         fn place(&mut self, id: u32, x: f64, y: f64) -> Result<(), String> {
             if self.fail_place {
@@ -167,6 +232,67 @@ mod tests {
         }
     }
 
+    /// Another agent's virtual display, already sitting right of the user's panel.
+    const SIBLING: Rect = Rect {
+        x: 1352.0,
+        y: 58.0,
+        w: 1280.0,
+        h: 820.0,
+    };
+
+    /// Incident (two agent instances at once): the second `desktop:agent` failed with "the virtual display landed
+    /// on a real one" because the first instance's own virtual display counted as one of the user's. Sibling agent
+    /// displays must be stacked beside, never mistaken for the user's, and never block each other.
+    /// Incident (two instances at once): both reconfigured the displays together and one got an empty mode list.
+    #[test]
+    fn the_config_lock_makes_two_holders_take_turns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("display.lock");
+        let first = ConfigLock::acquire(&path).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let p2 = path.clone();
+        let t = std::thread::spawn(move || {
+            let _second = ConfigLock::acquire(&p2).unwrap(); // blocks until `first` drops
+            tx.send(()).unwrap();
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(300))
+                .is_err(),
+            "the second holder must wait while the first holds the lock"
+        );
+        drop(first);
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the second holder proceeds once the first lets go");
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn a_second_agent_display_goes_right_of_the_first_and_is_not_refused() {
+        let (mut b, log) = fake(None, false);
+        b.siblings = vec![SIBLING];
+        let d = Display::create(b, (1280, 820), 2)
+            .expect("a sibling agent display must not block this one");
+        assert_eq!(
+            d.bounds.x, 2632.0,
+            "right of the user's panel AND the sibling"
+        );
+        assert!(log.borrow().destroyed.is_empty());
+    }
+
+    #[test]
+    fn a_display_that_lands_on_a_sibling_agent_display_is_still_fine_but_one_on_the_users_is_refused()
+     {
+        // Landing on the sibling's rect: harmless for the user (it only shares an agent-only display).
+        let (mut b, _) = fake(Some(SIBLING), false);
+        b.siblings = vec![SIBLING];
+        assert!(Display::create(b, (1280, 820), 2).is_ok());
+        // Landing on the built-in panel is what the guard exists for.
+        let (mut b, log) = fake(Some(BUILTIN), false);
+        b.siblings = vec![SIBLING];
+        assert!(Display::create(b, (1280, 820), 2).is_err());
+        assert_eq!(log.borrow().destroyed, [7]);
+    }
+
     const BUILTIN: Rect = Rect {
         x: 0.0,
         y: 0.0,
@@ -180,9 +306,11 @@ mod tests {
             Fake {
                 log: log.clone(),
                 real: vec![BUILTIN],
+                siblings: vec![],
                 lands,
                 fail_place,
                 fail_retina: false,
+                retina_flakes: 0,
             },
             log,
         )
@@ -274,6 +402,45 @@ mod tests {
         assert_eq!(log.borrow().destroyed, [7]);
     }
 
+    /// Incident (a plain sequential start, no concurrency): CoreGraphics listed no modes for the new display and the
+    /// instance refused to show ("no modes, waited 10 s"). A display with no modes is unusable but not a reason to
+    /// give up: it is destroyed and a fresh one created, a bounded number of times.
+    #[test]
+    fn a_display_that_comes_up_without_modes_is_destroyed_and_recreated() {
+        let (mut b, log) = fake(None, false);
+        b.retina_flakes = 2;
+        let d = Display::create(b, (1280, 820), 2).expect("the third display works");
+        assert_eq!(d.bounds.x, 1352.0);
+        assert_eq!(log.borrow().created.len(), 3, "two failures, one success");
+        assert_eq!(
+            log.borrow().destroyed,
+            [7, 7],
+            "each modeless display is destroyed before the next is made"
+        );
+    }
+
+    #[test]
+    fn recreating_is_bounded_and_the_last_error_is_reported() {
+        let (mut b, log) = fake(None, false);
+        b.retina_flakes = 100;
+        let e = Display::create(b, (1280, 820), 2).err().expect("gives up");
+        assert!(e.contains("no modes"), "{e}");
+        assert_eq!(log.borrow().created.len() as u32, CREATE_ATTEMPTS);
+        assert_eq!(
+            log.borrow().destroyed.len() as u32,
+            CREATE_ATTEMPTS,
+            "no orphan"
+        );
+    }
+
+    /// Only the mode flake is retried: a refused placement or a 1x-only display is a decision, not a hiccup.
+    #[test]
+    fn other_failures_are_not_retried() {
+        let (b, log) = fake(None, true);
+        assert!(Display::create(b, (1280, 820), 2).is_err());
+        assert_eq!(log.borrow().created.len(), 1);
+    }
+
     #[test]
     fn a_failed_placement_does_not_leak_the_display() {
         let (b, log) = fake(None, true);
@@ -305,6 +472,7 @@ struct CGRect {
 unsafe extern "C" {
     fn CGGetActiveDisplayList(max: u32, out: *mut u32, count: *mut u32) -> i32;
     fn CGDisplayBounds(id: u32) -> CGRect;
+    fn CGDisplayVendorNumber(id: u32) -> u32;
     fn CGBeginDisplayConfiguration(cfg: *mut *mut c_void) -> i32;
     fn CGConfigureDisplayOrigin(cfg: *mut c_void, id: u32, x: i32, y: i32) -> i32;
     fn CGConfigureDisplayWithDisplayMode(
@@ -316,6 +484,10 @@ unsafe extern "C" {
     fn CGCompleteDisplayConfiguration(cfg: *mut c_void, option: u32) -> i32;
     fn CGDisplayCopyAllDisplayModes(id: u32, options: *const c_void) -> *const c_void;
     fn CGDisplayModeGetWidth(mode: *const c_void) -> usize;
+    fn CGDisplayModeGetHeight(mode: *const c_void) -> usize;
+    fn CGDisplayModeGetPixelHeight(mode: *const c_void) -> usize;
+    fn CGDisplayCopyDisplayMode(id: u32) -> *const c_void;
+    fn CGDisplayModeRelease(mode: *const c_void);
     fn CGDisplayModeGetPixelWidth(mode: *const c_void) -> usize;
     static kCGDisplayShowDuplicateLowResolutionModes: *const c_void;
 }
@@ -355,9 +527,9 @@ impl Cg {
     }
 }
 
-/// Bounds of every active display except `skip` (global points, top-left origin): the user's monitors when `skip` is
-/// the agent display.
-pub fn active_bounds_except(skip: u32) -> Vec<Rect> {
+/// Every active display as the OS reports it right now: id, bounds and vendor. Nothing is filtered out, so a
+/// display can never be dropped from a safety check by being misclassified.
+pub fn active_displays() -> Vec<ActiveDisplay> {
     let mut n = 0u32;
     // SAFETY: CoreGraphics C API with correctly sized buffers.
     unsafe {
@@ -366,9 +538,35 @@ pub fn active_bounds_except(skip: u32) -> Vec<Rect> {
         CGGetActiveDisplayList(n, ids.as_mut_ptr(), &mut n);
         ids.truncate(n as usize);
         ids.into_iter()
-            .filter(|id| *id != skip)
-            .map(|id| rect_of(CGDisplayBounds(id)))
+            .map(|id| ActiveDisplay {
+                id,
+                bounds: rect_of(CGDisplayBounds(id)),
+                vendor: CGDisplayVendorNumber(id),
+            })
             .collect()
+    }
+}
+
+/// The current mode of display `id` in points and pixels; `None` when it has none (or `id` is not a display).
+pub fn display_mode(id: u32) -> Option<ModeSize> {
+    // SAFETY: CoreGraphics C API; the copied mode is released.
+    unsafe {
+        let m = CGDisplayCopyDisplayMode(id);
+        if m.is_null() {
+            return None;
+        }
+        let out = ModeSize {
+            points: (
+                CGDisplayModeGetWidth(m) as f64,
+                CGDisplayModeGetHeight(m) as f64,
+            ),
+            pixels: (
+                CGDisplayModeGetPixelWidth(m) as f64,
+                CGDisplayModeGetPixelHeight(m) as f64,
+            ),
+        };
+        CGDisplayModeRelease(m);
+        Some(out)
     }
 }
 
@@ -402,6 +600,30 @@ fn number(n: u32) -> Retained<NSNumber> {
     NSNumber::new_u32(n)
 }
 
+impl Cg {
+    /// Active displays other than ours: the agent-owned virtual ones (vendor `AGENT_VENDOR`) when `agents`, else
+    /// the user's.
+    fn active(&self, agents: bool) -> Vec<Rect> {
+        let own = self.display.as_ref().map(|d| {
+            // SAFETY: plain getter.
+            unsafe { msg_send![&**d, displayID] }
+        });
+        let mut n = 0u32;
+        // SAFETY: CoreGraphics C API with correctly sized buffers.
+        unsafe {
+            CGGetActiveDisplayList(0, std::ptr::null_mut(), &mut n);
+            let mut ids = vec![0u32; n as usize];
+            CGGetActiveDisplayList(n, ids.as_mut_ptr(), &mut n);
+            ids.truncate(n as usize);
+            ids.into_iter()
+                .filter(|id| Some(*id) != own)
+                .filter(|id| (CGDisplayVendorNumber(*id) == AGENT_VENDOR) == agents)
+                .map(|id| rect_of(CGDisplayBounds(id)))
+                .collect()
+        }
+    }
+}
+
 impl Backend for Cg {
     fn create(&mut self, pixels: (u32, u32), hidpi: bool) -> Result<u32, String> {
         let (w, h) = pixels;
@@ -432,7 +654,7 @@ impl Backend for Cg {
                 "name",
                 &NSString::from_str("Atlas Agent Display") as &AnyObject,
             );
-            kvc(&desc, "vendorID", &number(0x4147));
+            kvc(&desc, "vendorID", &number(AGENT_VENDOR));
             kvc(&desc, "productID", &number(0x0001));
             kvc(&desc, "serialNum", &number(std::process::id()));
             kvc(&desc, "maxPixelsWide", &number(w));
@@ -466,22 +688,11 @@ impl Backend for Cg {
     }
 
     fn real_bounds(&self) -> Vec<Rect> {
-        let own = self.display.as_ref().map(|d| {
-            // SAFETY: plain getter.
-            unsafe { msg_send![&**d, displayID] }
-        });
-        let mut n = 0u32;
-        // SAFETY: CoreGraphics C API with correctly sized buffers.
-        unsafe {
-            CGGetActiveDisplayList(0, std::ptr::null_mut(), &mut n);
-            let mut ids = vec![0u32; n as usize];
-            CGGetActiveDisplayList(n, ids.as_mut_ptr(), &mut n);
-            ids.truncate(n as usize);
-            ids.into_iter()
-                .filter(|id| Some(*id) != own)
-                .map(|id| rect_of(CGDisplayBounds(id)))
-                .collect()
-        }
+        self.active(false)
+    }
+
+    fn sibling_bounds(&self) -> Vec<Rect> {
+        self.active(true)
     }
 
     fn place(&mut self, id: u32, x: f64, y: f64) -> Result<(), String> {
@@ -541,7 +752,7 @@ fn select_hidpi_mode(id: u32, pixel_w: u32) -> Result<(), String> {
             &raw const kCFTypeDictionaryValueCallBacks,
         );
         let modes = poll_until(
-            40,
+            200,
             |_| std::thread::sleep(std::time::Duration::from_millis(50)),
             || {
                 let m = CGDisplayCopyAllDisplayModes(id, opts);
@@ -552,7 +763,7 @@ fn select_hidpi_mode(id: u32, pixel_w: u32) -> Result<(), String> {
             CFRelease(opts);
         }
         let Some(modes) = modes else {
-            return Err("the virtual display has no modes (waited 2 s after placing it)".into());
+            return Err(NO_MODES.into());
         };
         let mut chosen = None;
         let mut seen = Vec::new();

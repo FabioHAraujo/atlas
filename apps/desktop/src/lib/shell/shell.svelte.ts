@@ -6,7 +6,16 @@ import { colorScheme } from "@codeatlasdev/ui";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { themes } from "#lib/stores/theme.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
-import { neighbour, accentOf, accentTextOf, hueOf, onAccent, spreadHues, tintOf } from "#lib/shell/space.ts";
+import {
+	neighbour,
+	accentOf,
+	accentTextOf,
+	hueOf,
+	stableWindow,
+	onAccent,
+	spreadHues,
+	tintOf,
+} from "#lib/shell/space.ts";
 import { spacePager } from "#lib/shell/pager.ts";
 import { hueFor } from "#lib/shell/identity.ts";
 import { emptyHistory, step, visit, type History, type Visit } from "#lib/shell/history.ts";
@@ -31,6 +40,15 @@ class Shell {
 		return cur ? (cur.parent ?? cur.id) : null;
 	});
 	active = $derived(this.spaces.find((s) => s.id === this.activeId) ?? null);
+	/**
+	 * Spaces kept mounted by the pager: the active one, its neighbours, and any layer already mounted within two
+	 * places, in sidebar order (`stableWindow`): stepping back and forth mounts and unmounts nothing.
+	 */
+	#held: string[] = [];
+	mounted = $derived.by(() => {
+		this.#held = stableWindow(this.spaceIds, this.activeId, this.#held);
+		return this.#held;
+	});
 
 	get dark() {
 		return colorScheme.resolved === "dark";
@@ -56,6 +74,19 @@ class Shell {
 	}
 	tint(spaceId: string) {
 		return tintOf(spaceId, this.dark, this.hues[spaceId]);
+	}
+	/**
+	 * The four `--space-*` custom properties of a space. A layer carries its own, constant for its lifetime, so a
+	 * switch changes no inherited property under it: custom properties inherit to every node, and writing them on
+	 * the app root restyled ~1700 nodes (9-10 ms) per selection.
+	 */
+	layerVars(spaceId: string) {
+		return {
+			accent: this.accent(spaceId),
+			text: this.accentText(spaceId),
+			onAccent: this.onAccent(spaceId),
+			tint: this.tint(spaceId),
+		};
 	}
 
 	/** Worktree to land on when entering a space: the one last used there, else its main checkout. */

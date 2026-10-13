@@ -108,7 +108,14 @@ pub fn app_env(s: &Session, atlas_bin: &Path) -> Vec<(String, String)> {
 
 /// The caller's variables an instance inherits despite the cleared environment: what terminals inside it need, and
 /// the display scale knob. Everything else (tokens, the user's `ATLAS_*` paths, `HOME`) stays out.
-pub const FORWARDED: [&str; 5] = ["PATH", "SHELL", "LANG", "TERM", "ATLAS_AGENT_SCALE"];
+pub const FORWARDED: [&str; 6] = [
+    "PATH",
+    "SHELL",
+    "LANG",
+    "TERM",
+    "ATLAS_AGENT_SCALE",
+    "ATLAS_AGENT_DRYRUN",
+];
 
 pub fn forwarded_env(
     vars: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
@@ -196,6 +203,65 @@ fn running_exe(pid: u32) -> Option<PathBuf> {
     (!s.is_empty()).then(|| PathBuf::from(s))
 }
 
+/// Longest a start waits for another instance that is starting (it holds the lock for its display setup).
+const START_PATIENCE: Duration = Duration::from_secs(120);
+/// After the bridge answers, the instance keeps the lock this long: its window placement and guard have run.
+const START_SETTLE: Duration = Duration::from_secs(2);
+
+/// Only one agent instance may be STARTING at a time: a start creates and configures a virtual display, which
+/// changes the machine's display layout, and two starts doing it together left a window on the user's screen
+/// (concurrent starts also got empty mode lists). Exclusive `flock` on a file in the temp root, released on drop
+/// and by the OS if the process dies.
+pub struct StartLock {
+    /// Held for its `Drop`: closing the descriptor releases the lock.
+    _file: std::fs::File,
+}
+
+impl StartLock {
+    /// Wait up to `patience` for the lock, calling `waiting` (with the lock path) about once a second while it is
+    /// held by another start; an error names the lock so a stuck one can be diagnosed.
+    pub fn acquire(
+        path: &Path,
+        patience: Duration,
+        mut waiting: impl FnMut(&Path),
+    ) -> Result<Self> {
+        use std::os::fd::AsRawFd;
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        let t0 = Instant::now();
+        let mut told = None::<Instant>;
+        loop {
+            // SAFETY: a valid open fd; LOCK_NB makes it return at once instead of blocking.
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                return Ok(Self { _file: file });
+            }
+            if told.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+                waiting(path);
+                told = Some(Instant::now());
+            }
+            if t0.elapsed() >= patience {
+                bail!(
+                    "another agent instance is starting (it holds {}); waited {}s. If none is starting, delete the file",
+                    path.display(),
+                    patience.as_secs()
+                );
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+/// How long a start waits for the lock: `ATLAS_AGENT_START_WAIT` seconds (at most an hour) or [`START_PATIENCE`].
+fn start_patience(var: Option<&str>) -> Duration {
+    var.and_then(|v| v.parse::<u64>().ok())
+        .filter(|s| *s <= 3600)
+        .map_or(START_PATIENCE, Duration::from_secs)
+}
+
 pub struct StartOpts {
     pub name: Option<String>,
     pub scratch: bool,
@@ -207,6 +273,17 @@ pub struct StartOpts {
 /// Start an instance and wait until its bridge answers. Prints the ready line.
 pub fn start(o: StartOpts) -> Result<()> {
     let root = temp_root()?;
+    // One start at a time (see `StartLock`): held until this instance's window has been placed.
+    let _turn = StartLock::acquire(
+        &root.join("atlas-agent.lock"),
+        start_patience(std::env::var("ATLAS_AGENT_START_WAIT").ok().as_deref()),
+        |p| {
+            eprintln!(
+                "atlas-agent: another instance is starting (lock {}); waiting for its turn",
+                p.display()
+            );
+        },
+    )?;
     let name = o.name.unwrap_or_else(|| next_name(&root));
     let s = session_in(&root, &name)?;
     if s.dir.exists() {
@@ -245,37 +322,85 @@ pub fn start(o: StartOpts) -> Result<()> {
         exe: app,
     };
     std::fs::write(s.record(), serde_json::to_string_pretty(&rec)?)?;
+    let dry = o
+        .extra_env
+        .iter()
+        .any(|(k, v)| k == "ATLAS_AGENT_DRYRUN" && v == "1")
+        || std::env::var("ATLAS_AGENT_DRYRUN").is_ok_and(|v| v == "1");
     let t0 = Instant::now();
+    let mut child = child;
     loop {
-        if let Ok(info) = bridge_info(&s.socket())
-            && info["pid"].as_u64() == Some(u64::from(pid))
-        {
-            if info["agent"] != true {
-                let _ = stop_one(&s);
-                bail!(
-                    "the app started but is not in agent mode (is this a release build?): refusing to leave it running"
-                );
+        if let Ok(info) = bridge_info(&s.socket()) {
+            match readiness(&info, pid) {
+                Readiness::Ready => break,
+                Readiness::NotAgent => {
+                    let _ = stop_one(&s);
+                    bail!(
+                        "the app started but is not in agent mode (is this a release build?): refusing to leave it running"
+                    );
+                }
+                Readiness::Waiting => {}
             }
-            break;
         }
-        if running_exe(pid).is_none() {
+        // The app ends itself on a refusal (exit 3: its window would not have been provably on its own display) and
+        // after a dry run (exit 0, nothing shown). Report either from its log, never as a mystery.
+        if let Some(status) = child.try_wait()? {
+            let log = std::fs::read_to_string(s.log()).unwrap_or_default();
+            let line = |tag: &str| log.lines().find(|l| l.contains(tag)).map(str::to_owned);
+            let _ = std::fs::remove_dir_all(&s.dir);
+            if let Some(l) = line("REFUSED to show the window") {
+                bail!("the app refused to show its window and exited ({status}): {l}");
+            }
+            if dry && status.success() {
+                let l = line("DRYRUN decision")
+                    .context("the dry run exited without logging its decision")?;
+                println!("{l}");
+                return Ok(());
+            }
             bail!(
-                "the app exited before its bridge came up; see {}",
+                "the app exited ({status}) before it was ready; see {}",
                 s.log().display()
             );
         }
         if t0.elapsed() > READY_TIMEOUT {
             let _ = stop_one(&s);
             bail!(
-                "no bridge after {}s; see {}",
+                "the window was not shown after {}s; see {}",
                 READY_TIMEOUT.as_secs(),
                 s.log().display()
             );
         }
-        std::thread::sleep(Duration::from_millis(300));
+        std::thread::sleep(Duration::from_millis(100));
     }
+    // The window is shown (the lock is held until now), but give the display a moment to settle before the next
+    // instance reconfigures the layout.
+    std::thread::sleep(START_SETTLE);
     println!("{}", ready_line(&s, pid));
     Ok(())
+}
+
+/// What `atlas desktop --agent` makes of one answer of the instance's bridge.
+#[derive(Debug, PartialEq, Eq)]
+enum Readiness {
+    Waiting,
+    Ready,
+    NotAgent,
+}
+
+/// Ready = the bridge of THIS pid answers, runs in agent mode and its window is shown (the app shows it only after
+/// the placement decision passed, so a visible window is one that is on its own virtual display).
+fn readiness(info: &serde_json::Value, pid: u32) -> Readiness {
+    if info["pid"].as_u64() != Some(u64::from(pid)) {
+        return Readiness::Waiting;
+    }
+    if info["agent"] != true {
+        return Readiness::NotAgent;
+    }
+    if info["visible"] == true {
+        Readiness::Ready
+    } else {
+        Readiness::Waiting
+    }
 }
 
 fn bridge_info(sock: &Path) -> Result<serde_json::Value> {
@@ -392,6 +517,27 @@ mod tests {
         assert_eq!(keys, ["ATLAS_AGENT_SCALE", "PATH"]);
     }
 
+    /// The dry-run switch must reach the app too, or "prove it before a real start" proves nothing.
+    #[test]
+    fn the_dry_run_switch_reaches_the_instance() {
+        let os = |s: &str| std::ffi::OsString::from(s);
+        let got = forwarded_env([(os("ATLAS_AGENT_DRYRUN"), os("1"))]);
+        assert_eq!(got, [(os("ATLAS_AGENT_DRYRUN"), os("1"))]);
+    }
+
+    /// Incident (window left on the user's display): the start lock was released as soon as the bridge answered, but
+    /// the window is placed and shown later, at the page's first frame, so the next start could reconfigure the
+    /// displays in between. An instance is ready, and the lock released, only once its window is shown.
+    #[test]
+    fn an_instance_is_ready_only_when_its_window_is_shown_in_agent_mode() {
+        let info = |pid: u64, agent: bool, visible: bool| serde_json::json!({"pid": pid, "agent": agent, "visible": visible});
+        assert_eq!(readiness(&info(5, true, false), 5), Readiness::Waiting);
+        assert_eq!(readiness(&info(5, true, true), 5), Readiness::Ready);
+        assert_eq!(readiness(&info(5, false, true), 5), Readiness::NotAgent);
+        assert_eq!(readiness(&info(6, true, true), 5), Readiness::Waiting);
+        assert_eq!(readiness(&serde_json::json!({}), 5), Readiness::Waiting);
+    }
+
     #[test]
     fn every_file_of_an_instance_is_under_its_own_directory() {
         let root = Path::new("/private/tmp");
@@ -406,6 +552,61 @@ mod tests {
             "concurrent agents never share a bridge"
         );
         assert_ne!(s.hostd(), t.hostd(), "nor a hostd");
+    }
+
+    /// `ATLAS_AGENT_START_WAIT` = how many seconds a start waits for another one that is starting; anything that is
+    /// not a whole number of seconds is the default, never an unbounded wait.
+    #[test]
+    fn the_start_wait_is_a_bounded_number_of_seconds_from_the_environment() {
+        assert_eq!(start_patience(None), START_PATIENCE);
+        assert_eq!(start_patience(Some("5")), Duration::from_secs(5));
+        assert_eq!(start_patience(Some("0")), Duration::from_secs(0));
+        for bad in ["", "-1", "abc", "1.5", "99999999"] {
+            assert_eq!(start_patience(Some(bad)), START_PATIENCE, "{bad:?}");
+        }
+    }
+
+    /// Incident (three agent instances started together): one window showed on the user's built-in display.
+    /// Starts configure the machine's displays, so only one instance may be starting at a time.
+    #[test]
+    fn a_second_start_waits_for_the_first_to_finish_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("atlas-agent.lock");
+        let first = StartLock::acquire(&path, Duration::from_secs(1), |_| {}).unwrap();
+        // While the first holds it, a second one cannot get it within its patience, and the error says why.
+        let waited = std::cell::Cell::new(0);
+        let err = StartLock::acquire(&path, Duration::from_millis(300), |_| {
+            waited.set(waited.get() + 1)
+        })
+        .err()
+        .expect("the lock is held")
+        .to_string();
+        assert!(err.contains("another agent instance is starting"), "{err}");
+        assert!(
+            err.contains("atlas-agent.lock"),
+            "names the lock file: {err}"
+        );
+        assert!(waited.get() >= 1, "it told the caller it was waiting");
+        // Once the first lets go, the next start proceeds.
+        drop(first);
+        assert!(StartLock::acquire(&path, Duration::from_secs(1), |_| {}).is_ok());
+    }
+
+    #[test]
+    fn a_waiting_start_proceeds_the_moment_the_holder_releases() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("atlas-agent.lock");
+        let first = StartLock::acquire(&path, Duration::from_secs(1), |_| {}).unwrap();
+        let p2 = path.clone();
+        let t = std::thread::spawn(move || {
+            StartLock::acquire(&p2, Duration::from_secs(10), |_| {}).map(|_| ())
+        });
+        std::thread::sleep(Duration::from_millis(250));
+        drop(first);
+        assert!(
+            t.join().unwrap().is_ok(),
+            "the waiter got the lock after the release"
+        );
     }
 
     #[test]

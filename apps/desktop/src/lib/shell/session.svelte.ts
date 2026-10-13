@@ -41,6 +41,11 @@ import { navigator as jumps } from "#lib/lsp/history.ts";
 import { hooks, worktrees } from "#lib/stores/worktrees.svelte.ts";
 import * as captureDom from "#lib/capture/dom.ts";
 import * as agentDebug from "#lib/debug/agent.ts";
+import { idleQueue } from "#lib/idleQueue.ts";
+import { runSelectionBench, type BenchEnv } from "#lib/debug/selectionBench.ts";
+import { idleFloor, runGesture, type GestureRunOpts } from "#lib/debug/gestureRun.ts";
+import { swipeDebug } from "#lib/shell/nativeSwipe.ts";
+import { docks } from "#lib/stores/docks.svelte.ts";
 import { easeInOutCubic } from "#lib/capture/motion.ts";
 
 /** The live stores, shared with `ctl.ts` (HMR-safe) and, in debug builds, `atlas desktop debug eval`. */
@@ -50,6 +55,8 @@ function exposeStores() {
 		Object.assign(window, {
 			__atlas: {
 				...stores,
+				shell,
+				docks,
 				themes,
 				updates,
 				/** The overlays `scripts/contrast-audit.ts` opens: dialogs (`ask`), the project scan and the kit's toasts. */
@@ -85,6 +92,12 @@ function exposeStores() {
 				perf: agentDebug.perfRecorder(),
 				state: () => agentDebug.stateSummary(stores),
 				view: () => ({ w: innerWidth, h: innerHeight, scale: devicePixelRatio }),
+				/** A→B→A space selections: per-selection flush, main-thread stall and DOM churn (`scripts/selection-bench.ts`). */
+				selectionBench: (o: Omit<BenchEnv, "shell"> = {}) => runSelectionBench({ shell, ...o }),
+				/** One replayed gesture trace into the real engine, with frame/stall/reflow/transform recording (`scripts/gesture-bench.ts`). */
+				gesture: (o: GestureRunOpts) => runGesture({ shell, ws, ...o }),
+				swipe: swipeDebug,
+				idleFloor,
 			},
 		});
 	}
@@ -156,6 +169,12 @@ function syncEffects() {
 			ws.ensureLayout(id);
 			ws.ensurePanel(id);
 		});
+	});
+
+	// A space switch is activity: deferred UI work (`idleQueue`, kit overlays of neighbour layers) waits for it to settle.
+	$effect(() => {
+		void shell.activeId;
+		idleQueue.bump();
 	});
 
 	// Remember (worktree, tab) visits for ⌘[ / ⌘].

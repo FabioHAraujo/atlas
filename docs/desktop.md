@@ -21,15 +21,15 @@ Contents: [Getting around](#getting-around) · [Install](#install) · [Updates](
 
 **Peeking a hidden sidebar.** Move the pointer to the window edge (left for spaces, right for the context sidebar) and it slides in over the content: after ~60 ms, or at once if you flick into the edge. It stays while the pointer is on it (with a 24 px margin), slides out 250 ms after you leave, and ⎋ dismisses it. A menu or dialog opened from it keeps it open.
 
-**Trackpad gestures.** Two-finger swipes work like Arc and never take over scrolling: a gesture only starts when nothing under the pointer (logs, editor, terminal, a horizontal list) can scroll further that way.
+**Trackpad gestures.** Two-finger swipes work like Arc and never take over scrolling: a gesture only starts when it is clearly horizontal (15 pt of travel, at least twice the vertical) over a swipeable area, and a vertical scroll, a resting finger's jitter or a wheel mouse never starts one.
 
-| Swipe…       | Over                               | Does                                                                                                                                                                                        |
-| ------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| left / right | the sidebar                        | next / previous space. The content follows your fingers and the next space's accent glows at the edge; past ~30% of the width, or with a quick flick, it commits, otherwise it springs back |
-| left / right | the tab strip                      | next / previous tab (lighter travel)                                                                                                                                                        |
-| right / left | the content, where nothing scrolls | Back / Forward through visited worktrees and tabs (⌘[ / ⌘]), with an arrow chip that fills as you drag                                                                                      |
+| Swipe…       | Over                               | Does                                                                                                                                                                                              |
+| ------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| left / right | the sidebar                        | next / previous space. The content follows your fingers 1:1 and the next space slides in beside it; past half a page, or with a quick flick, it commits, otherwise it springs back                |
+| left / right | the tab strip or the tab's content | next / previous tab, the same way                                                                                                                                                                 |
+| right / left | the content, where nothing scrolls | Back / Forward through visited worktrees and tabs (⌘[ / ⌘]), with an arrow chip that fills as you drag                                                                                            |
 
-A swipe ends after ~120 ms without movement, and the momentum tail after it is ignored, so one swipe is one switch. With _Reduce motion_ on, nothing animates and the switch is instant. Pinch (ctrl + wheel) is never treated as a swipe.
+The release is decided the instant your fingers lift (not after a quiet gap), the page settles in about 0.3 s with no overshoot, and the momentum tail after it is swallowed, so one swipe is one switch, never two. Swiping at the first or last space only stretches like a rubber band. A new swipe during a settle continues from where the page is. With _Reduce motion_ on, nothing animates and the switch is instant. Pinch (ctrl + wheel) is never treated as a swipe.
 
 **Search and jump.**
 
@@ -306,6 +306,44 @@ atlas desktop debug perf --seconds 3              # rAF/s, p50/p95/max frame ms,
 ```
 
 `shot` is a `WKWebView` snapshot: no permission, retina, works with the window unfocused. `--selector` picks the first match that is visible and on screen. `click` and `type` are DOM events inside the webview, never OS input. Logs are captured from before the page's own scripts run, so load-time errors and CSP violations show up. `desktop:dev` also prints them to the terminal as `[webview <level>] …`.
+
+#### Gesture engine, bench and recordings
+
+The gesture system is one engine with one source of truth, in Rust, fed by the raw `NSEvent` scroll stream:
+
+- `crates/atlas-desktop/src/swipe_engine.rs`: pure physics and decisions (claim gate, 1:1 tracking, rubber band, release decision from the lift velocity, critically damped spring, programmatic `go`). Every decision carries a generation (`seq`) so a consumer applies each commit exactly once.
+- `swipe_mac.rs`: the `NSEvent` monitor (the only place an event becomes a `Sample`), zone hit-testing, the display-rate clock (`swipe_clock.rs`, `NSView.displayLink`), the recorder and the replay entry.
+- `page_stage.rs` + `page_layers.rs`: the native stage. It draws the space slide from cached `WKWebView.takeSnapshot` images on `CALayer`s moved at the display's refresh, so the slide never waits on JS or the 60 Hz webview. The live DOM is swapped under the overlay, which comes down only after JS acks the new page painted (watchdog 400 ms). Where no snapshot exists yet the frontend pager draws the same engine frames.
+- Frontend: `shell/pager.ts` (space layers), `shell/tabPager.ts` (tab panes), `shell/stageSync.ts` (keeps the snapshots warm behind a cover), `shell/nativeSwipe.ts` (events and zones).
+
+Snapshot cost (`WKWebView.takeSnapshot` runs on the main thread), measured on a 2x display with a 1264 x 774 pt pager: 36 ms at full resolution, 22 ms at 0.75, 11 ms at 0.5, 8 ms at 0.35. Warm-up snapshots therefore render at 0.5 (`SNAP_SCALE` in `SpacePager.svelte`), one page per idle task, and only after 300 ms without a selection, gesture or content change in a page (`stageSync.ts`). A selection re-snapshots nothing: only a change inside a page marks it stale (`pageDirty.ts`), and role flips on the layer roots (class, inert, data-role) do not.
+
+AppKit's `trackSwipeEvent` is deliberately not used: its `gestureAmount` is a fixed `scrollingDeltaX / 1000` whatever the view size (a half-page drag is a 500 pt reach) and its settle is opaque.
+
+**Tests.** `cargo test -p atlas-desktop swipe` runs the engine against the trace suite (`apps/desktop/src/lib/shell/__fixtures__/traces/*.json`, synthesized from the trackpad physics by `bun scripts/gesture-fixtures.ts`, plus any `recorded-*.json`). `bun test src/lib/shell src/lib/debug` covers the pagers, the stage scheduler and the bench's assessment rules.
+
+**Bench.** Against a real agent instance (never your window, never OS input):
+
+```bash
+bun run desktop:agent -- --name gesture --scratch       # prints ATLAS_DEBUG_SOCK=…
+ATLAS_DEBUG_SOCK=/private/tmp/atlas-agent-gesture/debug.sock bun scripts/gesture-bench.ts [--only name,name] [--repeat N] [--hz 60] [--json out.json]
+```
+
+It replays every trace into the engine through the same entry point real events use and holds the app to the budget: exactly the expected page (never two steps, never a bounce to the wrong one), tracking monotonic toward the target, settle 250-350 ms with no overshoot, no frame gap over 1.2 frames + 3 ms, no main-thread stall over 20 ms, zero forced layouts, natives parked and restored together, a consistent end state. It seeds its own spaces (five tiny repos registered through `projects_add`), aims every trace at the zone it is meant for by reading the zone table the engine actually hit-tests (`pager_state`), prints a table and exits 1 on any violation.
+
+Timing on a shared machine: the bench first records 3 s of the page doing nothing (the **idle floor**: frame-gap p95 and the worst stall) and judges the timing rules against the larger of the budget and 1.5x that floor; a trace that fails only on timing is retried (`--retries`, default 4) and reports its best attempt. Deterministic rules (wrong page, double commit, forced layouts, settle time, overshoot, end state) are never relaxed or retried. The agent's virtual display is 60 Hz: the engine ticks at the display's refresh, so frame-time claims for 120 Hz need a bench run on a ProMotion panel (`--hz 120`).
+
+`bun scripts/gesture-baseline.ts` measures the one thing every build shares, the programmatic space switch (what a click on the space strip or ⌃⇥ does), by injecting the same probe through `debug eval`, so it also runs against a bundle built from an old commit (`ATLAS_BIN=<that tree>/target/debug/atlas`).
+
+What replay cannot cover: the `NSEvent` → `Sample` conversion (`sample_of` in `swipe_mac.rs`) and the OS delivering real events to the monitor. Measured with a standalone probe: a scroll `NSEvent` built from a `CGEvent` (`scrollWheelEventScrollPhase`, `IsContinuous`, point deltas) carries the right phases and deltas, but `-[NSWindow sendEvent:]` and `-[NSApplication postEvent:atStart:]` delivered none of a synthetic stream to a view in a background window, and calling `scrollWheel:` on the view directly started `trackSwipeEvent` with only its first callback (it reads the rest from the real event queue). So replay feeds the engine at `on_sample`, one step after the conversion, and the conversion stays verified by recordings.
+
+**Recording your own swipes.** In a debug build of your app (`bun run desktop:dev`, or `atlas link --desktop`), run the command and swipe on the trackpad while it records:
+
+```bash
+atlas desktop debug gesture-record /tmp/my-swipe.json --seconds 8
+```
+
+The file is the raw event stream (timestamps, phases, deltas, pointer) with what the engine did with each event. Set `expect` in it (`zone`, `steps`: `1` next, `-1` previous, `0` stay, `untouched`) and keep it as `apps/desktop/src/lib/shell/__fixtures__/traces/recorded-<name>.json`: the Rust suite and the bench pick it up. `atlas desktop debug gesture-replay <trace.json>` feeds one into the running app in-process.
 
 #### Capture and record (agents)
 

@@ -1,57 +1,11 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
 import { beforeEach, expect, test } from "bun:test";
-import { rubber, springAt, springDuration, spacePager } from "./pager.ts";
-
-// Bun has no animation frames: a manual queue, stepped by `frame()`.
-let queue = [];
-let nextId = 1;
-globalThis.requestAnimationFrame = (f) => (queue.push([nextId, f]), nextId++);
-globalThis.cancelAnimationFrame = (id) => (queue = queue.filter(([i]) => i !== id));
-const frame = () => {
-	const q = queue;
-	queue = [];
-	for (const [, f] of q) f(0);
-};
+import { place, spacePager } from "./pager.ts";
 
 /** Let the pager's `await host.flush()` continuations run (microtasks only, no wall clock). */
 const settle = async () => {
 	for (let i = 0; i < 5; i++) await Promise.resolve();
 };
-
-test("rubber band is linear inside a page and saturates past it", () => {
-	expect(rubber(0.4)).toBe(0.4);
-	expect(rubber(-1)).toBe(-1);
-	expect(rubber(1.5)).toBeGreaterThan(1);
-	expect(rubber(1.5)).toBeLessThan(1.15 + 1e-9);
-	expect(rubber(40)).toBeLessThanOrEqual(1.15);
-	expect(rubber(-2)).toBe(-rubber(2));
-});
-
-test("the spring starts where it was released, never overshoots, and lands on the target", () => {
-	let max = 0;
-	for (const [x0, v0] of [
-		[0.3, 0],
-		[0.3, 2],
-		[0.9, 5],
-		[-0.2, -1],
-	]) {
-		expect(springAt(x0, v0, 1, 0)).toBeCloseTo(x0, 9);
-		for (let t = 0; t < 1.5; t += 0.005) max = Math.max(max, springAt(x0, v0, 1, t));
-		expect(springAt(x0, v0, 1, 3)).toBeCloseTo(1, 4);
-	}
-	// A flick released at 0.9 with high velocity may cross the target only by the critically-damped bump (small).
-	expect(max).toBeLessThan(1.1);
-});
-
-test("settle time is short (~0.3-0.5 s) and shrinks with a faster release", () => {
-	const slow = springDuration(0.4, 0, 1);
-	const fast = springDuration(0.4, 4, 1);
-	expect(slow).toBeGreaterThan(0.2);
-	expect(slow).toBeLessThan(0.7);
-	expect(fast).toBeLessThanOrEqual(slow);
-});
-
-// ---- protocol: track / settle / go against a fake host ----
 
 class Layer {
 	style = {
@@ -60,27 +14,16 @@ class Layer {
 			if (p === "transform") this.transform = "";
 		},
 	};
-	animations = [];
-	animate(frames, opts) {
-		const a = {
-			frames,
-			opts,
-			cancelled: false,
-			finished: Promise.withResolvers().promise,
-			cancel: () => (a.cancelled = true),
-		};
-		this.animations.push(a);
-		return a;
-	}
 }
 
-let host, layers, committed, moving;
+let host, layers, committed, moving, active, go, acked;
 beforeEach(() => {
-	queue = [];
-	layers = { a: new Layer(), b: new Layer(), z: new Layer() };
+	layers = { a: new Layer(), b: new Layer(), c: new Layer(), z: new Layer() };
 	committed = [];
 	moving = [];
-	let active = "a";
+	go = [];
+	acked = [];
+	active = "a";
 	host = {
 		layer: (id) => layers[id],
 		width: () => 1000,
@@ -92,13 +35,45 @@ beforeEach(() => {
 		},
 		moving: (on, keep) => moving.push([on, keep]),
 		flush: () => Promise.resolve(),
+		// The engine's own programmatic switch (swipe_go): resolves to whether it took it.
+		engineGo: async (dir) => (go.push(dir), true),
+		ack: (seq) => acked.push(seq),
 	};
 	spacePager.attach(host)();
 	spacePager.attach(host);
 });
 
-test("track moves the current layer by -amount·W and the incoming one next to it, with no state change", () => {
-	spacePager.track(0.25);
+const f = (seq, amount, stage = "track") => spacePager.frame({ zone: "space", seq, amount, stage });
+const c = (seq, dir) => spacePager.commit({ zone: "space", seq, dir });
+
+// ---- pure placement ----
+
+test("place: the origin sits at -amount·W, the neighbour in the direction of travel at (dir - amount)·W", () => {
+	const ids = ["a", "b", "z"];
+	expect(place("a", 0.25, ids, 1000)).toEqual([
+		{ id: "a", x: -250 },
+		{ id: "b", x: 750 },
+	]);
+	// Negative amount heads to the previous space; at the first space it wraps to the last (sidebar wraps).
+	expect(place("a", -0.5, ids, 1000)).toEqual([
+		{ id: "a", x: 500 },
+		{ id: "z", x: -500 },
+	]);
+	// At rest nothing but the origin: no neighbour is positioned.
+	expect(place("a", 0, ids, 1000)).toEqual([{ id: "a", x: -0 }]);
+});
+
+test("place: an explicit target (a jump to a non-adjacent space) is the incoming layer", () => {
+	expect(place("a", 0.5, ["a", "b", "c", "z"], 1000, "c")).toEqual([
+		{ id: "a", x: -500 },
+		{ id: "c", x: 500 },
+	]);
+});
+
+// ---- engine frames drive the layers ----
+
+test("a frame moves the layers and flags the gesture as moving, with no state change", () => {
+	f(1, 0.25);
 	expect(layers.a.style.transform).toBe("translate3d(-250px,0,0)");
 	expect(layers.b.style.transform).toBe("translate3d(750px,0,0)");
 	expect(spacePager.active).toBe(true);
@@ -106,84 +81,167 @@ test("track moves the current layer by -amount·W and the incoming one next to i
 	expect(moving[0]).toEqual([true, ["a", "b"]]);
 });
 
-test("a negative amount heads to the previous space (wrapping at the first)", () => {
-	spacePager.track(-0.5);
-	expect(layers.a.style.transform).toBe("translate3d(500px,0,0)");
-	expect(layers.z.style.transform).toBe("translate3d(-500px,0,0)");
+test("heading flips without a retarget: the other neighbour is placed, the first one is released", () => {
+	f(1, 0.3);
+	f(1, -0.2);
+	expect(layers.a.style.transform).toBe("translate3d(200px,0,0)");
+	expect(layers.z.style.transform).toBe("translate3d(-800px,0,0)");
+	expect(layers.b.style.transform).toBe("");
 });
 
-test("settle(dir) commits the selection once, right away, and animates both layers from the live offset", () => {
-	spacePager.track(0.4);
-	spacePager.settle(1);
+test("the commit selects the neighbour once, whatever the settle frames do after it", () => {
+	f(1, 0.4);
+	c(1, 1);
 	expect(committed).toEqual(["b"]);
-	// AppKit frames keep arriving: no spring of ours yet.
-	expect(layers.a.animations.length).toBe(0);
-	spacePager.track(0.7);
-	expect(layers.a.style.transform).toBe("translate3d(-700px,0,0)");
-	// ...and while they do, our spring never starts.
-	frame();
-	spacePager.track(0.8);
-	frame();
-	expect(layers.a.animations.length).toBe(0);
+	f(1, 0.8, "settle");
+	c(1, 1); // a duplicate delivery of the same decision
+	expect(committed).toEqual(["b"]);
 });
 
-test("two frames of silence after the decision hand the settle to our spring, from the live offset", () => {
-	spacePager.track(0.4);
-	spacePager.settle(1);
-	frame();
-	frame();
-	expect(layers.a.animations.length).toBe(1);
-	expect(layers.a.animations[0].frames[0].transform).toBe("translate3d(-400px,0,0)");
-	expect(layers.a.animations[0].frames.at(-1).transform).toBe("translate3d(-1000px,0,0)");
-	expect(layers.b.animations[0].frames.at(-1).transform).toBe("translate3d(0px,0,0)");
+test("a stale commit (older seq than one already applied) is ignored", () => {
+	f(2, 0.4);
+	c(2, 1);
+	c(1, -1);
+	expect(committed).toEqual(["b"]);
 });
 
-test("track(0) after tracking without a decision is a cancel: layers return to rest", async () => {
-	spacePager.track(0.2);
-	spacePager.track(0);
-	expect(committed).toEqual([]);
+test("a cancel (dir 0) selects nothing and the rest frame returns the layers to rest", async () => {
+	f(1, 0.2);
+	c(1, 0);
+	f(1, 0.01, "settle");
+	f(1, 0, "rest");
 	await settle();
+	expect(committed).toEqual([]);
 	expect(layers.a.style.transform).toBe("");
 	expect(layers.b.style.transform).toBe("");
 	expect(spacePager.active).toBe(false);
 	expect(moving.at(-1)).toEqual([false]);
 });
 
-test("frames reaching ±1 after a commit finish the switch", async () => {
-	spacePager.track(0.6);
-	spacePager.settle(1);
-	spacePager.track(1);
+test("the rest frame of a commit clears the transforms only after Svelte applied the selection", async () => {
+	f(1, 0.6);
+	c(1, 1);
+	f(1, 1, "rest");
+	expect(layers.a.style.transform).not.toBe(""); // still holding the end pose
 	await settle();
-	expect(committed).toEqual(["b"]);
-	expect(spacePager.active).toBe(false);
 	expect(layers.a.style.transform).toBe("");
+	expect(layers.b.style.transform).toBe("");
+	expect(moving.at(-1)).toEqual([false]);
 });
 
-test("go() commits first, then slides both layers with one animation each", () => {
+test("a new gesture during the settle continues from the committed page: no jump, no stuck transform", async () => {
+	f(1, 0.6);
+	c(1, 1);
+	f(1, 0.85, "settle");
+	// seq 2 rebased on the committed page `b`: b is the origin now, amount -0.2 heads back to `a`.
+	f(2, -0.15);
+	expect(layers.b.style.transform).toBe("translate3d(150px,0,0)");
+	expect(layers.a.style.transform).toBe("translate3d(-850px,0,0)");
+	f(2, 0, "rest");
+	await settle();
+	expect(layers.a.style.transform).toBe("");
+	expect(layers.b.style.transform).toBe("");
+});
+
+test("frames of an older generation never move layers once a newer one began", () => {
+	f(2, 0.3);
+	f(1, 0.9, "settle");
+	expect(layers.a.style.transform).toBe("translate3d(-300px,0,0)");
+});
+
+// ---- programmatic switches ----
+
+test("go() selects now (keyboard consumers see it at once) and asks the engine for the animation", async () => {
 	expect(spacePager.go("b")).toBe(true);
 	expect(committed).toEqual(["b"]);
-	expect(layers.a.animations.length).toBe(1);
-	expect(layers.b.animations.length).toBe(1);
-	const [first, last] = [layers.a.animations[0].frames[0], layers.a.animations[0].frames.at(-1)];
-	expect(first.transform).toBe("translate3d(0px,0,0)");
-	expect(last.transform).toBe("translate3d(-1000px,0,0)");
-	// The incoming layer starts one page to the right and ends at rest.
-	expect(layers.b.animations[0].frames[0].transform).toBe("translate3d(1000px,0,0)");
-	expect(layers.b.animations[0].frames.at(-1).transform).toBe("translate3d(0px,0,0)");
+	await settle();
+	expect(go).toEqual([1]);
 });
 
-test("go() to the active space or with no host does nothing", () => {
+test("go() frames animate the target layer, whatever its distance, and the engine's commit is not applied twice", async () => {
+	spacePager.go("z");
+	await settle();
+	// seq 1: origin a, target z (jump), engine commit arrives after the self-commit.
+	f(1, 0.4, "settle");
+	expect(layers.a.style.transform).toBe("translate3d(-400px,0,0)");
+	expect(layers.z.style.transform).toBe("translate3d(600px,0,0)");
+	c(1, 1);
+	expect(committed).toEqual(["z"]);
+});
+
+test("go() to the active space or while the engine refuses does nothing visible", async () => {
 	expect(spacePager.go("a")).toBe(false);
-	expect(committed).toEqual([]);
+	host.engineGo = async () => false;
+	expect(spacePager.go("b")).toBe(true); // the selection still moves (instantly)
+	expect(committed).toEqual(["b"]);
+	await settle();
+	expect(spacePager.active).toBe(false);
 });
 
-test("go(id, origin) animates without committing (the selection already moved)", () => {
+test("go(id, origin) animates without committing (the selection already moved)", async () => {
 	expect(spacePager.go("b", "a")).toBe(true);
 	expect(committed).toEqual([]);
+	await settle();
+	expect(go).toEqual([1]);
 });
 
-test("a decision against the gesture's heading retargets to the other neighbour", () => {
-	spacePager.track(0.3);
-	spacePager.settle(-1);
-	expect(committed).toEqual(["z"]);
+// ---- the native stage draws the slide ----
+
+test("when the native stage draws a generation, no transform is written but the commit and rest still run", async () => {
+	spacePager.frame({ zone: "space", seq: 1, amount: 0.3, stage: "track", native: true });
+	expect(layers.a.style.transform).toBe("");
+	expect(layers.b.style.transform).toBe("");
+	expect(moving[0]).toEqual([true, ["a", "b"]]);
+	c(1, 1);
+	expect(committed).toEqual(["b"]);
+	spacePager.frame({ zone: "space", seq: 1, amount: 1, stage: "rest", native: true });
+	await settle();
+	// Svelte applied the selection; only now may the overlay come down.
+	expect(acked).toEqual([1]);
+	expect(moving.at(-1)).toEqual([false]);
+});
+
+test("the ack is sent once per generation, after the flush, even if rest repeats", async () => {
+	spacePager.frame({ zone: "space", seq: 1, amount: 0.3, stage: "track", native: true });
+	c(1, 0);
+	spacePager.frame({ zone: "space", seq: 1, amount: 0, stage: "rest", native: true });
+	spacePager.frame({ zone: "space", seq: 1, amount: 0, stage: "rest", native: true });
+	await settle();
+	expect(acked).toEqual([1]);
+});
+
+test("a generation the stage did not draw (no snapshot yet) is drawn by the layers, never by both", () => {
+	spacePager.frame({ zone: "space", seq: 1, amount: 0.3, stage: "track", native: false });
+	expect(layers.a.style.transform).toBe("translate3d(-300px,0,0)");
+	expect(acked).toEqual([]);
+});
+
+// Incident (bench, every commit trace): the worst frame of a gesture came with a 10-19 ms main-thread stall right
+// after the first moved frame. `frame()` told the host `moving(true, keep)` on EVERY frame; the space pager turns that
+// into `$state` writes (a fresh `kept` array, `moving`, a touch), so the keyed each-block and its derived re-ran per
+// frame. The contract in `PagerHost.moving` is "never called per frame": only on a change of state.
+test("moving() is told once per gesture and again only when the set of layers it needs changes", () => {
+	moving.length = 0;
+	f(1, 0.1);
+	f(1, 0.2);
+	f(1, 0.3);
+	f(1, 0.4);
+	expect(moving).toEqual([[true, ["a", "b"]]]);
+	// the finger crosses to the other side: a different neighbour is needed, so it is told again
+	f(1, -0.1);
+	f(1, -0.2);
+	expect(moving).toEqual([
+		[true, ["a", "b"]],
+		[true, ["a", "z"]],
+	]);
+	// rest: told off once; a second gesture is told on again
+	f(1, 0, "rest");
+	return settle().then(() => {
+		expect(moving.at(-1)).toEqual([false, undefined]);
+		const n = moving.length;
+		f(2, 0.1);
+		f(2, 0.2);
+		expect(moving.length).toBe(n + 1);
+		expect(moving.at(-1)).toEqual([true, ["a", "b"]]);
+	});
 });

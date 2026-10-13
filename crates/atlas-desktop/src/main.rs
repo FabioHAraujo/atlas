@@ -18,14 +18,22 @@ mod host;
 mod live;
 mod live_server;
 mod menu;
+#[cfg(target_os = "macos")]
+mod page_layers;
+mod page_stage;
 mod registry;
 mod remote;
 mod shell_env;
+#[cfg(target_os = "macos")]
+mod swipe_clock;
+mod swipe_engine;
 #[cfg(target_os = "macos")]
 mod swipe_mac;
 #[cfg(not(target_os = "macos"))]
 #[path = "swipe_stub.rs"]
 mod swipe_mac;
+#[cfg(test)]
+mod swipe_trace;
 mod term;
 mod tray;
 mod updates;
@@ -65,7 +73,11 @@ fn show_main(app: &AppHandle) {
         return;
     }
     #[cfg(target_os = "macos")]
-    agent_display::park_and_show(app, &w);
+    {
+        // Watching first: whatever the placement below does or fails to do, the window cannot stay on his screen.
+        agent_display::guard_user_displays(app);
+        agent_display::park_and_show(app, &w);
+    }
 }
 
 /// App IPC commands; debug builds append the bridge's commands.
@@ -171,6 +183,14 @@ macro_rules! handlers {
             term::term_stats_reset,
             swipe_mac::swipe_zones,
             swipe_mac::swipe_native,
+            swipe_mac::swipe_go,
+            page_layers::pager_pages,
+            page_layers::pager_snapshot,
+            page_layers::pager_invalidate,
+            page_layers::pager_cover,
+            page_layers::pager_uncover,
+            page_layers::pager_ready,
+            page_layers::pager_state,
             term::term_key,
             term::term_paste,
             term::term_text,
@@ -372,9 +392,11 @@ fn main() {
     // Debug builds (`desktop:dev`, `atlas link --desktop`) get the agent bridge;
     // release builds never contain it.
     #[cfg(debug_assertions)]
-    let builder = builder
-        .plugin(debug::plugin())
-        .invoke_handler(handlers!(debug::debug_log, debug::debug_reply,));
+    let builder = builder.plugin(debug::plugin()).invoke_handler(handlers!(
+        debug::debug_log,
+        debug::debug_reply,
+        debug::gesture_replay_samples,
+    ));
     #[cfg(not(debug_assertions))]
     let builder = builder.invoke_handler(handlers!());
     boot::mark("builder:configured");

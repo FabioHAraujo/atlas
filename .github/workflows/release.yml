@@ -113,9 +113,115 @@ jobs:
             dist/*.dmg*
             dist/*.cdx.json
 
+  # Linux x86_64: the CLI tarball, and Atlas Desktop as AppImage (what `atlas desktop` installs),
+  # .deb and .rpm (both also carry the CLI as /usr/bin/atlas). Built on the oldest supported
+  # Ubuntu so the binaries run on any glibc >= 2.35 (Arch, Fedora, Debian 12, Ubuntu 22.04+).
+  build-linux:
+    name: Build (x86_64-unknown-linux-gnu)
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential curl file pkg-config \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+
+      - name: Install Rust
+        run: |
+          command -v rustup >/dev/null || curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" show active-toolchain || "$HOME/.cargo/bin/rustup" toolchain install
+
+      - name: Cache cargo
+        if: ${{ !env.ACT }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-x86_64-linux
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Build CLI
+        run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          cargo build --release --locked -p atlas-cli
+
+      # tauri.linux.conf.json picks the deb/rpm/appimage bundles and puts target/release/atlas in the packages.
+      - name: Build desktop app
+        run: |
+          command -v cargo-tauri >/dev/null || cargo install tauri-cli --version "$(scripts/setup.sh --tauri-version)" --locked
+          (cd apps/desktop && bun install --frozen-lockfile)
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          (cd crates/atlas-desktop && cargo tauri build --ci)
+
+      - name: Package
+        run: |
+          V=${GITHUB_REF_NAME#v}
+          T=x86_64-unknown-linux-gnu
+          B=target/release/bundle
+          mkdir -p dist
+          cp target/release/atlas dist/
+          (cd dist && tar czf atlas-$V-$T.tar.gz atlas && rm atlas)
+          cp $B/appimage/*.AppImage dist/Atlas-$V-$T.AppImage
+          cp $B/deb/*.deb dist/atlas_${V}_amd64.deb
+          cp $B/rpm/*.rpm dist/atlas-$V-1.x86_64.rpm
+          cd dist
+          for f in *.tar.gz *.AppImage *.deb *.rpm; do sha256sum "$f" > "$f.sha256"; done
+          ls -l
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: atlas-x86_64-unknown-linux-gnu
+          path: dist/*
+
+  # Arch Linux: the .deb repackaged by makepkg (packaging/arch). Attached as a .pkg.tar.zst
+  # (`sudo pacman -U`) together with the rendered PKGBUILD, which is what goes to the AUR.
+  build-arch:
+    name: Package (Arch Linux)
+    needs: build-linux
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm --needed git nodejs
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download Linux build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: atlas-x86_64-unknown-linux-gnu
+          path: linux/
+
+      # makepkg refuses to run as root; the deb sits next to the PKGBUILD, so nothing is downloaded.
+      - name: makepkg
+        run: |
+          V=${GITHUB_REF_NAME#v}
+          useradd -m builder
+          mkdir -p /tmp/pkg dist
+          cp "linux/atlas_${V}_amd64.deb" /tmp/pkg/
+          packaging/arch/render.sh "$V" "/tmp/pkg/atlas_${V}_amd64.deb" > /tmp/pkg/PKGBUILD
+          chown -R builder /tmp/pkg
+          su builder -c 'cd /tmp/pkg && makepkg --nodeps --noconfirm'
+          cp /tmp/pkg/*.pkg.tar.zst dist/
+          cp /tmp/pkg/PKGBUILD dist/PKGBUILD
+          cd dist
+          for f in *.pkg.tar.zst; do sha256sum "$f" > "$f.sha256"; done
+          ls -l
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: atlas-x86_64-unknown-linux-gnu-arch
+          path: dist/*
+
   publish:
     name: Publish Release
-    needs: build
+    needs: [build, build-linux, build-arch]
     runs-on: ubuntu-latest
     permissions:
       contents: write   # the only job that may create the release
@@ -127,6 +233,14 @@ jobs:
         with:
           path: artifacts/
 
+      # The Arch package belongs with the rest of the Linux assets (one platform in manifest.json).
+      - name: Merge Linux artifacts
+        run: |
+          if [ -d artifacts/atlas-x86_64-unknown-linux-gnu-arch ]; then
+            mv artifacts/atlas-x86_64-unknown-linux-gnu-arch/* artifacts/atlas-x86_64-unknown-linux-gnu/
+            rmdir artifacts/atlas-x86_64-unknown-linux-gnu-arch
+          fi
+
       # channel, commit and prerelease come from the tag and the checkout. ATLAS_PROMOTED_FROM (set by
       # `release.sh stable`) records the prerelease a stable release was promoted from.
       - name: Generate manifest
@@ -137,7 +251,8 @@ jobs:
       # One checksum file over every asset (the per-file .sha256 files stay for `atlas update`).
       - name: SHA256SUMS
         run: |
-          find artifacts -type f \( -name '*.tar.gz' -o -name '*.dmg' -o -name '*.cdx.json' \) -print0 \
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.dmg' -o -name '*.cdx.json' -o -name '*.AppImage' \
+            -o -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' -o -name 'PKGBUILD' \) -print0 \
             | xargs -0 shasum -a 256 | sed 's#  .*/#  #' | sort -k2 > SHA256SUMS
           shasum -a 256 manifest.json >> SHA256SUMS
           cat SHA256SUMS
@@ -165,16 +280,26 @@ jobs:
           curl -fsSL https://atlas.codeatlas.com.br/install.sh | bash
           ```
 
-          Or download `atlas-*-aarch64-apple-darwin.tar.gz` below, verify it against its
-          `.sha256` (or `SHA256SUMS`), extract it and run `./atlas install`.
+          Or download `atlas-*-aarch64-apple-darwin.tar.gz` (macOS) or `atlas-*-x86_64-unknown-linux-gnu.tar.gz`
+          (Linux) below, verify it against its `.sha256` (or `SHA256SUMS`), extract it and run `./atlas install`.
 
           ## Desktop app
 
           ```bash
-          atlas desktop   # installs Atlas.app into /Applications on first run, then opens it
+          atlas desktop   # installs Atlas Desktop on first run (macOS: /Applications; Linux: ~/.local/bin), then opens it
           ```
 
-          Or download `Atlas-*-aarch64-apple-darwin.dmg` below.
+          Or download a package below:
+
+          | | |
+          |---|---|
+          | macOS | `Atlas-*-aarch64-apple-darwin.dmg` |
+          | Arch Linux | `codeatlas-atlas-bin-*-x86_64.pkg.tar.zst`: `sudo pacman -U codeatlas-atlas-bin-*.pkg.tar.zst` |
+          | Debian, Ubuntu | `atlas_*_amd64.deb`: `sudo apt install ./atlas_*_amd64.deb` |
+          | Fedora, openSUSE | `atlas-*.x86_64.rpm`: `sudo dnf install ./atlas-*.x86_64.rpm` |
+          | Any Linux | `Atlas-*-x86_64-unknown-linux-gnu.AppImage`: `chmod +x` and run it |
+
+          The Linux packages install both `atlas` and `atlas-desktop` in `/usr/bin`.
 
           ## Update
 
@@ -193,6 +318,11 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.pkg.tar.zst
+            artifacts/**/PKGBUILD
             artifacts/**/*.sha256
             artifacts/**/*.cdx.json
             manifest.json

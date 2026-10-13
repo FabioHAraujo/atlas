@@ -31,7 +31,11 @@
 	<Row id="sounds" label="Play sounds" description="Master switch for every Atlas sound.">
 		<Switch aria-label="Play sounds" checked={p.enabled} onchange={(v) => set({ enabled: v })} />
 	</Row>
-	<Row id="sound-volume" label="Sound volume" description="On top of your Mac's volume, which always wins.">
+	<Row
+		id="sound-volume"
+		label="Sound volume"
+		description="On top of your system's volume, which always wins."
+	>
 		<div class="vol">
 			<Slider
 				value={Math.round(p.volume * 100)}

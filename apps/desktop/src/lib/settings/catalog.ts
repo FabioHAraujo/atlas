@@ -677,7 +677,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Sounds",
 		"sound-volume",
 		"Sound volume",
-		"How loud Atlas sounds are, on top of your Mac's volume.",
+		"How loud Atlas sounds are, on top of your system's volume.",
 		"loudness quiet audio level",
 	),
 	entry(

@@ -1,6 +1,7 @@
 //! `atlas desktop`: open Atlas Desktop, installing the release that matches this CLI
 //! when it is missing. The app ships as a release asset next to the CLI tarball
-//! (`Atlas-<version>-<platform>.app.tar.gz`), downloaded and checksum-verified like `atlas update`.
+//! (`Atlas-<version>-<platform>.app.tar.gz` on macOS, `Atlas-<version>-<platform>.AppImage` on
+//! Linux, see `desktop_linux.rs`), downloaded and checksum-verified like `atlas update`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,6 +14,7 @@ use super::release::{REPO, download_verified};
 use super::self_update::{current_platform, current_version};
 use super::update_core;
 
+#[cfg(target_os = "macos")]
 const APP: &str = "Atlas.app";
 
 #[derive(Debug, Args)]
@@ -99,6 +101,17 @@ impl AtlasCommand for DesktopArgs {
         if self.sync {
             return sync(installed.as_deref()).await;
         }
+        // Linux: a distro package's app is opened as is; its package manager updates it.
+        if installed.is_none()
+            && !self.install
+            && self.from.is_none()
+            && let Some(pkg) = atlas_core::paths::packaged_app()
+        {
+            if !self.no_open {
+                open(&pkg)?;
+            }
+            return Ok(());
+        }
         let target = installed.clone().unwrap_or_else(default_location);
         if self.install || self.from.is_some() || installed.is_none() {
             if is_symlink(&target) {
@@ -109,8 +122,8 @@ impl AtlasCommand for DesktopArgs {
             }
             // Keeps the downloaded tarball alive until the install is done.
             let mut _download_dir = None;
-            let source = match self.from {
-                Some(p) => p,
+            let (source, version) = match self.from {
+                Some(p) => (p, None),
                 None => {
                     let version = if self.latest {
                         latest_release()?
@@ -119,14 +132,15 @@ impl AtlasCommand for DesktopArgs {
                     };
                     let (dir, tarball) = download(&version)?;
                     _download_dir = Some(dir);
-                    tarball
+                    (tarball, Some(version))
                 }
             };
-            install(&source, &target)?;
+            install_app(&source, &target, version.as_deref())?;
+            let version = app_version(&target).map(|v| format!(" ({v})"));
             println!(
-                "\x1b[32m✓\x1b[0m Installed {} ({})",
+                "\x1b[32m✓\x1b[0m Installed {}{}",
                 target.display(),
-                app_version(&target).unwrap_or_default()
+                version.unwrap_or_default()
             );
         }
         if !self.no_open {
@@ -140,7 +154,14 @@ impl AtlasCommand for DesktopArgs {
 
 pub(crate) use atlas_core::paths::installed_app;
 
-/// Where a fresh install goes: `/Applications` when writable, else `~/Applications`.
+/// Where a fresh install goes: `/Applications` when writable, else `~/Applications`
+/// (Linux: `~/.local/bin/atlas-desktop`).
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn default_location() -> PathBuf {
+    atlas_core::paths::linux_app(&dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")))
+}
+
+#[cfg(target_os = "macos")]
 pub(crate) fn default_location() -> PathBuf {
     let sys = Path::new("/Applications");
     let probe = sys.join(format!(".atlas-probe-{}", std::process::id()));
@@ -168,7 +189,13 @@ pub(crate) fn is_symlink(p: &Path) -> bool {
         .is_ok_and(|m| m.file_type().is_symlink())
 }
 
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn app_version(app: &Path) -> Option<String> {
+    super::desktop_linux::app_version(app)
+}
+
 /// `CFBundleShortVersionString` of an installed bundle.
+#[cfg(target_os = "macos")]
 pub(crate) fn app_version(app: &Path) -> Option<String> {
     let out = Command::new("/usr/bin/plutil")
         .args(["-extract", "CFBundleShortVersionString", "raw", "-o", "-"])
@@ -182,14 +209,25 @@ pub(crate) fn app_version(app: &Path) -> Option<String> {
 }
 
 pub(crate) fn asset_name(version: &str) -> String {
-    format!("Atlas-{version}-{}.app.tar.gz", current_platform())
+    let ext = if cfg!(target_os = "macos") {
+        "app.tar.gz"
+    } else {
+        "AppImage"
+    };
+    format!("Atlas-{version}-{}.{ext}", current_platform())
 }
 
 // ── actions ───────────────────────────────────────────────────────────────────
 
 fn status(installed: Option<&Path>) -> Result<()> {
     match installed {
-        None => println!("Atlas Desktop: not installed (run: atlas desktop)"),
+        None => match atlas_core::paths::packaged_app() {
+            Some(pkg) => println!(
+                "Atlas Desktop: {} (from a distro package; update it with your package manager)",
+                pkg.display()
+            ),
+            None => println!("Atlas Desktop: not installed (run: atlas desktop)"),
+        },
         Some(app) => {
             let version = app_version(app).unwrap_or_else(|| "?".into());
             println!("Atlas Desktop {version}");
@@ -229,7 +267,7 @@ pub(crate) fn sync_app(installed: Option<&Path>) -> Result<()> {
     update_core::phase(update_core::Phase::UpdateApp);
     println!("\x1b[1;34m◆\x1b[0m Updating Atlas Desktop to v{want}...");
     let (_dir, src) = download(want)?;
-    install(&src, app)?;
+    install_app(&src, app, Some(want))?;
     println!("\x1b[32m✓\x1b[0m Atlas Desktop v{want}");
     Ok(())
 }
@@ -259,8 +297,20 @@ fn download(version: &str) -> Result<(tempfile::TempDir, PathBuf)> {
     Ok((dir, tarball))
 }
 
+/// Install the downloaded (or `--from`) app at `target`; `version` when known.
+fn install_app(source: &Path, target: &Path, version: Option<&str>) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = version; // the bundle's Info.plist carries it
+        install(source, target)
+    }
+    #[cfg(not(target_os = "macos"))]
+    super::desktop_linux::install(source, target, version)
+}
+
 /// Put the bundle at `source` (`.app` dir or `.app.tar.gz`) at `target`, replacing any
 /// existing app only once the new one is fully in place next to it.
+#[cfg(target_os = "macos")]
 pub(crate) fn install(source: &Path, target: &Path) -> Result<()> {
     let parent = target.parent().context("bad install path")?;
     std::fs::create_dir_all(parent)
@@ -315,6 +365,7 @@ pub(crate) fn install(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn remove(p: &Path) -> std::io::Result<()> {
     if is_symlink(p) || p.is_file() {
         std::fs::remove_file(p)
@@ -323,6 +374,7 @@ fn remove(p: &Path) -> std::io::Result<()> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn run(cmd: &mut Command) -> Result<()> {
     let out = cmd
         .output()
@@ -336,8 +388,14 @@ fn run(cmd: &mut Command) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn open(app: &Path) -> Result<()> {
     run(Command::new("/usr/bin/open").arg(app))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open(app: &Path) -> Result<()> {
+    super::desktop_linux::open(app)
 }
 
 /// `bun run desktop:dev` from the atlas workspace (hot-reloading frontend + Tauri shell).
@@ -380,6 +438,20 @@ fn dev() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The asset the release workflow uploads per platform (`release.yml`, `generate-manifest.py`).
+    #[test]
+    fn the_app_asset_is_the_platforms_bundle() {
+        let name = asset_name("1.6.0");
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                name,
+                format!("Atlas-1.6.0-{}.app.tar.gz", current_platform())
+            );
+        } else {
+            assert_eq!(name, format!("Atlas-1.6.0-{}.AppImage", current_platform()));
+        }
+    }
 
     /// A minimal bundle: enough for `install` and `app_version`.
     #[cfg(target_os = "macos")]
@@ -428,6 +500,7 @@ mod tests {
         assert_eq!(leftovers, vec![APP.to_string()]);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn install_rejects_tarball_without_app() {
         let tmp = tempfile::tempdir().unwrap();

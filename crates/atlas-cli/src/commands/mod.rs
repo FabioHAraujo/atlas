@@ -6,6 +6,8 @@ pub mod desktop;
 pub mod desktop_agent;
 pub mod desktop_capture;
 pub mod desktop_debug;
+#[cfg(not(target_os = "macos"))]
+pub(crate) mod desktop_linux;
 pub mod dev;
 pub mod down;
 pub mod hook;

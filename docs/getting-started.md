@@ -14,7 +14,7 @@ curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh
 atlas version
 ```
 
-The installer verifies the release checksum, puts `atlas` in `~/.atlas/bin` and wires your `PATH` (open a new shell afterwards). Prebuilt releases are macOS on Apple silicon only; on Linux, [build from source](installation.md#build-from-source). Manual install, updates and uninstalling: [Installation](installation.md).
+The installer verifies the release checksum, puts `atlas` in `~/.atlas/bin` and wires your `PATH` (open a new shell afterwards). Prebuilt releases cover macOS on Apple silicon and Linux x86_64; Linux users can also install a [.deb, .rpm, Arch package or AppImage](installation.md#linux-packages). Manual install, updates and uninstalling: [Installation](installation.md).
 
 ## 2. Describe your stack
 

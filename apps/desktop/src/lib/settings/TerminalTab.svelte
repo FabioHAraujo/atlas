@@ -47,24 +47,27 @@
 	const ANSI_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7];
 </script>
 
-<Group title="Renderer">
-	<Row
-		id="gpu"
-		label="Fast terminal (GPU)"
-		description="Draws local terminals on the graphics chip for smoother scrolling and faster output. Applies to terminals you open afterwards. SSH terminals always use the classic renderer."
-	>
-		<Switch aria-label="Fast terminal (GPU)" checked={gpu.terminal} onchange={(v) => setGpuTerminal(v)} />
-		{#snippet below()}
-			{#if gpu.terminal && gpu.hostTooOld}
-				<div class="notice">
-					<span>The running terminal host is from an older Atlas, so terminals use the classic renderer.</span
-					>
-					<Button size="sm" variant="outlined" onclick={restart}>Restart terminal host</Button>
-				</div>
-			{/if}
-		{/snippet}
-	</Row>
-</Group>
+{#if gpu.supported}
+	<Group title="Renderer">
+		<Row
+			id="gpu"
+			label="Fast terminal (GPU)"
+			description="Draws local terminals on the graphics chip for smoother scrolling and faster output. Applies to terminals you open afterwards. SSH terminals always use the classic renderer."
+		>
+			<Switch aria-label="Fast terminal (GPU)" checked={gpu.terminal} onchange={(v) => setGpuTerminal(v)} />
+			{#snippet below()}
+				{#if gpu.terminal && gpu.hostTooOld}
+					<div class="notice">
+						<span
+							>The running terminal host is from an older Atlas, so terminals use the classic renderer.</span
+						>
+						<Button size="sm" variant="outlined" onclick={restart}>Restart terminal host</Button>
+					</div>
+				{/if}
+			{/snippet}
+		</Row>
+	</Group>
+{/if}
 
 <Group title="Text">
 	<Row

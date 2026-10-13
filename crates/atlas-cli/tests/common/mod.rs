@@ -36,13 +36,26 @@ pub fn free_port() -> u16 {
 }
 
 /// Poll `f` until it returns Some, or panic with `what` after `timeout`.
-pub fn wait_for<T>(what: &str, timeout: Duration, mut f: impl FnMut() -> Option<T>) -> T {
+pub fn wait_for<T>(what: &str, timeout: Duration, f: impl FnMut() -> Option<T>) -> T {
+    wait_for_with(what, timeout, f, String::new)
+}
+
+/// Like [`wait_for`], but the timeout panic also carries `diagnose()`: why the condition never
+/// held (instance stdout, status, service logs). A CI timeout is otherwise a one-line mystery.
+pub fn wait_for_with<T>(
+    what: &str,
+    timeout: Duration,
+    mut f: impl FnMut() -> Option<T>,
+    diagnose: impl FnOnce() -> String,
+) -> T {
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(v) = f() {
             return v;
         }
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        if Instant::now() >= deadline {
+            panic!("timed out waiting for {what}\n{}", diagnose());
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
 }

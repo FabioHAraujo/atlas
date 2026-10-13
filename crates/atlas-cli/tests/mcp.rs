@@ -192,8 +192,8 @@ impl Headless {
         let child = Command::new(BIN)
             .args(["dev", "--headless", "--dir", root.to_str().unwrap()])
             .stdin(Stdio::null())
-            .stdout(out)
-            .stderr(Stdio::null())
+            .stdout(out.try_clone().unwrap())
+            .stderr(out)
             .spawn()
             .expect("spawn atlas dev --headless");
         Self {
@@ -316,19 +316,48 @@ fn service_state(st: &Value, name: &str) -> Option<String> {
         .and_then(|s| s["state"].as_str().map(str::to_string))
 }
 
+/// Everything needed to tell why a headless fixture did not come up: what atlas printed, the
+/// last `atlas_status`, and each service log. CI only shows the panic message.
+fn startup_report(h: &Headless, p: &Project, last_status: &Value) -> String {
+    let mut out = format!(
+        "--- atlas dev stdout ---\n{}\n--- last atlas_status ---\n{last_status:#}\n--- .logs ---\n",
+        h.stdout()
+    );
+    if let Ok(rd) = std::fs::read_dir(p.logs()) {
+        for e in rd.flatten() {
+            let path = e.path();
+            if path.extension().is_some_and(|x| x == "log") {
+                let body = std::fs::read_to_string(&path).unwrap_or_default();
+                out += &format!(
+                    "[{}]\n{body}\n",
+                    path.file_name().unwrap().to_string_lossy()
+                );
+            }
+        }
+    }
+    out
+}
+
 /// Start headless and wait until `services` are all reported running by atlas_status.
 fn start_running(p: &Project, services: &[&str]) -> (Headless, McpClient) {
     let h = Headless::spawn(p.root());
     let mut c = McpClient::spawn(p.root());
     c.handshake();
-    wait_for("services running", Duration::from_secs(30), || {
-        let st = status(&mut c);
-        (st["running"] == true
-            && services
-                .iter()
-                .all(|s| service_state(&st, s).as_deref() == Some("running")))
-        .then_some(())
-    });
+    let last = std::cell::RefCell::new(Value::Null);
+    common::wait_for_with(
+        "services running",
+        Duration::from_secs(30),
+        || {
+            let st = status(&mut c);
+            let ok = st["running"] == true
+                && services
+                    .iter()
+                    .all(|s| service_state(&st, s).as_deref() == Some("running"));
+            *last.borrow_mut() = st;
+            ok.then_some(())
+        },
+        || startup_report(&h, p, &last.borrow()),
+    );
     (h, c)
 }
 

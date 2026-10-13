@@ -1,0 +1,57 @@
+---
+name: atlas-workflow
+description: Committing, pushing, branching, fixing CI, or cutting a release in the atlas repo. Read before any git write or `bun run release`.
+---
+
+# Working on Atlas: branches, gate, commits, releases
+
+## Branches
+
+```text
+main ── alpha ── alpha ──────────────▶  everything lands here first
+   \
+    release/X.Y ── beta ── fix(cherry-pick) ── beta ── stable ── patch
+```
+
+- `main` and `release/*` are protected by a GitHub ruleset ("main and release branches"): no deletion, no force-push, and the six CI jobs are required. Maintainers (repo admins) bypass, which is how `bun run release` pushes the release commit and tag. Everyone else goes through a pull request.
+- Tags `v*` are immutable (ruleset "release tags are immutable"). Never move or delete a tag; cut the next version instead.
+- Fixes land on `main` first. For a soaking release: `git switch release/X.Y && git cherry-pick -x <sha>`. Never commit a fix only to `release/X.Y`.
+- Non-maintainer or large changes: a feature branch and a PR to `main`.
+
+## The gate
+
+1. `bun run check` on its own; read the exit code (`> /tmp/check.log 2>&1; echo rc=$?`). Never chain `git push` or a release after it with `;`.
+2. Formatting failures: `bun run fmt`, never hand-format.
+3. CI runs on PRs and on pushes to `main` and `release/**`. After a push, wait until the run is `completed` and read its `conclusion`. `gh run watch --exit-status` returns 1 on GitHub API 502s while the run is still in progress, so its exit code alone means nothing:
+   ```bash
+   id=$(gh run list -L 1 --workflow CI --branch main --json databaseId -q '.[0].databaseId')
+   gh run view $id --json status,conclusion,jobs -q '.status,.conclusion,(.jobs[]|"\(.name) \(.conclusion)")'
+   gh run view --job <job-id> --log-failed | grep -E "error|\(fail\)" -A5
+   ```
+4. A red CI job is a bug: regression test first (skill `real-tests`), then the fix.
+
+## Commits
+
+- `git commit -s` (DCO). Conventional, imperative subject: `feat:`, `fix:`, `test:`, `docs:`, `chore:`, scoped when useful (`fix(desktop): …`).
+- Stage paths, not `git add -A`; check `git diff --cached --stat` for files you did not touch (other agents and the user work in the same tree).
+- User-visible changes get a line under `## [Unreleased]` in `CHANGELOG.md` in the same commit.
+
+## Releases
+
+Only from a green CI on the exact commit. `scripts/release.sh` picks the version, bumps every crate, tags, pushes and publishes through `act` (~40 min; run with a long timeout). Full details: `docs/release.md`, `docs/versioning.md`.
+
+| Want | Branch | Command |
+|---|---|---|
+| Ship `main` to early adopters | `main` | `bun run release alpha` |
+| Start stabilizing X.Y | `main` | `bun run release beta` (creates `release/X.Y`) |
+| Another beta after cherry-picks | `release/X.Y` | `bun run release beta` |
+| Promote after the 48 h soak | `release/X.Y` | `bun run release stable` |
+| Hotfix a stable | `release/X.Y` | `bun run release patch` |
+
+Default choice: `alpha` from `main` for new work; `beta` once a feature set should become the next stable; `stable` only after the soak (avoid `--force-soak`). Always `--dry-run` first. After publishing, verify with the commands under "Verify a release" in `docs/release.md`.
+
+## Never
+
+- Force-push, rewrite published history, delete branches or tags.
+- Release from a red or still-running CI.
+- `docker compose down`, port-based kills, or showing an Atlas window on the user's screen (see `AGENTS.md`).

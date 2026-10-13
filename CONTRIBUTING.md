@@ -56,7 +56,7 @@ Everything is a root `package.json` script, so `bun run <name>` from the repo ro
 | `bun run studio` / `studio:check` | the film studio CLI, and its checks (`studio/` is not part of `bun run check`) |
 | `bun run icons` | regenerate the app icons from `assets/*.svg` |
 | `bun run deps:update` | update JS dependencies everywhere (see below) |
-| `bun run release <patch\|minor\|…>` / `release:dry` / `release:act` | maintainers: cut a release (see [docs/release.md](docs/release.md)) |
+| `bun run release <alpha\|beta\|rc\|stable\|patch>` / `release:dry` / `release:act` | maintainers: cut a release (see [docs/release.md](docs/release.md)) |
 | `bun run ci:act` | run the macOS CI job locally through `act` |
 
 ### Updating JS dependencies

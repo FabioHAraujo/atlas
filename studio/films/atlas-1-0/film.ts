@@ -169,8 +169,11 @@ const chapters169: Chapter[] = [
 
 // ---- 9:16 -------------------------------------------------------------------------------------------------------
 
-/** 1000 of 1080 px: 40 px (3.7%) of margin per side; `bun studio lint` requires >= 3% of the short side. */
-const V_BOX = { x: "center", y: 700, w: 1000 } as const;
+/**
+ * 972 of 1080 px: 54 px per side. The lint wants >= 3% of the short side (33 px), and it measures the window together
+ * with its soft shadow (~20 px); the 1000 px box (40 px by arithmetic) measured 20 and failed (film.test.ts).
+ */
+const V_BOX = { x: "center", y: 700, w: 972 } as const;
 
 /** Clip over the vertical field with the headline over it: six 5 s beats. */
 const vApp = (id: string, clip: string, from: number, title: string, subtitle: string, titleSize: number, y: number, subSize = 48): AppClipScene => ({
@@ -193,7 +196,7 @@ const scenes916: Scene[] = [
 		type: "terminal",
 		take: "take:tui",
 		segments: [[19.0, 24.0]],
-		width: 1000,
+		width: V_BOX.w,
 		y: 700,
 		duration: 5,
 		bg: "v",

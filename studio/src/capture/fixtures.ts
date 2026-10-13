@@ -1,6 +1,7 @@
 // Scene building blocks shared by several scenes: the film's three orbit-shop worktrees with their fake agents, and
 // the log history/stack warm-up. Everything is deterministic (fixed names, scripted agents, seeded memhog).
 
+import type { FixtureName } from "../run/recipe.ts";
 import type { Ctx } from "./ctx.ts";
 import { ORBIT_WORKTREES } from "./app.ts";
 
@@ -44,3 +45,39 @@ export async function launchAgents(ctx: Ctx, ids: string[], askSeconds: number[]
 		);
 	}
 }
+
+/** Seconds of log/metric history a stack needs before the panel charts and the logs search look believable. */
+const WARM_MS = 30_000;
+
+/**
+ * The states recipes start from (`fixture` in a recipe capture). Each runs in a fresh app, before the recorder rolls;
+ * the recipe's script then drives the UI. Typed by `FIXTURE_NAMES`, so a name without an implementation (or the
+ * reverse) does not compile.
+ */
+export const FIXTURES: Record<FixtureName, (ctx: Ctx) => Promise<void>> = {
+	/** orbit-shop's three worktrees and its whole stack up, with enough history for charts, errors and warnings. */
+	async "orbit-stack"(ctx) {
+		await createWorktrees(ctx);
+		await ctx.worktree("orbit-shop");
+		await ctx.startStack("orbit-shop", 5, 90_000);
+		await ctx.sleep(WARM_MS);
+	},
+	/** The stack plus three scripted agents (working / blocked / done arc), the sidebar open on orbit-shop. */
+	async "orbit-agents"(ctx) {
+		const ids = await createWorktrees(ctx);
+		await ctx.worktree("orbit-shop");
+		await ctx.sidebar("show");
+		await ctx.startStack("orbit-shop", 5, 90_000);
+		await launchAgents(ctx, ids, [2, 60, 7]);
+		await ctx.eval(`const a = window.__atlas; const w = a.ws.doc.worktrees.find(w => w.name === "checkout-shipping"); a.store.selected = w.id; a.ws.select(w.id); return 1`);
+	},
+	/** Every project's stack up (green dots, n/m counts), the sidebar open with "Other projects" expanded. */
+	async "orbit-spaces"(ctx) {
+		await createWorktrees(ctx);
+		for (const [project, up] of [["lumen-app", 1], ["nova-docs", 1], ["pulse-api", 1], ["orbit-shop", 5]] as const) await ctx.startStack(project, up, 90_000);
+		await ctx.worktree("orbit-shop");
+		await ctx.sidebar("show");
+		await ctx.eval(`const b = document.querySelector('.sidebar-slot button.section[aria-expanded="false"]'); b?.click(); return !!b`);
+		await ctx.sleep(1500);
+	},
+};

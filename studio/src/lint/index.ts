@@ -22,7 +22,7 @@ const VIDEO = /\.(mp4|webm|mov|mkv)$/i;
 
 /** Pick the profile from the file name and shape when none is given. */
 export function guessProfile(file: string, w: number, h: number, kind: "image" | "video"): string {
-	if (kind === "image") return "still";
+	if (kind === "image") return /^(shot-|loop-.*-poster\.)/.test(basename(file)) ? "site-shot" : "still";
 	if (/\.webm$/i.test(file)) return "site-sibling";
 	if (basename(file).startsWith("loop-")) return "site-loop";
 	const ratio = w / h;

@@ -12,9 +12,10 @@ import { run } from "../lib/exec.ts";
 import { CACHE, REPO, STUDIO, StudioError } from "../lib/paths.ts";
 import { parseTimeline } from "../../../apps/desktop/src/lib/capture/timeline.ts";
 import { provenance, runScriptIn, withInstance } from "../capture/app.ts";
+import { FIXTURES } from "../capture/fixtures.ts";
 import { cachedKeys, entryDir, readEntry, writeEntry } from "./cache.ts";
 import { explainCaptureFailure } from "./errors.ts";
-import { type BuildId, type CaptureSpec, groupByInstance, parseRecipeV1, planRun, type PlanStep, type Recipe, type Stage } from "./recipe.ts";
+import { type BuildId, type CaptureSpec, captureKey, groupByInstance, parseRecipeV1, planRun, type PlanStep, type Recipe, type Stage } from "./recipe.ts";
 
 const CAPTURES = join(CACHE, "captures");
 /** A capture is retried once when the failure looks transient (instance start-up), never when the script itself is wrong. */
@@ -42,6 +43,15 @@ export async function buildId(): Promise<BuildId> {
 	const dirty = diff ? new Bun.CryptoHasher("sha256").update(diff).digest("hex").slice(0, 8) : "";
 	const { out: ver } = await run([join(REPO, "target/debug/atlas"), "version"], { allowFail: true });
 	return { app: dirty ? `${sha.trim()}+${dirty}` : sha.trim(), atlas: /atlas (\S+)/.exec(ver)?.[1] ?? "unknown" };
+}
+
+/** The cached recording of capture `id` for the CURRENT app build; throws with the command that makes it when there is none. */
+export async function capturedEntry(recipe: Recipe, id: string) {
+	const spec = recipe.captures.find((c) => c.id === id);
+	if (!spec) throw new StudioError(`recipe ${recipe.id} has no capture "${id}"`, `captures: ${recipe.captures.map((c) => c.id).join(", ")}`);
+	const entry = readEntry(CAPTURES, recipe.id, captureKey(spec, await buildId()));
+	if (!entry) throw new StudioError(`capture ${recipe.id}/${id} is not recorded for the current app build`, `bun studio run recipes/${recipe.id}.ts`);
+	return entry;
 }
 
 export interface RunOpts {
@@ -82,10 +92,12 @@ async function captureAll(recipe: Recipe, todo: PlanStep[], build: BuildId, repo
 		// one app start per instance profile (empty first-run app, seeded demo app...), in recipe order
 		const wanted = new Set(todo.map((p) => p.id));
 		for (const group of groupByInstance(recipe.captures.filter((c) => wanted.has(c.id)))) {
-			await withInstance(group.instance, async (env, _ctx, atlas) => {
+			await withInstance(group.instance, async (env, ctx, atlas) => {
 				for (const spec of group.captures) {
 					const key = todo.find((p) => p.id === spec.id)!.key!;
-					log(`▶ capture ${spec.id}`);
+					log(`▶ capture ${spec.id}${spec.fixture ? ` (fixture ${spec.fixture})` : ""}`);
+					// the app is fresh for a fixture capture (groupByInstance), so its state is exactly what the fixture builds
+					if (spec.fixture) await FIXTURES[spec.fixture](ctx);
 					const t0 = Date.now();
 					const dir = entryDir(CAPTURES, recipe.id, key);
 					for (let attempt = 0; ; attempt++) {

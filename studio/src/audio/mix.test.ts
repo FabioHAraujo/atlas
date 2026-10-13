@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { StudioError } from "../lib/paths.ts";
-import { assertLevels, TRUE_PEAK_CEILING } from "./mix.ts";
+import { assertDelivered, assertLevels, TRUE_PEAK_CEILING } from "./mix.ts";
 
 const target = { target: -14, tolerance: 0.7 };
 
@@ -31,5 +31,23 @@ describe("the mixer asserts the peak ceiling as well as the loudness", () => {
 
 	test("silence (no voice, no music) is exempt: -70 LUFS is the 'no audio' marker", () => {
 		expect(() => assertLevels("film", { lufs: -70, peak: -70 }, target)).not.toThrow();
+	});
+});
+
+describe("the peak ceiling is asserted on what ships, not on the intermediate wav", () => {
+	// Incident: the mix wav measured -0.9 dBFS (passing), yet the delivered film.mp4 measured -0.8 and film.webm -0.6:
+	// AAC and Opus add overshoot. `bun studio lint` then failed audio/true-peak on both published files.
+	test("a delivered file above the ceiling fails and names the file and the codec overshoot", () => {
+		expect(() => assertDelivered("film.webm", { lufs: -14.1, peak: -0.6 })).toThrow(/film\.webm.*-0\.6/);
+		expect(() => assertDelivered("film.mp4", { lufs: -14.1, peak: -0.8 })).toThrow(StudioError);
+	});
+
+	test("a delivered file at or under the ceiling passes", () => {
+		expect(() => assertDelivered("film.mp4", { lufs: -14.1, peak: -1.0 })).not.toThrow();
+		expect(() => assertDelivered("film.webm", { lufs: -14.1, peak: -1.4 })).not.toThrow();
+	});
+
+	test("a silent delivered file is exempt", () => {
+		expect(() => assertDelivered("loop.mp4", { lufs: -70, peak: -70 })).not.toThrow();
 	});
 });

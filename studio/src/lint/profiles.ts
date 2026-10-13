@@ -119,6 +119,17 @@ export const PROFILES: Record<string, Profile> = {
 		displayHeight: 506,
 		headroom: 0.03,
 	},
+	// A screenshot of Atlas Desktop (shot-*.jpg) or the poster of an app loop: the picture IS the product, so its UI
+	// text is the app's own typography at the app's size, exactly like the loop videos (`site-loop`). Framing is still judged.
+	"site-shot": {
+		id: "site-shot",
+		description: "screenshots and loop posters of the real app (site)",
+		captured: true,
+		minShortSide: 720,
+		minTextPx: 11,
+		displayHeight: 506,
+		headroom: 0.03,
+	},
 };
 
 export const profileFor = (id: string): Profile => {

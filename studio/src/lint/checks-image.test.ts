@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { analyzeSubject, checkEdgeClipping, checkSafeArea, overflow, safeRect } from "./checks-image.ts";
 import { field, paintWindow, plate } from "./fixtures.ts";
 import { checkContrast, checkTextSize, parseTesseractTsv, parseVisionLines } from "./ocr.ts";
-import { contrastRatio, luminance } from "./pixels.ts";
+import { contrastRatio, decode, luminance } from "./pixels.ts";
 import { PROFILES } from "./profiles.ts";
 
 const still = PROFILES.still!;
@@ -295,9 +295,30 @@ describe("a sliver is not a framed subject", () => {
 	// Incident (scan of the published media): loop-tui-poster.jpg is a full-bleed terminal recording; the box found was
 	// one 827x7 px text row, whose "sliced" top and bottom were just text.
 	test("a full-bleed terminal recording (loop-tui-poster.jpg) has no framed subject to judge", async () => {
-		const { decode } = await import("./pixels.ts"); // fixture path is runtime data
 		const img = await decode(new URL("./__fixtures__/terminal-fullbleed.jpg", import.meta.url).pathname);
 		expect(checkEdgeClipping(img, still)).toEqual([]);
+	});
+
+	// Incident (lint of site/public/media, loop-tui.mp4 @ 7.63 s): the same full-bleed terminal, but a frame where only a
+	// 451x133 block of log lines differs enough from the terminal background. That block is 35% x 17% of the frame, so
+	// the size floor let it through, and "window-cropped" fired top AND bottom on what is just text.
+	test("a block of terminal text in the middle of a full-bleed recording is not a framed window", async () => {
+		const img = await decode(new URL("./__fixtures__/terminal-fullbleed-midframe.jpg", import.meta.url).pathname);
+		expect(checkEdgeClipping(img, PROFILES["site-loop"]!)).toEqual([]);
+	});
+
+	// Same incident, other frames of loop-tui.mp4 (3 s and 9 s): the text block is 8-12% of the frame, past any size floor.
+	// What they share is the border: corners and mid-edges are one flat terminal colour, i.e. there is no field around
+	// a subject, the frame IS the content.
+	test.each(["terminal-fullbleed-t3.jpg", "terminal-fullbleed-t9.jpg"])("%s: a uniform border ring means the frame is the content", async (name) => {
+		const img = await decode(new URL(`./__fixtures__/${name}`, import.meta.url).pathname);
+		expect(checkEdgeClipping(img, PROFILES["site-loop"]!)).toEqual([]);
+	});
+
+	test("a real framed window on a flat field is still judged: the ring guard needs the border to match the frame, not just be flat", () => {
+		const img = field(1920, 1080);
+		paintWindow(img, { x: 200, y: 65, w: 1520, h: 950, radius: 12, cropTop: 40 });
+		expect(codes(checkEdgeClipping(img, still))).toContain("frame/window-cropped");
 	});
 
 	test("a thin bar painted on a field is not a window", () => {

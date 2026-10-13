@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { StudioError } from "../lib/paths.ts";
-import { canonicalJson, captureKey, DEFAULT_INSTANCE, groupByInstance, parseRecipeV1, planRun, RECIPE_SCHEMA } from "./recipe.ts";
+import { FIXTURES } from "../capture/fixtures.ts";
+import { canonicalJson, captureKey, DEFAULT_INSTANCE, type FixtureName, groupByInstance, parseRecipeV1, planRun, RECIPE_SCHEMA } from "./recipe.ts";
 
 const script = { version: 1, size: { width: 1280, height: 800 }, steps: [{ do: "pause", ms: 100 }, { do: "shot", name: "panel" }] };
 const recipe = (over: Record<string, unknown> = {}) => ({
@@ -183,5 +184,38 @@ describe("groupByInstance", () => {
 			[{ projects: true, onboarding: false }, ["a", "b"]],
 			[{ projects: false, onboarding: true }, ["intro"]],
 		]);
+	});
+});
+
+describe("fixture (the state a clip starts from: a stack running, worktrees with agents)", () => {
+	// The script grammar drives the UI but cannot start a stack or launch the scripted agents; those are coded fixtures
+	// (capture/fixtures.ts) run in the app BEFORE the recorder rolls. The 1.0 loops needed all of them.
+	const build = { app: "x", atlas: "1" };
+	const withFixture = (fixture: string) => parseRecipeV1(recipe({ captures: [{ id: "panel", script, shots: ["panel"], fixture }] })).captures[0]!;
+
+	test("a fixture names one of the built-in setups; an unknown one lists the choices", () => {
+		for (const f of Object.keys(FIXTURES) as FixtureName[]) expect(withFixture(f).fixture).toBe(f);
+		expect(() => withFixture("nope")).toThrow(/unknown fixture "nope"/);
+		try {
+			withFixture("nope");
+		} catch (e) {
+			expect(e).toBeInstanceOf(StudioError);
+			expect((e as StudioError).hint).toContain("orbit-agents");
+		}
+	});
+
+	test("no fixture means none: the field stays absent", () => {
+		expect(parseRecipeV1(recipe()).captures[0]!.fixture).toBeUndefined();
+	});
+
+	test("the fixture is part of the cache key: a clip of a running stack is never served for a stopped one", () => {
+		const none = parseRecipeV1(recipe()).captures[0]!;
+		expect(captureKey(withFixture("orbit-stack"), build)).not.toBe(captureKey(none, build));
+		expect(captureKey(withFixture("orbit-stack"), build)).not.toBe(captureKey(withFixture("orbit-agents"), build));
+	});
+
+	test("a capture with a fixture gets its own app instance: its stack and agents must not leak into the next clip", () => {
+		const r = parseRecipeV1(recipe({ captures: [{ id: "a", script, fixture: "orbit-stack" }, { id: "b", script, fixture: "orbit-agents" }, { id: "c", script }] }));
+		expect(groupByInstance(r.captures).map((g) => g.captures.map((c) => c.id))).toEqual([["a"], ["b"], ["c"]]);
 	});
 });

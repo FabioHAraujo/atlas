@@ -33,6 +33,7 @@ studio/
 | `bun studio publish <film> [--release vX.Y.Z] [--stills]` | Lints the render first and **refuses on errors**, then copies renders into `site/public/media/`, writes `manifest.json` (content hashes) and `film-chapters.json`; `--release` also `gh release upload`s the mp4/webm. `--stills` publishes only the posters (and their manifest entries). |
 | `bun studio still <film> [--aspect …] [--at s] [--out f]` | Re-render ONE still (the cut's poster by default): renders only the scene the time falls in, lints the frame, writes `out/<film>/<cut>-poster.jpg`. Refreshing a poster never needs a film render. |
 | `bun studio lint <film\|file\|dir> [--profile p] [--json] [--ref f] [--fast] [--strict]` | The video LSP. Exit 1 on any error. `--json` prints diagnostics for agents. |
+| `bun studio loops [--only loop-panel,shot-agents]` | The site's loops and screenshots from the `recipes/site-media.ts` captures (+ the vhs take for `loop-tui`): cut, encode under 600 KB, lint, then replace `site/public/media/loop-*`, `shot-*` and their manifest entries. Nothing is replaced when any file has a lint error. |
 | `bun studio release <version\|unreleased> [--as 1.1] [--voice] [--aspect …] [--draft]` | "What's new" video (16:9 + 9:16) from the CHANGELOG.md section. |
 
 ## Add a scene to a film
@@ -75,9 +76,9 @@ Add the type to `src/lib/types.ts` (`Scene` union), a builder `src/scenes/<type>
 | `spec/aspect|resolution|duration|codec|bitrate|keyframe-interval` | the file against its profile |
 | `quality/vmaf` | with `--ref`, a re-encode that is visibly worse than its reference |
 
-Profiles (`lint/profiles.ts`): `site`, `site-film`, `site-loop`, `site-sibling`, `social-vertical`, `social-square`, `social-landscape`, `still`. Default by file name and shape; override with `--profile`. `captured` profiles (loops, webm siblings) skip text rules: the typography is the real app's.
+Profiles (`lint/profiles.ts`): `site`, `site-film`, `site-loop`, `site-sibling`, `site-shot`, `social-vertical`, `social-square`, `social-landscape`, `still`. Default by file name and shape; override with `--profile`. `captured` profiles (loops, webm siblings, and `site-shot` for `shot-*.jpg` / `loop-*-poster.jpg`) skip text rules: the typography is the real app's, shown at the app's own size, and a screenshot of the product cannot be re-typeset. The film posters are composed frames and keep the strict `still` profile.
 
-Two rules authors hit: **never crop the window of a recording** (use the full frame; the window's own bezel, corners and shadow are part of the picture, and the box needs 3% headroom), and **the mix must peak under -1 dBFS** (`audio/mix.ts` asserts it). Scan sprites (`*-thumbs.jpg`) are not linted. Tests use synthetic windows plus real-poster fixtures in `src/lint/__fixtures__/`: write the failing fixture first.
+Rules authors hit: **never crop the window of a recording** (use the full frame; the window's own bezel, corners and shadow are part of the picture, and the box needs 3% headroom **measured with the soft shadow, ~20 px**: `films/atlas-1-0/film.test.ts` pins it, the vertical box is 972 of 1080), and **the delivered files peak under -1 dBFS**: AAC and Opus overshoot the wav the mixer limits by 0.7-0.9 dB, so the limiter ceiling (`LIMITER_CEILING`) sits lower and `render` asserts the peak of the encoded mp4 and webm (`assertDelivered`), not of the intermediate. Scan sprites (`*-thumbs.jpg`) are not linted. Tests use synthetic windows plus real-poster and real-frame fixtures in `src/lint/__fixtures__/`: write the failing fixture first.
 
 ## Media is not in git
 
@@ -90,6 +91,10 @@ Only from the environment: `ELEVENLABS_API_KEY` (voice), `MAGNIFIC_API_KEY` (cob
 ## Recipes: `bun studio run`
 
 `studio/recipes/<id>.ts` default-exports a `RecipeInput` (`schema: "atlas.recipe/1"`): `captures[]` of `{ id, script, shots?, instance? }`. `script` is the in-app capture script (`apps/desktop/src/lib/capture/script.ts`: steps run through the app's own stores, never OS input). `instance` is the state the app starts in: default `{ projects: true, onboarding: false }` (seeded demo projects); `{ projects: false, onboarding: true }` is a first-run app in an empty scratch HOME, so discovery can never list the user's real projects. Captures are cached by script + instance + app build; `--force` re-records, `--dry-run` prints the plan. The recorder is the app's own (ScreenCaptureKit, `atlas desktop capture|record`), not an external tool: `winrec` is gone. `recipes/onboarding.ts` films the intro (3900 ms, hit at 1680 ms) and welcome; it is smoke-tested only until the welcome screen is final.
+
+`fixture` (optional, one of `orbit-stack`, `orbit-agents`, `orbit-spaces`; `capture/fixtures.ts`) is a coded setup run in the fresh app BEFORE the recorder rolls: worktrees, a stack running with log/metric history, the scripted agents. The script grammar drives the UI but cannot start a stack, so stateful clips need one. A capture with a fixture always gets its own app instance (its stack and agents must not leak into the next clip) and the fixture is part of the cache key. `terminal` steps for the demos use `["bash", "-c", "bash ~/.atlas-studio/term-demo"]` / `mcp-demo`: launchers planted in the scratch HOME (`demoLaunchers` in `capture/settings.ts`) carry the env the demos need, so a recipe is the same text on every machine.
+
+**The site's loops and screenshots are recipes too:** `bun studio run recipes/site-media.ts` records six captures (workspace, panel, logs, terminal, agents, mcp) from the current app; `bun studio loops` cuts and encodes `loop-*.mp4/.webm/-poster.jpg` and `shot-*.jpg` from them (what each file is made of: `src/site-media.ts`), cuts `loop-tui` from the vhs take, lints everything and only then replaces the published files and `manifest.json`. `--only loop-panel,shot-agents` limits it.
 
 ## Capturing the real app: rules that matter
 

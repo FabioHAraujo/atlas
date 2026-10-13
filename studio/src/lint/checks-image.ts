@@ -10,7 +10,7 @@
 //      crop, even when the cut leaves plenty of room to the frame edge. This is exactly the poster: 65 px of room,
 //      and the controls pill of the recording sliced at the top edge (std 70-180 there, ~2 at the bottom edge).
 
-import { bleedingSides, luminance, subjectBox, subjectMask, type Image } from "./pixels.ts";
+import { bleedingSides, luminance, meanRgb, subjectBox, subjectMask, type Image } from "./pixels.ts";
 import type { Diagnostic, Profile, Rect } from "./types.ts";
 
 /** Luminance std (x1000) along an edge line above which structure crosses it. A flat bezel measures < 8. */
@@ -60,6 +60,28 @@ function analyzeEdges(img: Image, box: Rect): SubjectReport {
 	};
 }
 
+/**
+ * True when the frame has no field around anything: the four corners and the four mid-edges are one flat colour (a
+ * full-bleed terminal recording, whose border is the terminal's own background). A framed subject always sits on a
+ * field that differs from the subject somewhere along the border (gradient, shadow, the window itself); with a uniform
+ * border, any "subject" found is just a block of content (log lines) and has no headroom to judge.
+ */
+function isFieldless(img: Image): boolean {
+	const p = 6;
+	const patches: Rect[] = [
+		{ x: 0, y: 0, w: p, h: p },
+		{ x: img.w - p, y: 0, w: p, h: p },
+		{ x: 0, y: img.h - p, w: p, h: p },
+		{ x: img.w - p, y: img.h - p, w: p, h: p },
+		{ x: Math.round(img.w / 2) - p, y: 2, w: p, h: p },
+		{ x: Math.round(img.w / 2) - p, y: img.h - p - 2, w: p, h: p },
+		{ x: 2, y: Math.round(img.h / 2) - p, w: p, h: p },
+		{ x: img.w - p - 2, y: Math.round(img.h / 2) - p, w: p, h: p },
+	];
+	const lum = patches.map((r) => luminance(...meanRgb(img, r)));
+	return Math.max(...lum) - Math.min(...lum) < 0.004;
+}
+
 export function checkEdgeClipping(img: Image, profile: Profile): Diagnostic[] {
 	const { box, edgeStd } = analyzeSubject(img);
 	if (!box || !edgeStd) {
@@ -83,7 +105,7 @@ export function checkEdgeClipping(img: Image, profile: Profile): Diagnostic[] {
 	const spansX = box.x <= 1 && box.x + box.w >= img.w - 1;
 	// a thin row of text (451x8) is not a window: the subject must be a real fraction of the frame on both axes
 	const tiny = box.w < img.w * 0.15 || box.h < img.h * 0.15;
-	if (coversBoth || spansY || spansX || tiny) return [];
+	if (coversBoth || spansY || spansX || tiny || isFieldless(img)) return [];
 	const out: Diagnostic[] = [];
 	const short = Math.min(img.w, img.h);
 	const need = Math.ceil(profile.headroom * short);

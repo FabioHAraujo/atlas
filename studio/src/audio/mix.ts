@@ -22,6 +22,21 @@ export interface Mixed {
 /** True-peak ceiling in dBFS that platform transcodes need (-1 dBTP); the render fails above it. */
 export const TRUE_PEAK_CEILING = -1;
 
+/**
+ * Sample ceiling of the final limiter (linear, ~ -2.4 dBFS). AAC and Opus overshoot the sample peak they are fed by
+ * 0.7-0.9 dB (measured on the published film: wav -0.9 -> mp4 -0.8, webm -0.6), so the wav must sit that far under
+ * TRUE_PEAK_CEILING for the delivered files to land under it. `assertDelivered` checks the result, not this number.
+ */
+export const LIMITER_CEILING = 0.76;
+
+/** Fail when a DELIVERED file (the encoded mp4/webm that ships) peaks above the ceiling; silence is exempt. */
+export function assertDelivered(file: string, final: { lufs: number; peak: number }): void {
+	if (final.lufs <= -69) return;
+	if (final.peak > TRUE_PEAK_CEILING) {
+		throw new StudioError(`${file}: delivered peak ${final.peak.toFixed(1)} dBFS is above the ${TRUE_PEAK_CEILING} dBTP ceiling (the codec added overshoot)`, `lower LIMITER_CEILING in audio/mix.ts (now ${LIMITER_CEILING}) and re-render`);
+	}
+}
+
 /** Fail a render whose measured integrated loudness is outside the film's tolerance or whose peak is above the ceiling. */
 export function assertLevels(out: string, final: { lufs: number; peak: number }, loud: { target: number; tolerance: number }, bedLufs?: number): void {
 	if (final.lufs <= -69) return; // silent cut: no audio to judge
@@ -91,7 +106,7 @@ export async function mix(film: Film, cut: Cut, duration: number, work: string, 
 	// one measured linear correction toward the target, then the limiter keeps peaks under the ceiling (-1.5 dBFS: the
 	// limiter works on samples, the true peak can overshoot by a fraction of a dB; assertLevels checks the result)
 	const gain = film.loudness.target - first.lufs;
-	await ffmpeg(["-i", raw, "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=0.84:level=false,atrim=0:${duration}`, "-ar", "48000", "-ac", "2", out]);
+	await ffmpeg(["-i", raw, "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=${LIMITER_CEILING}:level=false,atrim=0:${duration}`, "-ar", "48000", "-ac", "2", out]);
 	const final = await loudness(out);
 	assertLevels(cut.out, final, film.loudness, music?.bedLufs);
 	const len = (await probe(out)).duration;

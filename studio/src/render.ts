@@ -3,7 +3,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cueEnd, mix } from "./audio/mix.ts";
+import { assertDelivered, cueEnd, mix } from "./audio/mix.ts";
 import { compile, type CompileOpts } from "./compile.ts";
 import { ffmpeg, loudness, probe, run, sha256File } from "./lib/exec.ts";
 import { BUILD, OUT, STUDIO, StudioError } from "./lib/paths.ts";
@@ -68,6 +68,9 @@ export async function renderCut(film: Film, cut: Cut, opts: RenderOpts = {}): Pr
 		files[name] = { sha256: await sha256File(p), bytes: Bun.file(p).size };
 	};
 	await add(`${cut.out}.mp4`);
+	// the peak ceiling is judged on the file that ships: AAC/Opus overshoot the wav the mixer limited (see audio/mix.ts)
+	const delivered = await loudness(mp4);
+	assertDelivered(`${cut.out}.mp4`, delivered);
 
 	if (cut.captions.vtt && cut.voice) {
 		writeFileSync(join(out, `${cut.out}.vtt`), vtt(cut, mixed.lineSeconds));
@@ -76,6 +79,7 @@ export async function renderCut(film: Film, cut: Cut, opts: RenderOpts = {}): Pr
 	if (!opts.minimal && !opts.draft) {
 		await ffmpeg(["-i", mp4, "-c:v", "libvpx-vp9", "-crf", "33", "-b:v", "0", "-row-mt", "1", "-c:a", "libopus", "-b:a", "128k", join(out, `${cut.out}.webm`)]);
 		await add(`${cut.out}.webm`);
+		assertDelivered(`${cut.out}.webm`, await loudness(join(out, `${cut.out}.webm`)));
 		const at = Math.min(cut.poster ?? c.duration / 2, c.duration - 0.1);
 		await ffmpeg(["-ss", String(at), "-i", mp4, "-frames:v", "1", "-vf", `scale=${c.width}:-2`, "-q:v", "3", join(out, `${cut.out}-poster.jpg`)]);
 		await add(`${cut.out}-poster.jpg`);
@@ -95,8 +99,8 @@ export async function renderCut(film: Film, cut: Cut, opts: RenderOpts = {}): Pr
 		width: c.width,
 		height: c.height,
 		fps: film.fps,
-		lufs: (await loudness(mp4)).lufs,
-		peak: mixed.peak,
+		lufs: delivered.lufs,
+		peak: delivered.peak,
 		files,
 		chapters: cut.chapters ?? [],
 		draft: opts.draft ?? false,

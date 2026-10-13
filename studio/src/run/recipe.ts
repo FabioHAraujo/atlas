@@ -25,6 +25,10 @@ export interface InstanceProfile {
 }
 export const DEFAULT_INSTANCE: InstanceProfile = { projects: true, onboarding: false };
 
+/** Names of the built-in fixtures; capture/fixtures.ts implements exactly these (its registry is typed by this list). */
+export const FIXTURE_NAMES = ["orbit-stack", "orbit-agents", "orbit-spaces"] as const;
+export type FixtureName = (typeof FIXTURE_NAMES)[number];
+
 export interface CaptureSpec {
 	/** Slug: the asset key is `rec:<recipe>/<id>`, files are named after it. */
 	id: string;
@@ -33,6 +37,8 @@ export interface CaptureSpec {
 	instance: InstanceProfile;
 	/** Names of `shot` steps whose PNGs the recipe promises (checked against the script). */
 	shots?: string[];
+	/** A coded setup run in the app before the recorder rolls (capture/fixtures.ts): a stack running, worktrees with agents. */
+	fixture?: FixtureName;
 }
 
 /** What a recipe FILE may say: the instance profile can be partial or left out. */
@@ -73,7 +79,12 @@ export function parseRecipeV1(input: unknown): Recipe {
 			const have = new Set(parsed.script.steps.flatMap((s) => (s.do === "shot" ? [s.name] : [])));
 			for (const s of shots) if (!have.has(s)) throw new StudioError(`capture "${c.id}" promises shot "${s}" but its script has no such shot step`, `shot steps: ${[...have].join(", ") || "(none)"}`);
 		}
-		return { id: c.id, script: parsed.script, instance: instanceProfile(c.instance, c.id), ...(shots ? { shots } : {}) };
+		let fixture: FixtureName | undefined;
+		if (c.fixture !== undefined) {
+			if (typeof c.fixture !== "string" || !(FIXTURE_NAMES as readonly string[]).includes(c.fixture)) throw new StudioError(`capture "${c.id}": unknown fixture ${JSON.stringify(c.fixture)}`, `fixtures: ${FIXTURE_NAMES.join(", ")}`);
+			fixture = c.fixture as FixtureName;
+		}
+		return { id: c.id, script: parsed.script, instance: instanceProfile(c.instance, c.id), ...(fixture ? { fixture } : {}), ...(shots ? { shots } : {}) };
 	});
 
 	let film: Recipe["film"];
@@ -122,14 +133,14 @@ export interface BuildId {
 
 /** Cache identity of one recorded clip: the script (what happens) and the build (what it happens in). Not the id or title. */
 export function captureKey(c: CaptureSpec, build: BuildId): string {
-	return createHash("sha256").update(canonicalJson({ script: c.script, shots: c.shots ?? [], instance: c.instance, build })).digest("hex").slice(0, 16);
+	return createHash("sha256").update(canonicalJson({ script: c.script, shots: c.shots ?? [], instance: c.instance, ...(c.fixture ? { fixture: c.fixture } : {}), build })).digest("hex").slice(0, 16);
 }
 
-/** Captures grouped by instance profile, first-seen order: one app start per group. */
+/** Captures grouped by instance profile, first-seen order: one app start per group. A capture with a fixture mutates the app (stacks, worktrees, agents), so it always gets an app of its own. */
 export function groupByInstance(captures: CaptureSpec[]): { instance: InstanceProfile; captures: CaptureSpec[] }[] {
 	const groups = new Map<string, { instance: InstanceProfile; captures: CaptureSpec[] }>();
 	for (const c of captures) {
-		const k = canonicalJson(c.instance);
+		const k = c.fixture ? `fixture:${c.id}` : canonicalJson(c.instance);
 		const g = groups.get(k) ?? { instance: c.instance, captures: [] };
 		g.captures.push(c);
 		groups.set(k, g);

@@ -43,3 +43,18 @@ export function homeFiles(version: string, o: { projects: boolean; onboarding: b
 		{ path: ".omp/plugins/node_modules/atlas-omp/extensions/atlas-status.ts", content: "// scratch marker: the capture shows the integration as enabled\n" },
 	];
 }
+
+/** POSIX single-quote a value: `it's` -> `'it'\''s'`. Paths come from mkdtemp, but a launcher must never trust that. */
+const sq = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
+
+/**
+ * Launchers for the two terminal demos. The script grammar's `terminal` step takes an argv and no env, and the scratch
+ * paths are random per run, so each launcher carries the env and execs the demo: a recipe says
+ * `["bash", ".atlas-studio/term-demo"]` and is the same text on every machine. They hold the final screen for 20 s.
+ */
+export function demoLaunchers(env: { assets: string; atlasBin: string; orbitRoot: string }): HomeFile[] {
+	return [
+		{ path: ".atlas-studio/term-demo", content: `export TERM_DEMO_IMAGE=${sq(`${env.assets}/orbit-small.png`)} TERM_DEMO_HOLD=20\nexec bash ${sq(`${env.assets}/term-demo.sh`)}\n` },
+		{ path: ".atlas-studio/mcp-demo", content: `export ATLAS_BIN=${sq(env.atlasBin)} MCP_DEMO_DIR=${sq(env.orbitRoot)} MCP_DEMO_HOLD=20\nexec python3 ${sq(`${env.assets}/mcp-demo.py`)}\n` },
+	];
+}

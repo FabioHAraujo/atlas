@@ -17,7 +17,7 @@ import { REPO, STUDIO, StudioError } from "../lib/paths.ts";
 import { makeCtx, sleep, type Ctx, type Scene, type SceneEnv } from "./ctx.ts";
 import { staleReason } from "./fresh.ts";
 import { DEFAULT_INSTANCE, type InstanceProfile } from "../run/recipe.ts";
-import { desktopVersion, homeFiles } from "./settings.ts";
+import { demoLaunchers, desktopVersion, homeFiles } from "./settings.ts";
 
 const HERE = join(STUDIO, "src/capture");
 const BUNDLE_BUILT = join(REPO, "target/debug/bundle/macos/Atlas.app/Contents/MacOS/atlas-desktop");
@@ -107,6 +107,10 @@ async function seed(tmp: string, atlasBin: string, profile: InstanceProfile): Pr
 	}
 	// git worktree + the app's own bookkeeping both want canonical paths (macOS /var -> /private/var)
 	for (const k of Object.keys(roots)) roots[k] = realpathSync(roots[k]!);
+	for (const f of demoLaunchers({ assets: join(HERE, "assets"), atlasBin, orbitRoot: roots["orbit-shop"]! })) {
+		mkdirSync(dirname(join(home, f.path)), { recursive: true });
+		writeFileSync(join(home, f.path), f.content);
+	}
 	return { projects: roots, home, atlasBin, assets: join(HERE, "assets"), fakeAgentDir: join(HERE, "fakeagent") };
 }
 

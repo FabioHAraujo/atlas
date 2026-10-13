@@ -110,3 +110,23 @@ describe("app-capture profiles do not judge the app's own typography", () => {
 		expect(r.diagnostics.filter((d) => d.code.startsWith("text/") || d.code.startsWith("safe-area/"))).toEqual([]);
 	});
 });
+
+describe("stills of the real app are captured pictures, not authored ones (found linting site/public/media: 4 stills failed text/too-small at 6 px)", () => {
+	// A shot-*.jpg / loop-*-poster.jpg is a screenshot of Atlas Desktop shown as a picture of the product: its UI
+	// text is the app's own typography (13 px at 1x), the same text the loop video next to it is exempt from.
+	// The film's own poster is a composed frame (cobalt field + title) and keeps the strict profile.
+	test.each(["shot-agents.jpg", "shot-workspace.jpg", "loop-agents-poster.jpg", "loop-tui-poster.jpg"])("%s is judged as a capture", (name) => {
+		expect(guessProfile(`site/public/media/${name}`, name.startsWith("shot") ? 2000 : 1280, name.startsWith("shot") ? 1281 : 800, "image")).toBe("site-shot");
+	});
+
+	test("the film posters keep the strict still profile", () => {
+		for (const name of ["film-poster.jpg", "film-vertical-poster.jpg"]) expect(guessProfile(`site/public/media/${name}`, 1920, 1080, "image")).toBe("still");
+	});
+
+	test("site-shot is a captured profile: framing is judged, the app's typography is not", async () => {
+		expect(PROFILES["site-shot"]!.captured).toBe(true);
+		const file = join(import.meta.dir, "__fixtures__", "terminal-fullbleed.jpg");
+		const r = await lintFile(file, { profile: "site-shot", fast: true });
+		expect(r.diagnostics.filter((d) => d.code.startsWith("text/"))).toEqual([]);
+	});
+});

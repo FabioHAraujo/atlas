@@ -6,6 +6,7 @@ import { main as bg } from "./backgrounds.ts";
 import { main as capture } from "./capture/index.ts";
 import { main as check } from "./check.ts";
 import { main as lint } from "./lint/index.ts";
+import { main as loops } from "./loops.ts";
 import { importLegacy } from "./legacy.ts";
 import { listAssets, verifyAssets } from "./lib/assets.ts";
 import { listFilms, loadFilm, parseArgs, pickCuts } from "./lib/films.ts";
@@ -32,6 +33,7 @@ const HELP = `bun studio <command>
   release <version> [--voice] [--aspect …]           'What's new in vX' video from CHANGELOG.md
   check                                              typecheck, brand sync, film validation, HyperFrames lint, 1 s/scene smoke render, media lint of published files
   lint <film|file|dir> [--profile p] [--json] [--ref f] [--fast] [--strict]   the "video LSP": frame/safe-area/text/flash/black/loudness/spec diagnostics with fixes
+  loops [--only loop-panel,shot-agents]              the site's loops + screenshots from recipes/site-media.ts captures (+ the vhs take for loop-tui); linted before it replaces anything
   sounds [list|generate|pick] [id…] [--variants N]   the app's earcons: ElevenLabs sound effects -> trim/normalise -> apps/desktop/static/sounds
   films                                              list films
 `;
@@ -106,6 +108,8 @@ async function main(argv: string[]): Promise<void> {
 			return lint(rest);
 		case "still":
 			return still(rest);
+		case "loops":
+			return loops(rest);
 		default:
 			throw new StudioError(`unknown command "${cmd}"`, "bun studio help");
 	}

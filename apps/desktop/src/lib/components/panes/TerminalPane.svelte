@@ -47,6 +47,6 @@
 
 <style>
 	.hint {
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 </style>

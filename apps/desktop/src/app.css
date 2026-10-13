@@ -415,3 +415,22 @@ button,
 a {
 	cursor: default;
 }
+
+/* Disabled controls: the kit fades them with `opacity: 0.45`, which multiplies into the label colour and measured
+   1.6-2.7:1 (`atlas desktop debug contrast`). Disabled labels are exempt from AA by WCAG; Atlas holds them to 3:1, and
+   a token colour guarantees it (`--ca-text-disabled` is lifted to 3:1 on every surface in theme/derive.ts). The kit's
+   own rules carry a Svelte hash class, so these double the class to out-rank them. */
+.ca-btn.ca-btn:disabled,
+.ca-btn.ca-btn[aria-disabled="true"] {
+	opacity: 1;
+	color: var(--ca-text-disabled);
+}
+.ca-btn--outlined.ca-btn--outlined:disabled,
+.ca-btn--outlined.ca-btn--outlined[aria-disabled="true"] {
+	border-color: var(--ca-outline-default);
+}
+.ca-btn--filled.ca-btn--filled:disabled,
+.ca-btn--filled.ca-btn--filled[aria-disabled="true"] {
+	background: var(--ca-surface-sunken);
+	box-shadow: inset 0 0 0 1px var(--ca-outline-subtle);
+}

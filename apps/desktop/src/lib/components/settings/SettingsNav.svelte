@@ -113,7 +113,7 @@
 		margin-top: auto;
 		padding: 0 8px;
 		font-size: 11px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.devchip {
 		margin-left: 6px;

@@ -258,7 +258,7 @@
 		color: var(--ca-text-primary);
 	}
 	.info button.on {
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 	}
 	.pct {
 		font-size: 11px;

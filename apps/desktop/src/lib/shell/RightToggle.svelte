@@ -44,7 +44,7 @@
 		background: var(--ca-action-hover);
 	}
 	.right-toggle.on {
-		color: var(--space-accent);
+		color: var(--space-accent-text, var(--ca-brand-main));
 		background: color-mix(in oklab, var(--space-accent) 14%, transparent);
 	}
 	.right-toggle.peeking {

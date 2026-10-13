@@ -163,7 +163,7 @@
 		font-family: system-ui;
 	}
 	.note.resolved {
-		opacity: 0.5;
+		color: var(--ca-text-secondary);
 	}
 	.note button {
 		margin-left: auto;

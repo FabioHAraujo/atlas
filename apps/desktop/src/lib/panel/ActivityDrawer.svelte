@@ -116,7 +116,7 @@
 		font-weight: 650;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		background: var(--ca-surface-overlay);
 	}
 	.title {
@@ -143,7 +143,7 @@
 		margin-left: auto;
 		flex: none;
 		font-size: 11px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.empty {
 		flex: 1;

@@ -147,9 +147,11 @@
 		background: color-mix(in oklab, var(--ca-semantic-error) 6%, var(--ca-surface-raised));
 		box-shadow: 0 0 0 0.5px color-mix(in oklab, var(--ca-semantic-error) 45%, transparent);
 	}
+	/* A stopped service reads as quieter through its surface, not through `opacity`: fading the card multiplied
+	   every text colour inside it (measured 2.1-4.4:1); the tokens keep their guaranteed contrast. */
 	.s-stopped,
 	.s-disabled {
-		opacity: 0.78;
+		background: color-mix(in oklab, var(--ca-surface-sunken) 55%, var(--ca-surface-raised));
 	}
 	.reason {
 		display: flex;
@@ -187,7 +189,7 @@
 		white-space: nowrap;
 	}
 	.cmd {
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.ticker {
 		color: var(--ca-text-secondary);
@@ -199,7 +201,7 @@
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 4px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.chip {
 		font-size: 10.5px;

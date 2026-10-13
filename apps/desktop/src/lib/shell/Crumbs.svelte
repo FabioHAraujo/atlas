@@ -102,11 +102,11 @@
 		color: var(--ca-text-primary);
 	}
 	.nav button:disabled {
-		opacity: 0.35;
+		color: var(--ca-text-disabled);
 	}
 	.crumbs :global(.sep) {
 		flex: none;
-		opacity: 0.5;
+		color: var(--ca-text-disabled);
 	}
 	.seg {
 		display: inline-flex;

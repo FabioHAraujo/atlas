@@ -148,7 +148,7 @@
 	.foot {
 		margin: 14px 0 0;
 		font-size: 11.5px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		display: flex;
 		align-items: center;
 		gap: 6px;

@@ -194,7 +194,7 @@
 	}
 	.tog.on {
 		background: color-mix(in oklab, var(--space-accent, var(--ca-brand-main)) 22%, transparent);
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 	}
 	.filters {
 		display: inline-flex;
@@ -228,7 +228,7 @@
 	}
 	.took {
 		margin-left: auto;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.err {
 		color: var(--ca-semantic-error, #d33);

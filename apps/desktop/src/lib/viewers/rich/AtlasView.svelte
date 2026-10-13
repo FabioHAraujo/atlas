@@ -310,7 +310,7 @@
 		border-bottom: 0;
 	}
 	.svc.off {
-		opacity: 0.6;
+		color: var(--ca-text-secondary);
 	}
 	.head {
 		border-bottom: 0;

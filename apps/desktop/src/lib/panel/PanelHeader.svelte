@@ -103,7 +103,7 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		color: var(--space-accent, var(--ca-text-primary));
+		color: var(--space-accent-text, var(--ca-text-primary));
 	}
 	.facts {
 		display: flex;

@@ -442,7 +442,7 @@
 		color: var(--ca-text-secondary);
 	}
 	.bar button.on {
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 		background: var(--ca-action-hover);
 	}
 	.mono {

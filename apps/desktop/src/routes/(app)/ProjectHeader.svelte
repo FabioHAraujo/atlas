@@ -329,7 +329,7 @@
 		background: var(--ca-action-hover);
 	}
 	.dock-btn.on {
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 		background: var(--ca-surface-raised);
 		box-shadow:
 			var(--ca-shadow-xs),

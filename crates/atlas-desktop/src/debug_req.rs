@@ -50,6 +50,10 @@ pub enum Req {
     A11y {
         selector: Option<String>,
     },
+    /// WCAG contrast of every visible text node, optionally scoped to a selector.
+    Contrast {
+        selector: Option<String>,
+    },
     /// Frame times and long tasks over `secs` seconds.
     Perf {
         secs: u64,
@@ -149,6 +153,9 @@ pub fn parse(v: &Value) -> Result<Req, String> {
         "a11y" => Ok(Req::A11y {
             selector: str_field(v, "selector").map(String::from),
         }),
+        "contrast" => Ok(Req::Contrast {
+            selector: str_field(v, "selector").map(String::from),
+        }),
         "perf" => {
             let secs = match &v["seconds"] {
                 Value::Null => DEFAULT_PERF_SECS,
@@ -218,7 +225,7 @@ pub fn parse(v: &Value) -> Result<Req, String> {
             })
         }
         other => Err(format!(
-            "unknown cmd {other:?}; expected info|logs|eval|state|wait|click|type|a11y|perf|shot|record"
+            "unknown cmd {other:?}; expected info|logs|eval|state|wait|click|type|a11y|contrast|perf|shot|record"
         )),
     }
 }
@@ -435,6 +442,20 @@ mod tests {
             parse(&json!({"cmd":"a11y","selector":"nav"})).unwrap(),
             Req::A11y {
                 selector: Some("nav".into())
+            }
+        );
+    }
+
+    #[test]
+    fn contrast_may_be_scoped_to_a_selector() {
+        assert_eq!(
+            parse(&json!({"cmd":"contrast"})).unwrap(),
+            Req::Contrast { selector: None }
+        );
+        assert_eq!(
+            parse(&json!({"cmd":"contrast","selector":"aside.sidebar"})).unwrap(),
+            Req::Contrast {
+                selector: Some("aside.sidebar".into())
             }
         );
     }

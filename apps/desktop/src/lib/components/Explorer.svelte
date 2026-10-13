@@ -387,7 +387,7 @@
 		gap: 2px;
 	}
 	.hbtn:disabled {
-		opacity: 0.35;
+		color: var(--ca-text-disabled);
 		pointer-events: none;
 	}
 	.hbtn:hover {

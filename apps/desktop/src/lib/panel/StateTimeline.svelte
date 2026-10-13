@@ -102,7 +102,7 @@
 		justify-content: space-between;
 		margin-left: calc(min(max(64px, 15%), 120px) + 10px);
 		font-size: 10.5px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.band {

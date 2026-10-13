@@ -101,7 +101,7 @@
 	}
 	.crumbs :global(.sep) {
 		flex-shrink: 0;
-		opacity: 0.5;
+		color: var(--ca-text-disabled);
 	}
 	.seg {
 		border: 0;

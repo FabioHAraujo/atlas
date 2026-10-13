@@ -213,7 +213,8 @@ const theme = EditorView.theme({
 		backgroundColor: "var(--cm-active-line, var(--ca-action-hover))",
 		color: "var(--cm-gutter-active, var(--ca-text-primary))",
 	},
-	".cm-foldGutter span": { color: "var(--cm-gutter, var(--ca-text-disabled))", opacity: 0.8 },
+	// UI icon: 3:1 needed; `opacity` multiplied into the colour and measured 3.6:1
+	".cm-foldGutter span": { color: "var(--ca-text-secondary)" },
 	".cm-foldGutter span:hover": { color: "var(--ca-text-primary)", opacity: 1 },
 	".cm-foldPlaceholder": {
 		backgroundColor: "color-mix(in oklab, var(--ca-text-primary) 10%, transparent)",

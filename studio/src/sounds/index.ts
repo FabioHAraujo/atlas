@@ -7,13 +7,14 @@
 //
 // The key is read at run time only (ELEVENLABS_API_KEY, see lib/paths.ts) and is never printed or written.
 
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ffmpeg } from "../lib/exec.ts";
+import { provenanceRow, readme, TARGET, type Shipped } from "./provenance.ts";
 import { CACHE, REPO, secret, StudioError } from "../lib/paths.ts";
 import { parseArgs } from "../lib/films.ts";
 import { alignDownbeat, analyze, findDownbeat, gainFor, leadingSilence, trimDecay } from "./dsp.ts";
-import { capFade, decayDb, EARCONS, EARCON_LIST, FAMILY, MODEL, isCurrentTake, pickBest, promptFor, passes, takeName, type EarconId, type Stats } from "./spec.ts";
+import { capFade, decayDb, EARCONS, EARCON_LIST, isCurrentTake, pickBest, promptFor, passes, takeName, type EarconId, type Stats } from "./spec.ts";
 
 const RAW = join(CACHE, "sounds/raw");
 const WORK = join(CACHE, "sounds/work");
@@ -21,9 +22,7 @@ const AUDITION = join(CACHE, "sounds/wav");
 const OUT = join(REPO, "apps/desktop/static/sounds");
 const SR = 48_000;
 /** Target feel: RMS of the trimmed earcon, with the peak held under -3 dBFS. Quiet by design; the app scales further. */
-const TARGET = { rmsDb: -22, peakCeilingDb: -3 };
 /** The model and endpoint the files come from, recorded in PROVENANCE.md. */
-const ENDPOINT = "POST https://api.elevenlabs.io/v1/sound-generation";
 const MAX_BYTES = 20 * 1024;
 
 const ids = (pos: string[]): EarconId[] => {
@@ -140,9 +139,7 @@ async function wavePng(id: EarconId, wav: string): Promise<void> {
 }
 
 async function pick(chosen: EarconId[]): Promise<void> {
-	const rows: string[] = [];
 	const failures: string[] = [];
-	const date = new Date().toISOString().slice(0, 10);
 	for (const id of chosen) {
 		const cands = await measure(id);
 		if (!cands.length) {
@@ -167,47 +164,23 @@ async function pick(chosen: EarconId[]): Promise<void> {
 		const take = best.id.split(".")[1];
 		const ms = Math.round(finished * 1000);
 		console.log(`  ${id.padEnd(16)} take ${take}  ${String(ms).padStart(4)} ms  rms ${r.rmsDb.toFixed(1)} dBFS  peak ${r.peakDb.toFixed(1)} dBFS  centroid ${Math.round(best.stats.centroidHz)} Hz  m4a ${r.m4a} B`);
-		rows.push(`| \`${id}\` | ${EARCONS[id].meaning} | ${ms} ms | ${r.rmsDb.toFixed(1)} | ${r.peakDb.toFixed(1)} | ${Math.round(best.stats.centroidHz)} | ${r.m4a} | take ${take}, ${best.id.split(".")[2]} |`);
+		recordShipped(id, { ms, rmsDb: r.rmsDb, peakDb: r.peakDb, centroidHz: best.stats.centroidHz, bytes: r.m4a, take: Number(take), key: best.id.split(".")[2]! });
 	}
-	if (rows.length === Object.keys(EARCONS).length) writeProvenance(rows, date);
 	if (failures.length) throw new StudioError("some earcons could not be finished", failures.join("\n"));
 }
 
-function writeProvenance(rows: string[], date: string): void {
-	const prompts = (Object.keys(EARCONS) as EarconId[]).map((id) => `- \`${id}\`: ${promptFor(EARCONS[id])}`).join("\n");
-	writeFileSync(
-		join(OUT, "README.md"),
-		`# Atlas earcons: provenance
-
-Generated ${date} with the ElevenLabs Sound Effects (text-to-sound) API: \`${ENDPOINT}\`, model \`${MODEL}\`,
-\`prompt_influence\` 0.7, then trimmed, gain-matched and encoded by \`bun studio sounds pick\` (studio/src/sounds).
-Nothing here was taken from another sound library or the internet.
-
-**License.** The files are output of the ElevenLabs API produced under the maintainers' paid account. Per ElevenLabs'
-terms (https://elevenlabs.io/terms-of-use) generated output may be used commercially on paid plans; this was
-generated while the account was on the plan the maintainers hold, and the terms at that date apply. If the account
-plan changes, re-check the terms before redistributing the files outside Atlas.
-
-Post-processing: leading/trailing silence cut at -45 dBFS (3 ms kept before the attack), gain set so the RMS of the
-finished file is ${TARGET.rmsDb} dBFS with the peak under ${TARGET.peakCeilingDb} dBFS, 5 ms fade in and out,
-mono, 48 kHz, AAC 48 kb/s in an .m4a container (WebKit decodes it natively; only the .m4a files ship).
-
-| id | meaning | length | RMS dBFS | peak dBFS | centroid Hz | .m4a bytes | take |
-|---|---|---|---|---|---|---|---|
-${rows.join("\n")}
-
-## Prompts
-
-Every prompt carries the same timbre sentence ("${FAMILY}") so the set reads as one brand.
-
-${prompts}
-
-## Regenerating
-
-\`bun studio sounds generate [id…] --variants 4\` then \`bun studio sounds pick [id…]\`. The ElevenLabs key is read from the
-environment or \`ATLAS_STUDIO_ENV\` at run time only. Takes are cached (gitignored) in studio/.cache/sounds.
-`,
-	);
+/** Record what was shipped for `id` and rebuild the README from every shipped earcon. */
+function recordShipped(id: EarconId, shipped: Shipped): void {
+	const file = join(OUT, "provenance.json");
+	const all: Record<string, Shipped> = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+	all[id] = shipped;
+	const sorted = Object.fromEntries(Object.entries(all).sort(([a], [b]) => a.localeCompare(b)));
+	writeFileSync(file, `${JSON.stringify(sorted, null, "\t")}\n`);
+	// Only earcons that still have a file on disk are listed, in the spec's order.
+	const rows = (Object.keys(EARCONS) as EarconId[])
+		.filter((e) => all[e] && existsSync(join(OUT, `${e}.m4a`)))
+		.map((e) => provenanceRow(e, all[e]!));
+	writeFileSync(join(OUT, "README.md"), readme(rows, new Date().toISOString().slice(0, 10)));
 }
 
 function list(): void {

@@ -138,7 +138,7 @@
 	}
 	.hint .sub {
 		font-size: 11.5px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.file,
 	.match {
@@ -187,7 +187,7 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-size: 11px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.count {
 		padding: 0 6px;
@@ -217,6 +217,6 @@
 	.more {
 		margin: 8px 12px;
 		font-size: 11px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 </style>

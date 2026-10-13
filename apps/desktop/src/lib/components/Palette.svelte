@@ -233,7 +233,7 @@
 		padding: 7px 14px;
 		border-top: 0.5px solid var(--ca-outline-subtle);
 		font-size: 11px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.foot span {
 		display: inline-flex;

@@ -349,7 +349,6 @@
 		border-radius: 4px;
 		background: none;
 		color: inherit;
-		opacity: 0.6;
 		transition:
 			opacity 120ms ease-out,
 			background 120ms ease-out;

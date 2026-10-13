@@ -156,11 +156,11 @@
 		background: var(--ca-action-hover);
 	}
 	.ibtn.on {
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 		background: var(--ca-surface-raised);
 	}
 	.actions-btn.busy {
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 	}
 	.label {
 		font-size: 12px;

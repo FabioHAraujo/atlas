@@ -370,7 +370,7 @@
 		margin: 0 4px;
 		border-radius: 50%;
 		background: currentColor;
-		opacity: 0.4;
+		color: var(--ca-text-disabled);
 	}
 	.log {
 		max-height: 180px;

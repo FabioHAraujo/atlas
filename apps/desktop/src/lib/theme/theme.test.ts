@@ -4,7 +4,7 @@ import atlas from "../themes/atlas.json";
 import dracula from "../themes/dracula.json";
 import one from "../themes/one.json";
 import { ansi16, cssVars, syntaxTokens, terminalColors } from "../theme.ts";
-import { contrast, ensureContrast, fromOklch, toOklch } from "./color.ts";
+import { contrast, ensureContrast, fromOklch, over, toOklch } from "./color.ts";
 import { complete } from "./derive.ts";
 import {
 	DEFAULT_SELECTION,
@@ -133,13 +133,21 @@ describe("completeness: every token the app reads exists in every theme", () => 
 		expect(contrast(s["text.muted"], s["elevated_surface.background"])).toBeGreaterThanOrEqual(4.5);
 	});
 
-	test("explicit values are never overwritten", () => {
+	test("explicit values that read are never overwritten; ones that do not are lifted, keeping their hue", () => {
 		const s = complete(
-			{ text: "#123456", syntax: { keyword: { color: "#abcdef", font_style: "italic" } } },
+			{ text: "#d0e0f0", syntax: { keyword: { color: "#abcdef", font_style: "italic" } } },
 			"dark",
 		);
-		expect(s.text).toBe("#123456");
+		expect(s.text).toBe("#d0e0f0");
 		expect(s.syntax.keyword).toMatchObject({ color: "#abcdef", font_style: "italic" });
+		// Incident: an explicit grey that vanished on its own surface (light theme sidebar) used to be kept as is.
+		const bad = complete(
+			{ "editor.background": "#fafafa", text: "#383a42", "text.muted": "#c8c8c8" },
+			"light",
+		);
+		expect(bad["text.muted"]).not.toBe("#c8c8c8");
+		expect(contrast(bad["text.muted"], bad.background)).toBeGreaterThanOrEqual(4.5);
+		expect(Math.abs(toOklch(bad["text.muted"]).h - toOklch("#c8c8c8").h)).toBeLessThan(40);
 	});
 
 	test("syntax derived from an ANSI-only palette follows the classic mapping", () => {
@@ -158,6 +166,201 @@ describe("completeness: every token the app reads exists in every theme", () => 
 		expect(s.syntax.string.color).toBe("#ffff00");
 		expect(s.syntax.type.color).toBe("#00ffff");
 	});
+});
+
+/**
+ * Incident (user, live): "the contrast in the light theme is really bad", the sidebar text nearly invisible. Every text
+ * token must read on EVERY surface it can sit on, in every bundled theme. Rules (WCAG 2.x):
+ *  - body text and labels (`text`, `text.muted`, `text.accent`, the semantic colours as text): >= 4.5
+ *  - `text.disabled` and `editor.line_number` (placeholders, disabled controls, gutter numbers): >= 3, the documented
+ *    relaxation: WCAG exempts them, we still require them to read
+ *  - the keyboard focus ring (`border.selected`) and non-text state indicators: >= 3
+ *  - `text.on_accent` on the accent fill: >= 4.5
+ */
+describe("contrast: every text token on every surface, every theme", () => {
+	const SURFACES = ["background", "editor.background", "surface.background", "elevated_surface.background"];
+	const AA_TEXT = [
+		"text",
+		"text.muted",
+		"text.accent",
+		"created",
+		"warning",
+		"info",
+		"error",
+		"link_text.hover",
+	];
+	const READABLE = ["text.disabled", "editor.line_number"];
+	const INDICATORS = ["border.selected", "state.success", "state.warning", "state.info", "state.error"];
+	const rgb = (hex) => hex.slice(0, 7);
+
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		const fails = [];
+		const check = (token, min, surfaces = SURFACES) => {
+			for (const surf of surfaces) {
+				const r = contrast(rgb(s[token]), rgb(s[surf]));
+				if (r < min) fails.push(`${token} on ${surf}: ${r.toFixed(2)} < ${min}`);
+			}
+		};
+		test(`${t.name} (${t.appearance}): text >= 4.5, disabled/placeholder >= 3, indicators >= 3`, () => {
+			for (const k of AA_TEXT) check(k, 4.5);
+			for (const k of READABLE) check(k, 3, k === "editor.line_number" ? ["editor.background"] : SURFACES);
+			for (const k of INDICATORS) check(k, 3);
+			check("text.on_accent", 4.5, []);
+			const onAccent = contrast(rgb(s["text.on_accent"]), rgb(s["text.accent"]));
+			if (onAccent < 4.5) fails.push(`text.on_accent on text.accent: ${onAccent.toFixed(2)} < 4.5`);
+			expect(fails).toEqual([]);
+		});
+	}
+
+	// The sidebar lets 18% of the native material through. The window material follows the theme's appearance
+	// (`colorScheme` → `setTheme`), so the extreme that can show through is white under a light theme and black under
+	// a dark one; the text must pass over that blend.
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		test(`${t.name}: sidebar text survives the native material showing through (18%)`, () => {
+			const fails = [];
+			const side = over(rgb(s.background), t.appearance === "dark" ? "#000000" : "#ffffff", 0.82);
+			for (const k of ["text", "text.muted", "text.accent"]) {
+				const r = contrast(rgb(s[k]), side);
+				if (r < 4.5) fails.push(`${k} over sidebar: ${r.toFixed(2)}`);
+			}
+			expect(fails).toEqual([]);
+		});
+	}
+});
+
+describe("contrast: text on tinted controls (kbd chips, hover and selected rows)", () => {
+	// Incident (measured by `atlas desktop debug contrast`, One Light): the ⌘K chip is `color-mix(text 6%, transparent)`
+	// over the sidebar, which dropped `text.muted` from 4.6 to 4.33. Muted text must also pass on its own tints.
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		test(`${t.name}: text and text.muted pass on a 6% text tint and on the selected-row tint, over every surface`, () => {
+			const fails = [];
+			for (const surf of [
+				"background",
+				"editor.background",
+				"surface.background",
+				"elevated_surface.background",
+			])
+				for (const [name, a] of [
+					["chip 6%", 0.06],
+					["selected", t.appearance === "dark" ? 0.13 : 0.09],
+				]) {
+					const bg = over(s.text.slice(0, 7), s[surf].slice(0, 7), a);
+					for (const k of ["text", "text.muted"]) {
+						const r = contrast(s[k].slice(0, 7), bg);
+						if (r < 4.5) fails.push(`${k} on ${name} over ${surf}: ${r.toFixed(2)}`);
+					}
+				}
+			expect(fails).toEqual([]);
+		});
+	}
+});
+
+describe("contrast: text on accent-tinted rows (selected palette row, current project)", () => {
+	// Incident (measured): the palette's selected row is `brand-main 16%`, the sidebar's current/selected project the
+	// space accent at 16%. Text and muted text read 3.75-4.4:1 on them in One Dark/One Light/Dracula.
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		test(`${t.name}: text and text.muted >= 4.5 on a 16% accent tint over every surface, for every space hue`, () => {
+			const fails = [];
+			const dark = t.appearance === "dark";
+			const tints = [s["text.accent"].slice(0, 7)];
+			for (let h = 0; h < 360; h += 15)
+				tints.push(fromOklch({ l: dark ? 0.74 : 0.62, c: dark ? 0.14 : 0.17, h }));
+			for (const surf of [
+				"background",
+				"editor.background",
+				"surface.background",
+				"elevated_surface.background",
+			])
+				for (const tint of tints) {
+					const bg = over(tint, s[surf].slice(0, 7), 0.16);
+					for (const k of ["text", "text.muted"]) {
+						const r = contrast(s[k].slice(0, 7), bg);
+						if (r < 4.5) fails.push(`${k} on 16% ${tint} over ${surf}: ${r.toFixed(2)}`);
+					}
+				}
+			expect(fails).toEqual([]);
+		});
+	}
+});
+
+describe("contrast: text on the kit's hover/active fill, alone and under a kbd chip", () => {
+	// Incident (measured, One Dark): `--ca-vibrancy-fill` (near-white at 10% in dark themes, near-black in light ones) is
+	// the hover/active row fill; the kbd chip (text 6%) and the current-project accent (16%) stack on top of it.
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		test(`${t.name}: text and text.muted >= 4.5 on a 12% vibrancy fill, alone and with a 6% chip on top`, () => {
+			const dark = t.appearance === "dark";
+			const fill = dark ? "#ffffff" : "#000000";
+			const fails = [];
+			const accents = [s["text.accent"].slice(0, 7)];
+			for (let h = 0; h < 360; h += 15)
+				accents.push(fromOklch({ l: dark ? 0.74 : 0.62, c: dark ? 0.14 : 0.17, h }));
+			for (const surf of [
+				"background",
+				"editor.background",
+				"surface.background",
+				"elevated_surface.background",
+			]) {
+				const base = over(fill, s[surf].slice(0, 7), 0.12);
+				const stacks = [
+					["fill", base],
+					["fill+chip", over(s.text.slice(0, 7), base, 0.06)],
+				];
+				for (const [name, bg] of stacks)
+					for (const k of ["text", "text.muted"]) {
+						const r = contrast(s[k].slice(0, 7), bg);
+						if (r < 4.5) fails.push(`${k} on ${name} over ${surf}: ${r.toFixed(2)}`);
+					}
+			}
+			expect(fails).toEqual([]);
+		});
+	}
+});
+
+describe("contrast: semantic colours on their own tint (status chips, tags, banners)", () => {
+	// Incident (measured, `atlas desktop debug contrast`): update-channel tags and release chips set `color: var(--tone)`
+	// on `color-mix(var(--tone) 14%, transparent)`; the tint of the colour itself cost 0.3-1.0 of contrast (3.7-4.5:1).
+	const TINTS = [0.1, 0.14];
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		test(`${t.name}: text.accent/created/warning/info/error >= 4.5 on their own 10% and 14% tint over every surface`, () => {
+			const fails = [];
+			for (const k of ["text.accent", "created", "warning", "info", "error"])
+				for (const surf of [
+					"background",
+					"editor.background",
+					"surface.background",
+					"elevated_surface.background",
+				])
+					for (const a of TINTS) {
+						const bg = over(s[k].slice(0, 7), s[surf].slice(0, 7), a);
+						const r = contrast(s[k].slice(0, 7), bg);
+						if (r < 4.5) fails.push(`${k} on its ${a * 100}% tint over ${surf}: ${r.toFixed(2)}`);
+					}
+			expect(fails).toEqual([]);
+		});
+	}
+});
+
+describe("bundled theme files ship what the user sees", () => {
+	// What the file says must be what is applied: a UI colour the legibility pass lifts at runtime would make the
+	// theme preview, `export` and the JSON on disk lie about the theme.
+	for (const t of bundled)
+		test(`${t.name}: no UI colour in the file is changed by complete()`, () => {
+			const s = complete(t.style, t.appearance);
+			const changed = Object.keys(t.style).filter(
+				(k) =>
+					!k.startsWith("terminal") &&
+					typeof t.style[k] === "string" &&
+					/^#[0-9a-f]{6}$/i.test(t.style[k]) &&
+					s[k].toLowerCase() !== t.style[k].toLowerCase(),
+			);
+			expect(changed).toEqual([]);
+		});
 });
 
 /** The official spec: https://draculatheme.com/spec */

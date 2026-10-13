@@ -262,7 +262,7 @@
 		direction: rtl;
 		text-align: left;
 		font-size: 11px;
-		opacity: 0.7;
+		color: var(--ca-text-secondary);
 	}
 	.results {
 		max-height: 46vh;
@@ -299,7 +299,7 @@
 		background: var(--ca-vibrancy-fill);
 	}
 	.row.dim .main {
-		opacity: 0.55;
+		color: var(--ca-text-secondary);
 	}
 	.nocheck {
 		flex: none;

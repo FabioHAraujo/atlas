@@ -72,6 +72,6 @@
 	}
 	.hint {
 		font-size: 11px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 </style>

@@ -10,6 +10,7 @@
 	import { sound } from "#lib/sound/sound.svelte.ts";
 	import { SHEETS as SHEET_ORDER, calm, progressFrame } from "./globe.ts";
 	import { loopMode, pageIsFocused, plan, tick, type Clock } from "./player.ts";
+	import { layoutAt } from "../legibility.ts";
 	import { dprQuery, planFrame, SizeWatch } from "./sizing.ts";
 	import { ATLAS, paint } from "./render.ts";
 	import { frame, settled } from "./timeline.ts";
@@ -43,6 +44,9 @@
 	let reduced = false;
 	let clock = 0;
 	let intro: Clock = { t: 0, state: "running", soundFired: false };
+	/** Scene-clock time the globe started moving from hero to backdrop (null while the intro plays). */
+	let settleFrom: number | null = null;
+	const SETTLE_SECONDS = 1.4;
 	let playing = false;
 	let skipSeen = 0;
 	let litAt: Record<number, number> = {};
@@ -93,7 +97,11 @@
 				: mode === "progress"
 					? progressFrame({ lit, doneAt, now: clock, litAt })
 					: calm(clock);
-		paint(ctx, f, plan.w, plan.h, ATLAS, { shake: reduced ? 0 : 1 });
+		// The hero moment is the intro; from then on the globe is a backdrop, eased there so nothing jumps. Progress is the
+		// scan's meter and keeps its place; calm and a settled intro start settled.
+		if (mode !== "intro" || !playing) settleFrom ??= reduced ? clock - SETTLE_SECONDS : clock;
+		const layout = layoutAt(settleFrom === null ? 0 : (clock - settleFrom) / SETTLE_SECONDS);
+		paint(ctx, f, plan.w, plan.h, ATLAS, { shake: reduced ? 0 : 1, layout });
 		if (watch.firstSize({ w: plan.w, h: plan.h })) resume();
 	}
 
@@ -118,6 +126,7 @@
 			if (next.fireSound) sound.sting();
 			if (next.state === "done") {
 				playing = false;
+				settleFrom = clock;
 				ondone?.();
 			}
 		}

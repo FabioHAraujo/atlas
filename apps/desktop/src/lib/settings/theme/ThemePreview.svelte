@@ -10,7 +10,8 @@
 	let { m, terminalOnly = false }: { m: PreviewModel; terminalOnly?: boolean } = $props();
 </script>
 
-<div class="frame" style:background={m.chrome} style:--bd={m.border} aria-hidden="true">
+<!-- Paints ANOTHER theme (the previewed one) on purpose: the audit skips it; that theme's tokens are tested in theme.test.ts. -->
+<div class="frame" style:background={m.chrome} style:--bd={m.border} aria-hidden="true" data-contrast-ignore>
 	{#if !terminalOnly}
 		<div class="editor" style:background={m.editorBg} style:color={m.editorFg}>
 			{#each SAMPLE as line, i (i)}

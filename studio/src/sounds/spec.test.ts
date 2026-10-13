@@ -69,7 +69,7 @@ describe("passes: a candidate must meet the spec before it is considered", () =>
 	test("rejects a late attack (leading silence would feel laggy)", () =>
 		expect(passes(e, ok({ silentHead: 0.09 }))).toMatchObject({ ok: false, why: "late-attack" }));
 	test("targets sit inside the accepted brightness window for every earcon", () => {
-		for (const [id, x] of Object.entries(EARCONS)) expect(passes(x, ok({ centroidHz: x.targetCentroidHz, duration: x.maxSeconds / 2 })).ok, id).toBe(true);
+		for (const [id, x] of Object.entries(EARCONS)) expect(passes(x, ok({ centroidHz: x.targetCentroidHz, duration: Math.max(x.maxSeconds / 2, ("minSeconds" in x ? x.minSeconds : 0) + 0.1) })).ok, id).toBe(true);
 	});
 });
 

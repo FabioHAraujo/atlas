@@ -187,7 +187,7 @@
 		background: color-mix(in oklab, var(--rv-acc) 10%, transparent);
 	}
 	.dim {
-		opacity: 0.38;
+		color: var(--ca-text-secondary);
 	}
 	.grid {
 		display: grid;
@@ -236,7 +236,7 @@
 		align-items: center;
 		gap: 3px;
 		font-size: 10.5px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		width: 52px;
 		flex: none;
 	}

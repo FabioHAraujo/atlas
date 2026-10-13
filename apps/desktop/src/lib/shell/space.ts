@@ -1,4 +1,5 @@
 /** Spaces: one per repo. Deterministic accent per id, ordering and switching, pure for tests. */
+import { contrast, ensureContrast, fromOklch } from "#lib/theme/color.ts";
 
 /** FNV-1a, 32 bit: stable across sessions and platforms. */
 function hash(s: string): number {
@@ -20,6 +21,18 @@ const TONE = { light: { l: 0.62, c: 0.17 }, dark: { l: 0.74, c: 0.14 } } as cons
 export function accentOf(id: string, dark: boolean, hue?: number): string {
 	const { l, c } = dark ? TONE.dark : TONE.light;
 	return `oklch(${l} ${c} ${hue ?? hueOf(id)})`;
+}
+
+/**
+ * The accent as TEXT (port chips, active toggles): the space's hue and chroma, lightness moved until it reads AA on
+ * the WORST of `surfaces` (`#rrggbb`). `accentOf` is one fixed lightness, right for dots, rings and tints, but as text
+ * it measured 2.3:1 on a raised card (`atlas desktop debug contrast`).
+ */
+export function accentTextOf(dark: boolean, hue: number, surfaces: string[]): string {
+	const { l, c } = dark ? TONE.dark : TONE.light;
+	const start = fromOklch({ l, c, h: hue });
+	const worst = surfaces.reduce((w, s) => (contrast(start, s) < contrast(start, w) ? s : w));
+	return ensureContrast(start, worst, 4.5);
 }
 
 /** Soft background tint of the accent, for large surfaces. */

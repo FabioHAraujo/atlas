@@ -1,0 +1,101 @@
+{
+	"agent-done": {
+		"ms": 300,
+		"rmsDb": -22.23870987452621,
+		"peakDb": -12.65108269763778,
+		"centroidHz": 905.3036063286535,
+		"bytes": 2876,
+		"take": 0,
+		"key": "a68835cd1bcc6886"
+	},
+	"agent-needs-you": {
+		"ms": 300,
+		"rmsDb": -22.22425674431864,
+		"peakDb": -13.04137670915074,
+		"centroidHz": 757.659837849334,
+		"bytes": 2884,
+		"take": 1,
+		"key": "cbe93d9fc23a32c2"
+	},
+	"boot": {
+		"ms": 485,
+		"rmsDb": -22.4,
+		"peakDb": -7.7,
+		"centroidHz": 460,
+		"bytes": 3999,
+		"take": 0,
+		"key": "bb2080fbae14b740"
+	},
+	"discovery-done": {
+		"ms": 300,
+		"rmsDb": -22.193070548269084,
+		"peakDb": -11.161602294638659,
+		"centroidHz": 755.5946725023105,
+		"bytes": 2829,
+		"take": 2,
+		"key": "daa4467b81f868fb"
+	},
+	"error": {
+		"ms": 300,
+		"rmsDb": -22.508570374200787,
+		"peakDb": -11.61345779243306,
+		"centroidHz": 608.8743502628413,
+		"bytes": 2832,
+		"take": 1,
+		"key": "28f14160b0d912b5"
+	},
+	"service-failed": {
+		"ms": 280,
+		"rmsDb": -22.419177616057226,
+		"peakDb": -10.309217545655095,
+		"centroidHz": 725.7695385989067,
+		"bytes": 2815,
+		"take": 1,
+		"key": "885603266f6b8283"
+	},
+	"signature": {
+		"ms": 1740,
+		"rmsDb": -22.00000687132885,
+		"peakDb": -7.319604904657338,
+		"centroidHz": 850.9934936109028,
+		"bytes": 12298,
+		"take": 7,
+		"key": "34a0decea062fa74"
+	},
+	"stack-up": {
+		"ms": 300,
+		"rmsDb": -22.186146562424604,
+		"peakDb": -9.844451223758673,
+		"centroidHz": 558.667529601308,
+		"bytes": 2937,
+		"take": 3,
+		"key": "6a9f6edc1c2f3ced"
+	},
+	"success": {
+		"ms": 225,
+		"rmsDb": -22.678498499450196,
+		"peakDb": -9.524101379793118,
+		"centroidHz": 1331.6639618898341,
+		"bytes": 2454,
+		"take": 5,
+		"key": "ac3c1ced359b2ee9"
+	},
+	"toggle": {
+		"ms": 200,
+		"rmsDb": -22.491075920499867,
+		"peakDb": -10.147435613981466,
+		"centroidHz": 1005.2210041359983,
+		"bytes": 2333,
+		"take": 1,
+		"key": "5651cacaffd4cc71"
+	},
+	"update": {
+		"ms": 255,
+		"rmsDb": -22.221905712302394,
+		"peakDb": -8.655886848138167,
+		"centroidHz": 714.301404545633,
+		"bytes": 2573,
+		"take": 5,
+		"key": "4064d9d1d3966e9a"
+	}
+}

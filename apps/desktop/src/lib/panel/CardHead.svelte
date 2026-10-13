@@ -154,7 +154,7 @@
 		color: var(--ca-semantic-warning);
 	}
 	.dim {
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.port {
 		flex: none;
@@ -166,7 +166,7 @@
 		border-radius: 6px;
 		background: none;
 		font-size: 11.5px;
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 		transition: background 120ms ease-out;
 	}
 	.port:hover {

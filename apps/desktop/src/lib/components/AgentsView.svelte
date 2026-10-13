@@ -218,13 +218,13 @@
 	.start kbd {
 		font: inherit;
 		font-size: 11px;
-		opacity: 0.75;
+		color: inherit;
 	}
 	.col-empty {
 		padding: 14px 0;
 		text-align: center;
 		font-size: 12px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		border: 0.5px dashed var(--ca-outline-subtle);
 		border-radius: 10px;
 	}
@@ -252,7 +252,7 @@
 		margin: 0 0 4px;
 	}
 	h2 span {
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.card {
 		border: 0;

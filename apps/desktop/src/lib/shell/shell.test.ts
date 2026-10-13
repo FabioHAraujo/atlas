@@ -1,6 +1,12 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
 import { expect, test } from "bun:test";
-import { accentOf, directionOf, hueOf, neighbour, spreadHues, tintOf } from "./space.ts";
+import atlas from "../themes/atlas.json";
+import dracula from "../themes/dracula.json";
+import one from "../themes/one.json";
+import { contrast, toOklch } from "../theme/color.ts";
+import { complete } from "../theme/derive.ts";
+import { parseFamily } from "../theme/schema.ts";
+import { accentOf, accentTextOf, directionOf, hueOf, neighbour, spreadHues, tintOf } from "./space.ts";
 import { MAX_HISTORY, canGo, emptyHistory, step, visit } from "./history.ts";
 import { inHotZone, inPanel, peekAction } from "./peek.ts";
 
@@ -17,6 +23,35 @@ test("accent differs by theme lightness and honours a hue override", () => {
 	expect(accentOf("x", false)).not.toBe(accentOf("x", true));
 	expect(accentOf("x", false, 200)).toBe("oklch(0.62 0.17 200)");
 	expect(tintOf("x", true, 10)).toContain(" 10 / ");
+});
+
+// Incident (measured by `atlas desktop debug contrast`): the per-space accent is one fixed lightness (0.62 light), so
+// as TEXT (port chips, active toggles) it read 2.3:1 on a raised card. Text needs its own lightness per surface.
+test("accentTextOf is AA on every chrome surface of every bundled theme, for every hue", () => {
+	const themes = [dracula, atlas, one].flatMap((f) => parseFamily(f).themes);
+	const fails = [];
+	for (const t of themes) {
+		const s = complete(t.style, t.appearance);
+		const surfaces = [
+			"background",
+			"editor.background",
+			"surface.background",
+			"elevated_surface.background",
+		].map((k) => s[k].slice(0, 7));
+		for (let hue = 0; hue < 360; hue += 5) {
+			const c = accentTextOf(t.appearance === "dark", hue, surfaces);
+			for (const bg of surfaces)
+				if (contrast(c, bg) < 4.5) fails.push(`${t.name} hue ${hue} on ${bg}: ${contrast(c, bg).toFixed(2)}`);
+		}
+	}
+	expect(fails).toEqual([]);
+});
+
+test("accentTextOf keeps the space's hue (it is the same accent, only moved along lightness)", () => {
+	for (const hue of [25, 100, 145, 255, 330]) {
+		const o = toOklch(accentTextOf(false, hue, ["#fafafa", "#ffffff"]));
+		expect(Math.abs(o.h - hue)).toBeLessThan(2);
+	}
 });
 
 test("spreadHues keeps spaces visually apart and is deterministic", () => {

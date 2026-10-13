@@ -93,7 +93,6 @@
 		border-radius: 4px;
 		background: none;
 		color: inherit;
-		opacity: 0.6;
 		transition:
 			opacity 120ms ease-out,
 			background 120ms ease-out;
@@ -104,7 +103,7 @@
 	}
 	.kbd {
 		margin-left: auto;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		font-size: 11px;
 	}
 </style>

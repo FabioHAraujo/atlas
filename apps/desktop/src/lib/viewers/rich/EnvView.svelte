@@ -177,7 +177,7 @@
 	}
 	.empty {
 		font-style: italic;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		font-family: var(--ui-font, inherit);
 	}
 	.cm {

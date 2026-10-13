@@ -134,7 +134,7 @@
 		border-radius: 4px;
 	}
 	.tw:disabled {
-		opacity: 0.25;
+		color: var(--ca-text-disabled);
 		cursor: default;
 	}
 	.tw :global(.rot) {

@@ -97,7 +97,7 @@
 		padding-top: 9px;
 		font-family: var(--mono);
 		font-size: 10.5px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.src,
 	.body {

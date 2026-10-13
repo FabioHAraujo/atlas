@@ -131,7 +131,7 @@
 }
 .rv-note {
 	font-size: 11.5px;
-	color: var(--ca-text-disabled);
+	color: var(--ca-text-secondary);
 }
 .rv-chip {
 	display: inline-flex;
@@ -205,7 +205,7 @@
 	color: var(--rv-acc);
 }
 .rv-btn:disabled {
-	opacity: 0.45;
+	color: var(--ca-text-disabled);
 	cursor: default;
 }
 .rv-btn.on {
@@ -265,7 +265,7 @@
 .rv-empty {
 	padding: 28px;
 	text-align: center;
-	color: var(--ca-text-disabled);
+	color: var(--ca-text-secondary);
 }
 .rv-search {
 	display: flex;

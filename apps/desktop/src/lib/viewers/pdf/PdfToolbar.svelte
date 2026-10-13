@@ -244,10 +244,10 @@
 		color: var(--ca-text-primary);
 	}
 	.bar button:disabled {
-		opacity: 0.4;
+		color: var(--ca-text-disabled);
 	}
 	.bar button.on {
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 	}
 	.sep {
 		width: 0.5px;

@@ -10,8 +10,21 @@
 	import { discovery } from "#lib/stores/discovery.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
 	import { ACTIONS, testId } from "./flow.ts";
+	import { copyScrim, STAGE_LAYOUT } from "./legibility.ts";
 	import Globe from "./intro/Globe.svelte";
 	import { welcome as w } from "./welcome.svelte.ts";
+	import { themes } from "#lib/stores/theme.svelte.ts";
+	import { cssVars } from "#lib/theme.ts";
+
+	// The stage is always a night sky, whatever the app theme: everything on it (copy, buttons, chips) uses the
+	// user's DARK theme of the same family, so light themes stay readable here (2026-10-13 light-theme incident).
+	const darkVars = $derived(
+		themes.currentDark
+			? Object.entries(cssVars(themes.currentDark.style))
+					.map(([k, v]) => `${k}:${v}`)
+					.join(";")
+			: "",
+	);
 
 	let {
 		onfinish,
@@ -26,6 +39,13 @@
 		/** The intro already played on this machine. */
 		seen?: boolean;
 	} = $props();
+
+	/**
+	 * The scrim under the copy. Its strength comes from the brightest pixel the globe can put behind the subtitle, measured
+	 * on a real shot of the un-dimmed globe ([125, 143, 220] on the tiles' light side), so it holds even if the globe is
+	 * ever moved back under the text; the subtitle colour is --ca-text-secondary on the dark stage.
+	 */
+	const scrim = copyScrim({ worstBackdrop: [125, 143, 220], subtitle: [166, 168, 171] });
 
 	let skip = $state(0);
 	let globe: ReturnType<typeof Globe> | undefined = $state();
@@ -64,7 +84,9 @@
 <svelte:window onkeydown={skipIntro} />
 
 <div
-	class="hero"
+	class="hero dark"
+	style={darkVars}
+	data-contrast-bg="#04050a"
 	data-phase={w.phase}
 	data-testid={testId(w.phase)}
 	data-intro={mode === "intro" ? "playing" : "done"}
@@ -81,7 +103,19 @@
 		ondone={() => (w.introDone = true)}
 	/>
 
-	<div class="stage" class:hidden={!showCopy}>
+	<div
+		class="scrim"
+		class:hidden={!showCopy}
+		style:--scrim={scrim.alpha}
+		style:--inset="{STAGE_LAYOUT.copyBottomInset}px"
+		aria-hidden="true"
+	></div>
+	<div
+		class="stage"
+		class:hidden={!showCopy}
+		class:anchored={showCopy}
+		style:--inset="{STAGE_LAYOUT.copyBottomInset}px"
+	>
 		{#if w.phase === "welcome"}
 			{@render welcome()}
 		{:else if w.phase === "scanning"}
@@ -240,10 +274,39 @@
 		place-items: center;
 		overflow: hidden;
 		isolation: isolate;
+		/* Inherited text (the h1) must come from the dark vars set on this element, not the app body. */
+		color: var(--ca-text-primary);
 	}
-	.stage.hidden {
+	/* Settled: the copy block sits at the bottom of the hero so the globe above it never meets a letter (legibility.ts). */
+	.stage.anchored {
+		position: absolute;
+		left: 50%;
+		bottom: var(--inset);
+		/* `translate` is its own property: the entrance animation owns `transform`, so the two compose instead of fighting. */
+		translate: -50% 0;
+	}
+	.stage.hidden,
+	.scrim.hidden {
 		opacity: 0;
 		pointer-events: none;
+	}
+	/* A soft pool of the stage colour under the copy: opaque enough for AA at its centre, feathered so it never reads as a card. */
+	.scrim {
+		position: absolute;
+		z-index: 0;
+		left: 50%;
+		bottom: calc(var(--inset) - 90px);
+		width: min(640px, 92%);
+		height: 420px;
+		translate: -50% 0;
+		pointer-events: none;
+		background: radial-gradient(
+			ellipse 50% 50% at 50% 50%,
+			rgba(4, 5, 10, var(--scrim)) 0%,
+			rgba(4, 5, 10, calc(var(--scrim) * 0.9)) 55%,
+			rgba(4, 5, 10, 0) 100%
+		);
+		transition: opacity 400ms cubic-bezier(0.2, 0.8, 0.2, 1);
 	}
 	.stage {
 		position: relative;
@@ -347,7 +410,7 @@
 	.meta {
 		margin-left: auto;
 		font-size: 11.5px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		white-space: nowrap;
 	}
 	.name .meta {
@@ -389,12 +452,12 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-size: 11px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.more {
 		margin: 2px 0 0;
 		font-size: 11.5px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.mono {
 		font-family: var(--mono);
@@ -419,7 +482,7 @@
 		background: none;
 		font: inherit;
 		font-size: 12px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		padding: 5px 8px;
 		border-radius: 7px;
 	}

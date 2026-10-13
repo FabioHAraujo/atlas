@@ -398,7 +398,7 @@
 		background: transparent;
 	}
 	.btn:disabled {
-		opacity: 0.5;
+		color: var(--ca-text-disabled);
 	}
 	.idle {
 		display: flex;

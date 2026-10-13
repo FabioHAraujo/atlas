@@ -70,7 +70,7 @@
 	.label {
 		margin-bottom: 6px;
 		font-size: 11px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.hex {
 		margin: 0;

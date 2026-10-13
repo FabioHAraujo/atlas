@@ -190,7 +190,7 @@
 	.n {
 		font-size: 12px;
 		font-weight: 500;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.hero {
 		flex: 1;

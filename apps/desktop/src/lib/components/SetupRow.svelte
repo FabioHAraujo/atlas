@@ -209,7 +209,7 @@
 		padding: 0;
 		border-radius: 5px;
 		background: none;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		flex: none;
 	}
 	.info:hover {

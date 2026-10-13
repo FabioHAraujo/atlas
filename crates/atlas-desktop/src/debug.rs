@@ -198,13 +198,14 @@ fn api_body(f: &str, args: &[Value]) -> String {
     )
 }
 
-/// The page-side body of `a11y`, optionally scoped to a selector (JSON-quoted, never spliced as code).
-fn a11y_body(selector: Option<&str>) -> String {
+/// The page-side body of a root-scoped audit (`a11y`, `contrast`): `window.__atlasDebug.<f>(root)` on the element at
+/// the selector (JSON-quoted, never spliced as code) or on the body.
+fn scoped_body(f: &str, selector: Option<&str>) -> String {
     let root = selector.map_or("document.body".to_string(), |s| {
         format!("document.querySelector({})", json!(s))
     });
     format!(
-        "const d = window.__atlasDebug; const root = {root}; if (!root) throw new Error('no element matches ' + {}); return d.a11yTree(root);",
+        "const d = window.__atlasDebug; const root = {root}; if (!root) throw new Error('no element matches ' + {}); return d.{f}(root);",
         json!(selector)
     )
 }
@@ -298,7 +299,20 @@ async fn handle<R: Runtime>(app: &AppHandle<R>, raw: &Value) -> Result<Value, St
             Ok(json!({ "typed": true, "value": value }))
         }
         Req::A11y { selector } => {
-            page_eval(app, &a11y_body(selector.as_deref()), EVAL_TIMEOUT).await
+            page_eval(
+                app,
+                &scoped_body("a11yTree", selector.as_deref()),
+                EVAL_TIMEOUT,
+            )
+            .await
+        }
+        Req::Contrast { selector } => {
+            page_eval(
+                app,
+                &scoped_body("contrastAudit", selector.as_deref()),
+                EVAL_TIMEOUT,
+            )
+            .await
         }
         Req::Perf { secs } => {
             let body = format!(
@@ -493,13 +507,17 @@ mod tests {
     }
 
     #[test]
-    fn a11y_scopes_to_a_json_quoted_selector_or_the_body() {
-        assert!(a11y_body(None).contains("const root = document.body;"));
-        let b = a11y_body(Some(r#"a[href="x"]"#));
+    fn scoped_audits_use_a_json_quoted_selector_or_the_body() {
+        assert!(scoped_body("a11yTree", None).contains("const root = document.body;"));
+        let b = scoped_body("a11yTree", Some(r#"a[href="x"]"#));
         assert!(
             b.contains(r#"document.querySelector("a[href=\"x\"]")"#),
             "{b}"
         );
+        assert!(b.contains("d.a11yTree(root)"), "{b}");
+        let c = scoped_body("contrastAudit", None);
+        assert!(c.contains("d.contrastAudit(root)"), "{c}");
+        assert!(c.contains("const root = document.body;"), "{c}");
     }
 
     /// Incident (first agent run): `wait --expr` died with "Refused to evaluate a string as JavaScript" (CSP).

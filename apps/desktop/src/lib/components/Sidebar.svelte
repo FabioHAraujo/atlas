@@ -227,8 +227,9 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		/* Native vibrancy is behind; just a hint of tint for legibility. */
-		background: color-mix(in oklab, var(--ca-glass-tint-ultra-thin) 40%, transparent);
+		/* The native material shows through (18%, SIDEBAR_SEE_THROUGH in theme/derive.ts); the theme's own chrome surface
+		   carries the rest, so text contrast is a property of the theme tokens, never of the wallpaper or macOS appearance. */
+		background: color-mix(in srgb, var(--ca-surface-sunken) 82%, transparent);
 	}
 	.drag {
 		height: 52px;
@@ -381,7 +382,7 @@
 		background: color-mix(in oklab, var(--ca-text-primary) 11%, transparent);
 	}
 	.item.creating {
-		opacity: 0.7;
+		color: var(--ca-text-secondary);
 	}
 	.list :global(.name) {
 		flex: 1;

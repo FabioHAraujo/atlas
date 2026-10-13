@@ -58,7 +58,7 @@ export function paint(
 	w: number,
 	h: number,
 	theme: Theme = ATLAS,
-	opts: { shake?: number } = {},
+	opts: { shake?: number; layout?: { globeCy: number; globeFraction: number; dim: number } } = {},
 ): void {
 	ctx.globalCompositeOperation = "source-over";
 	ctx.globalAlpha = 1;
@@ -72,10 +72,11 @@ export function paint(
 	ctx.scale(cam.zoom, cam.zoom);
 	ctx.translate(-w / 2, -h / 2);
 
-	const unit = (Math.min(w, h) * MARK_FRACTION) / MARK_VIEW.w;
+	const lay = opts.layout ?? { globeCy: 0.44, globeFraction: MARK_FRACTION, dim: 0 };
+	const unit = (Math.min(w, h) * lay.globeFraction) / MARK_VIEW.w;
 	const scale = unit * f.markScale * f.push;
 	const cx = w / 2;
-	const cy = h * 0.44;
+	const cy = h * lay.globeCy;
 	const R = GLOBE.r * scale;
 
 	// Halo: the globe's own light on the stage, rising with the build-up.
@@ -289,6 +290,13 @@ export function paint(
 	// Passing into the mark: it dims as the camera goes through (the live view crossfades to the welcome here).
 	if (f.markFade < 1) {
 		ctx.fillStyle = `rgba(3,4,10,${(1 - f.markFade) * 0.85})`;
+		ctx.fillRect(0, 0, w, h);
+	}
+	// Backdrop mode: soften the whole globe toward the stage so the copy under it reads (dim = 0 is the hero, untouched).
+	if (lay.dim > 0) {
+		ctx.globalCompositeOperation = "source-over";
+		ctx.globalAlpha = 1;
+		ctx.fillStyle = `rgba(3,4,10,${lay.dim})`;
 		ctx.fillRect(0, 0, w, h);
 	}
 	ctx.restore();

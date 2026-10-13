@@ -235,13 +235,13 @@
 		color: var(--cm-syn-constant, var(--rv-warn));
 	}
 	.v.c {
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 	}
 	.ty {
 		margin-left: auto;
 		flex: none;
 		font-size: 10px;
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		opacity: 0;
 	}
 	.n:hover .ty,

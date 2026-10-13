@@ -81,6 +81,12 @@ class Themes {
 	/** The active theme with every token defined (derived where the file left gaps). */
 	current = $derived.by(() => this.resolve(null));
 
+	/** The user's dark theme, completed: surfaces that are always dark (the welcome sky) paint their text with it. */
+	currentDark = $derived.by(() => {
+		const t = resolveTheme(this.list, { ...this.selection, mode: "dark" }, true);
+		return t && { ...t, style: complete(t.style, t.appearance) };
+	});
+
 	currentTerminal = $derived.by(() => {
 		const t = resolveTerminalTheme(this.list, this.selection.terminal, this.current);
 		return t && t === this.current ? t : t && { ...t, style: complete(t.style, t.appearance) };

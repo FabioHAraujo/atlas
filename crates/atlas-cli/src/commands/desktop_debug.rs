@@ -92,6 +92,12 @@ pub enum DebugCmd {
         /// Only this subtree (CSS selector)
         selector: Option<String>,
     },
+    /// WCAG contrast of every visible text node (fg x opacity chain vs composited bg): failures with selector,
+    /// ratio, required ratio and the theme tokens involved; backgrounds that are images/gradients are `unknown`
+    Contrast {
+        /// Only this subtree (CSS selector)
+        selector: Option<String>,
+    },
     /// Frame times (rAF/s, p50/p95/max) and long tasks over a few seconds
     Perf {
         #[arg(long, default_value_t = 2)]
@@ -192,8 +198,13 @@ pub fn to_request(cmd: &DebugCmd) -> Result<(Value, Duration)> {
             json!({ "cmd": "type", "selector": selector, "text": text, "delay_ms": delay }),
             extra(delay.saturating_mul(text.chars().count() as u64)),
         ),
-        DebugCmd::A11y { selector } => {
-            let mut v = json!({ "cmd": "a11y" });
+        DebugCmd::A11y { selector } | DebugCmd::Contrast { selector } => {
+            let cmd = if matches!(cmd, DebugCmd::A11y { .. }) {
+                "a11y"
+            } else {
+                "contrast"
+            };
+            let mut v = json!({ "cmd": cmd });
             if let Some(s) = selector {
                 v["selector"] = json!(s);
             }
@@ -389,6 +400,11 @@ mod tests {
         assert_eq!(
             req(&["a11y", "nav"]),
             json!({"cmd":"a11y","selector":"nav"})
+        );
+        assert_eq!(req(&["contrast"]), json!({"cmd":"contrast"}));
+        assert_eq!(
+            req(&["contrast", "aside.sidebar"]),
+            json!({"cmd":"contrast","selector":"aside.sidebar"})
         );
         assert_eq!(
             req(&["perf", "--seconds", "3"]),

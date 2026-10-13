@@ -224,7 +224,8 @@ describe("bundled themes", () => {
 		const v = cssVars(parseThemeFamily(atlas)[0].style);
 		expect(v["--ca-surface-base"]).toBe("#0a0b0e");
 		expect(v["--ca-text-primary"]).toBe("#e9ebef");
-		expect(v["--ca-brand-main"]).toBe("#2b80ff");
+		// The kit's #2b80ff read 4.48:1 on the elevated surface and less on its own 14% tint (AA needs 4.5, theme.test.ts); the theme ships it lifted.
+		expect(v["--ca-brand-main"]).toBe("#5897fa");
 	});
 
 	test("every bundled theme defines a full 16-color terminal palette", () => {

@@ -83,7 +83,7 @@
 		-webkit-user-select: none;
 	}
 	.ts {
-		color: var(--ca-text-disabled);
+		color: var(--ca-text-secondary);
 		flex-shrink: 0;
 		font-variant-numeric: tabular-nums;
 	}

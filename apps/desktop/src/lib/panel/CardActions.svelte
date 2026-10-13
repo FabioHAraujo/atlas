@@ -136,7 +136,7 @@
 		color: var(--ca-text-primary);
 	}
 	.b:disabled {
-		opacity: 0.4;
+		color: var(--ca-text-disabled);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.btns {

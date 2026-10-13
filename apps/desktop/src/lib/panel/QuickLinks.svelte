@@ -59,8 +59,9 @@
 		border-color: color-mix(in oklab, var(--space-accent, var(--ca-brand-main)) 60%, transparent);
 		background: color-mix(in oklab, var(--space-accent, var(--ca-brand-main)) 6%, var(--ca-surface-raised));
 	}
-	.qbtn:disabled {
-		opacity: 0.45;
+	.qbtn:disabled,
+	.qbtn:disabled .qurl {
+		color: var(--ca-text-disabled);
 	}
 	.qname {
 		font-weight: 600;

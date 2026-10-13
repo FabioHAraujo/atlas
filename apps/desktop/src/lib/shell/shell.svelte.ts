@@ -4,8 +4,9 @@
  */
 import { colorScheme } from "@codeatlasdev/ui";
 import { store } from "#lib/stores/projects.svelte.ts";
+import { themes } from "#lib/stores/theme.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
-import { neighbour, accentOf, spreadHues, tintOf } from "#lib/shell/space.ts";
+import { neighbour, accentOf, accentTextOf, hueOf, spreadHues, tintOf } from "#lib/shell/space.ts";
 import { spacePager } from "#lib/shell/pager.ts";
 import { hueFor } from "#lib/shell/identity.ts";
 import { emptyHistory, step, visit, type History, type Visit } from "#lib/shell/history.ts";
@@ -37,6 +38,17 @@ class Shell {
 
 	accent(spaceId: string) {
 		return accentOf(spaceId, this.dark, this.hues[spaceId]);
+	}
+	/** The accent as text: AA on every chrome surface of the live theme (`accentTextOf`). `--space-accent` is for fills. */
+	accentText(spaceId: string) {
+		const st = themes.current?.style;
+		const surfaces = [
+			"background",
+			"editor.background",
+			"surface.background",
+			"elevated_surface.background",
+		].map((k) => (st?.[k] as string | undefined)?.slice(0, 7) ?? (this.dark ? "#000000" : "#ffffff"));
+		return accentTextOf(this.dark, this.hues[spaceId] ?? hueOf(spaceId), surfaces);
 	}
 	tint(spaceId: string) {
 		return tintOf(spaceId, this.dark, this.hues[spaceId]);

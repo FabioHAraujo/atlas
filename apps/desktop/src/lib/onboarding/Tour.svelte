@@ -182,7 +182,7 @@
 	.step {
 		font-size: 11px;
 		font-weight: 600;
-		color: var(--space-accent, var(--ca-brand-main));
+		color: var(--space-accent-text, var(--ca-brand-main));
 		font-variant-numeric: tabular-nums;
 	}
 	h3 {

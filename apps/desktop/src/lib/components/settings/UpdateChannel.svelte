@@ -292,7 +292,7 @@
 		box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--ca-brand-main) 60%, transparent);
 	}
 	.card.locked {
-		opacity: 0.6;
+		background: var(--ca-surface-sunken);
 		cursor: not-allowed;
 	}
 	:global([data-kbd]) .card:focus-visible {

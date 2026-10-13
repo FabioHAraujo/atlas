@@ -10,12 +10,24 @@ mock.module("#lib/host.ts", () => ({
 }));
 // Stubs live only for this file: bun runs every test file in one process, so leaking the stub `document`
 // broke every DOM suite that ran after this one (see test/dom-isolation.test.ts).
-const saved = { document: globalThis.document, $state: globalThis.$state, $effect: globalThis.$effect };
-globalThis.document = { hasFocus: () => true };
+// Save descriptors, not values: once Svelte's client runtime is loaded, reading `globalThis.$state`
+// hits its throwing getter (rune_outside_svelte), which broke CI when another suite loaded first.
+const keys = ["document", "$state", "$effect"];
+const saved = Object.fromEntries(keys.map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
+const put = (k, value) => Object.defineProperty(globalThis, k, { value, configurable: true, writable: true });
+put("document", { hasFocus: () => true });
 // Runes are compiled by Svelte; plain objects are enough for the rules under test.
-globalThis.$state = (v) => v;
-globalThis.$effect = Object.assign(() => {}, { root: (f) => f() });
-afterAll(() => Object.assign(globalThis, saved));
+put("$state", (v) => v);
+put(
+	"$effect",
+	Object.assign(() => {}, { root: (f) => f() }),
+);
+afterAll(() => {
+	for (const k of keys) {
+		if (saved[k]) Object.defineProperty(globalThis, k, saved[k]);
+		else delete globalThis[k];
+	}
+});
 
 const { ws } = await import("./workspace.svelte.ts");
 

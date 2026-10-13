@@ -4,6 +4,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertDelivered, cueEnd, mix } from "./audio/mix.ts";
+import { deriveRenditions, sidecarFor } from "./camera/derive.ts";
 import { compile, type CompileOpts } from "./compile.ts";
 import { ffmpeg, loudness, probe, run, sha256File } from "./lib/exec.ts";
 import { BUILD, OUT, STUDIO, StudioError } from "./lib/paths.ts";
@@ -52,7 +53,10 @@ export function filmVideoArgs(film: { crf: number; fps: number }, draft: boolean
 	return ["-c:v", "libx264", "-crf", String(film.crf), "-preset", "slow", "-pix_fmt", "yuv420p", "-g", gop, "-keyint_min", gop, "-sc_threshold", "0"];
 }
 
-export async function renderCut(film: Film, cut: Cut, opts: RenderOpts = {}): Promise<RenderReport> {
+export async function renderCut(film: Film, source: Cut, opts: RenderOpts = {}): Promise<RenderReport> {
+	// a `reframe` cut is DERIVED from the film's source cut: scenes and virtual camera are planned here, from the same film
+	// data and camera.json, so every caller (render, still, fix) renders the same cut
+	const cut = source.reframe && source.scenes.length === 0 ? (await deriveRenditions(film)).find((c) => c.out === source.out)! : source;
 	const c = await compile(film, cut, opts.compile);
 	const lint = await hf(["check", "--json"], c.dir).catch((e: StudioError) => {
 		throw new StudioError(`hyperframes check failed for ${cut.out}`, e.hint);
@@ -99,6 +103,12 @@ export async function renderCut(film: Film, cut: Cut, opts: RenderOpts = {}): Pr
 			await add(`${cut.out}-thumbs.jpg`);
 			await add(`${cut.out}-thumbs.vtt`);
 		}
+	}
+	// the camera's own record of what it did, in the output's pixels and the cut's seconds: the lint reads it
+	if (cut.reframe) {
+		const sidecar = sidecarFor(film, cut, c.starts);
+		if (c.captionCues) sidecar.captions = c.captionCues;
+		writeFileSync(join(out, `${cut.out}.camera.json`), `${JSON.stringify(sidecar, null, "\t")}\n`);
 	}
 	const measured = await probe(mp4);
 	const report: RenderReport = {

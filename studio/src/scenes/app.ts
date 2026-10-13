@@ -1,3 +1,4 @@
+import { cameraJs } from "../camera/gsap.ts";
 import { StudioError } from "../lib/paths.ts";
 import type { AppClipScene, Aspect, Box } from "../lib/types.ts";
 import { type BuildCtx, type SceneOutput, titleCss, titleHtml } from "./base.ts";
@@ -23,7 +24,8 @@ export function placeBox(box: Box, aspect: Aspect, srcAspect: number): { x: numb
  * `<video>` is a direct child of the scene root; push-in and pan act on a non-timed wrapper so they stay seek-safe.
  * The optional cursor ring is a deterministic overlay (recordings capture no cursor).
  */
-export function buildApp(s: AppClipScene, ctx: BuildCtx, proxy: { file: string; aspect: number }): SceneOutput {
+export function buildApp(s: AppClipScene, ctx: BuildCtx, proxy: { file: string; aspect: number; w?: number; h?: number }): SceneOutput {
+	if (s.camera && s.viewport && proxy.w && proxy.h) return buildCameraApp(s, ctx, { file: proxy.file, w: proxy.w, h: proxy.h });
 	const b = placeBox(s.box, ctx.aspect, proxy.aspect);
 	const src = ctx.asset(proxy.file);
 	const radius = s.radius ?? 12;
@@ -41,6 +43,30 @@ ${s.cursor?.length ? `<div id="ring"></div>` : ""}</div>${overlay}`,
 #clip video{position:absolute;left:0;top:0;display:block;object-fit:fill}
 #ring{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;border:3px solid rgba(255,255,255,.95);box-shadow:0 0 0 6px rgba(127,233,255,.25);opacity:0;pointer-events:none}`,
 		js: [push, pan, cursor].filter(Boolean).join("\n"),
+	};
+}
+
+/**
+ * An app scene under a virtual camera (src/camera). The `#clip` is the VIEWPORT: it clips what the camera sees. Inside it
+ * `#cam` holds the video at the proxy's own pixel size with `transform-origin: 0 0`; the track (camera/gsap.ts)
+ * animates its x/y/scale frame-exactly. The viewport has no radius or shadow: it is a window onto the recording, whose
+ * own bezel is the app window, and at zoom the edge of the viewport is the edge of the picture, not of the window.
+ */
+function buildCameraApp(s: AppClipScene, ctx: BuildCtx, proxy: { file: string; w: number; h: number }): SceneOutput {
+	const v = s.viewport!;
+	const src = ctx.asset(proxy.file);
+	const frame = { source: { w: s.crop.w, h: s.crop.h }, viewport: v, frame: { w: ctx.aspect.w, h: ctx.aspect.h }, scale: 2 };
+	const cursor = s.cursor?.length ? cursorJs(s.cursor, { w: proxy.w, h: proxy.h }) : "";
+	const overlay = s.overlay ? titleHtml("overlay", s.overlay, ctx, 48) : "";
+	return {
+		html: `<div id="clip" style="left:${v.x}px;top:${v.y}px;width:${v.w}px;height:${v.h}px">
+<div id="cam" style="width:${proxy.w}px;height:${proxy.h}px"><video id="vid" class="clip" src="${src}" muted playsinline data-start="0" data-duration="${s.duration}" data-track-index="1" style="width:${proxy.w}px;height:${proxy.h}px"></video>${s.cursor?.length ? `<div id="ring"></div>` : ""}</div></div>${overlay}`,
+		css: `${titleCss}
+#clip{position:absolute;border-radius:0px;overflow:hidden}
+#cam{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+#cam video{position:absolute;left:0;top:0;display:block;object-fit:fill}
+#ring{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;border:3px solid rgba(255,255,255,.95);box-shadow:0 0 0 6px rgba(127,233,255,.25);opacity:0;pointer-events:none}`,
+		js: [cameraJs(s.camera!.keys, frame, proxy, s.duration, ctx.fps, "#cam"), cursor].filter(Boolean).join("\n"),
 	};
 }
 

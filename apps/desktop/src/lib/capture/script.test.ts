@@ -1,6 +1,6 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
 import { describe, expect, test } from "bun:test";
-import { MAX_SCRIPT_MS, parseScript, scriptDurationMs } from "./script.ts";
+import { MAX_SCRIPT_MS, MAX_STEP_MS, parseScript, scriptDurationMs } from "./script.ts";
 
 const ok = (over = {}) => ({
 	version: 1,
@@ -90,6 +90,7 @@ describe("parseScript: steps", () => {
 			{ do: "zoom", target: ".panel", scale: 1.6, ms: 700 },
 			{ do: "caption", text: "Every service, one place", ms: 2000 },
 			{ do: "pointer", target: ".btn", ms: 400 },
+			{ do: "focus", target: ".panel", label: "Every service", ms: 1800, textPx: 12 },
 			{ do: "mark", name: "money-shot" },
 			{ do: "shot", name: "panel" },
 		];
@@ -194,7 +195,80 @@ describe("parseScript: steps", () => {
 	});
 });
 
+describe("parseScript: focus step", () => {
+	const focus = (over = {}) =>
+		parseScript(ok({ steps: [{ do: "focus", target: ".panel", ms: 1800, ...over }] }));
+
+	test("a focus step needs a target and the time the viewer needs; label, textPx and id are optional", () => {
+		expect(focus().ok).toBe(true);
+		expect(focus({ label: "Every service, one place", textPx: 11, id: "panel-read" }).ok).toBe(true);
+		expect(focus({ ms: 0 }).ok).toBe(true);
+	});
+
+	test("every invalid field is reported with its steps[i].field path", () => {
+		const bad: [Record<string, unknown>, string][] = [
+			[{ target: "" }, "steps[0].target"],
+			[{ target: 3 }, "steps[0].target"],
+			[{ target: undefined }, "steps[0].target"],
+			[{ ms: -1 }, "steps[0].ms"],
+			[{ ms: MAX_STEP_MS + 1 }, "steps[0].ms"],
+			[{ ms: "900" }, "steps[0].ms"],
+			[{ ms: undefined }, "steps[0].ms"],
+			[{ label: "" }, "steps[0].label"],
+			[{ label: 7 }, "steps[0].label"],
+			[{ textPx: 3.9 }, "steps[0].textPx"],
+			[{ textPx: 201 }, "steps[0].textPx"],
+			[{ textPx: Number.NaN }, "steps[0].textPx"],
+			[{ textPx: "12" }, "steps[0].textPx"],
+			[{ id: "has space" }, "steps[0].id"],
+			[{ scale: 2 }, "steps[0].scale"],
+		];
+		for (const [over, path] of bad) {
+			const r = focus(over);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.map((e) => e.path)).toContain(path);
+		}
+	});
+
+	test("the textPx bounds are inclusive: 4 and 200 pass", () => {
+		expect(focus({ textPx: 4 }).ok).toBe(true);
+		expect(focus({ textPx: 200 }).ok).toBe(true);
+	});
+
+	test("a duplicate id is refused, shared with the other step kinds", () => {
+		const r = parseScript(
+			ok({
+				steps: [
+					{ do: "pause", ms: 1, id: "a" },
+					{ do: "focus", target: ".x", ms: 1, id: "a" },
+				],
+			}),
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors[0].path).toBe("steps[1].id");
+	});
+
+	test("unknown step kinds list focus among the valid ones", () => {
+		const r = parseScript(ok({ steps: [{ do: "zoomm" }] }));
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors[0].message).toContain("focus");
+	});
+});
+
 describe("scriptDurationMs", () => {
+	test("focus counts its ms like zoom: the recording waits for the viewer", () => {
+		const r = parseScript(
+			ok({
+				steps: [
+					{ do: "focus", target: ".a", ms: 1500 },
+					{ do: "zoom", target: ".a", scale: 2, ms: 500 },
+				],
+			}),
+		);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(scriptDurationMs(r.script)).toBe(2000);
+	});
+
 	test("sums the declared durations: pause + typing (chars x delay) + scroll/zoom/caption ms", () => {
 		const r = parseScript(
 			ok({

@@ -12,6 +12,9 @@ import { assetPath } from "./lib/assets.ts";
 import { sha256 } from "./lib/exec.ts";
 import { BUILD, STUDIO, StudioError } from "./lib/paths.ts";
 import { ASPECTS, type Cut, type Film, type Overlay, type Scene } from "./lib/types.ts";
+import { cameraProxySize } from "./camera/proxy.ts";
+import type { CaptionCue } from "./camera/types.ts";
+import { burnedCaptionsFor, captionSidecar } from "./captions/html.ts";
 import { prepareApp, prepareTerminal, type Proxy } from "./prepare.ts";
 import { buildApp, placeBox } from "./scenes/app.ts";
 import { type BuildCtx, fadesJs, fieldCss, fieldHtml, fieldJs, type SceneOutput } from "./scenes/base.ts";
@@ -31,6 +34,8 @@ export interface Compiled {
 	starts: Record<string, number>;
 	width: number;
 	height: number;
+	/** the burned captions as laid out (the lint reads them from the camera sidecar) */
+	captionCues?: CaptionCue[];
 }
 
 export interface CompileOpts {
@@ -89,14 +94,16 @@ export async function compile(film: Film, cut: Cut, opts: CompileOpts = {}): Pro
 	}
 
 	const overlays = (cut.overlays ?? []).map((o, i) => overlayHtml(o, i, aspect.w));
-	const captions = cut.captions.burned && cut.voice ? burnedCaptions(cut, aspect.w, aspect.h) : "";
+	const burned = cut.captions.burned && cut.voice ? await burnedCaptionsFor(film, cut) : undefined;
+	if (burned?.layout.problems.length) throw new StudioError(`burned captions break the ${cut.aspect} caption rules:\n  ${burned.layout.problems.join("\n  ")}`, "shorten or re-time the narration line (film.ts), or re-record it faster/slower: bun studio voice <film>");
+	const captions = burned?.html ?? "";
 	copyFont(dir);
 	writeFileSync(join(dir, "index.html"), hostFile(film, cut, aspect.w, aspect.h, duration, hosts, overlays, captions));
 
 	const hash = sha256(
 		[readFileSync(join(dir, "index.html"), "utf8"), ...scenes.map((s) => readFileSync(join(dir, "compositions", `${s.id}.html`), "utf8")), ...[...copied.keys()].sort().map((k) => `${k}:${sha256(readFileSync(join(dir, k)))}`)].join("\n")
 	).slice(0, 16);
-	return { dir, duration, hash, starts, width: aspect.w, height: aspect.h };
+	return { dir, duration, hash, starts, width: aspect.w, height: aspect.h, ...(burned ? { captionCues: captionSidecar(burned.layout.cues) } : {}) };
 }
 
 async function buildScene(s: Scene, ctx: BuildCtx, film: Film, dir: string, copied: Map<string, string>): Promise<SceneOutput> {
@@ -106,12 +113,17 @@ async function buildScene(s: Scene, ctx: BuildCtx, film: Film, dir: string, copi
 		case "code":
 			return buildCode(s, ctx);
 		case "app": {
+			if (s.camera && s.viewport) {
+				const size = cameraProxySize({ w: s.crop.w, h: s.crop.h }, s.viewport.w, s.camera.keys);
+				const proxy = await prepareApp(s, size.w, size.h, film.fps);
+				return buildApp(s, ctx, { ...stage(proxy, dir, copied), ...size });
+			}
 			const b = placeBox(s.box, ctx.aspect, s.crop.w / s.crop.h);
 			const proxy = await prepareApp(s, b.w, b.h, film.fps);
 			return buildApp(s, ctx, stage(proxy, dir, copied));
 		}
 		case "terminal": {
-			const proxy = await prepareTerminal(s, film.fps);
+			const proxy = await prepareTerminal(s.viewport ? { ...s, width: s.viewport.w } : s, film.fps);
 			return buildTerminal(s, ctx, stage(proxy, dir, copied));
 		}
 	}
@@ -176,17 +188,6 @@ function overlayHtml(o: Overlay, i: number, w: number): string {
 		return `<div ${common} style="position:absolute;left:${Math.round(w * 0.04)}px;top:48px;color:#fff;font:600 28px var(--mono);letter-spacing:.04em;text-shadow:0 2px 20px rgba(5,10,60,.8)">${String(o.index).padStart(2, "0")} / ${esc(o.title)}</div>`;
 	}
 	return `<div ${common} style="position:absolute;left:${Math.round(w * 0.05)}px;bottom:96px;color:#fff;font-family:var(--font);text-shadow:0 2px 24px rgba(5,10,60,.85)"><div style="font-size:48px;font-weight:700;letter-spacing:-.02em">${esc(o.title)}</div>${o.subtitle ? `<div style="font-size:28px;opacity:.8;margin-top:6px">${esc(o.subtitle)}</div>` : ""}</div>`;
-}
-
-/** Burned captions: one timed element per narration line, at the line's start for its measured length (see mix.ts). */
-function burnedCaptions(cut: Cut, w: number, h: number): string {
-	const lines = cut.voice?.lines ?? [];
-	return lines
-		.map((l, i) => {
-			const end = (lines[i + 1]?.at ?? l.at + 6) - 0.05;
-			return `<div id="cap${i}" class="clip" data-start="${l.at}" data-duration="${num(Math.max(0.5, end - l.at))}" data-track-index="4" style="position:absolute;left:${Math.round(w * 0.08)}px;right:${Math.round(w * 0.08)}px;bottom:${Math.round(h * 0.12)}px;text-align:center;color:#fff;font:600 ${w > h ? 44 : 52}px/1.25 var(--font);text-shadow:0 2px 24px rgba(5,10,60,.95),0 0 6px rgba(5,10,60,.9)">${esc(l.text)}</div>`;
-		})
-		.join("\n");
 }
 
 function hostFile(film: Film, cut: Cut, w: number, h: number, duration: number, hosts: string[], overlays: string[], captions: string): string {

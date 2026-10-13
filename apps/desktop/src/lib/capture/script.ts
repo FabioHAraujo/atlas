@@ -5,6 +5,11 @@
  * A script is executed through the app's own stores (never OS input) while the native recorder rolls; the runner
  * records exact step timings into a timeline (see timeline.ts). Steps are declarative on purpose: no arbitrary JS,
  * so a script is safe to hand to a release build over the ctl socket.
+ *
+ * `focus` is the one step that is only a statement of intent: it changes nothing in the app. It says "the viewer
+ * must be able to READ `target` for `ms` here" (`label` = what they should see, `textPx` = CSS px of the smallest
+ * text in it). The runner records the element's rect into the timeline's `focus` track and waits `ms`; Studio's
+ * virtual camera later zooms to it so the text is legible on a phone-sized cut.
  */
 
 export const SCRIPT_VERSION = 1;
@@ -38,6 +43,7 @@ export type Step = Base &
 				timeoutMs?: number;
 		  }
 		| { do: "zoom"; target: Selector; scale: number; ms: number }
+		| { do: "focus"; target: Selector; label?: string; ms: number; textPx?: number }
 		| { do: "caption"; text: string; ms: number }
 		| { do: "pointer"; target: Selector; ms: number }
 		| { do: "mark"; name: string }
@@ -74,6 +80,7 @@ const KINDS: StepKind[] = [
 	"scroll",
 	"wait",
 	"zoom",
+	"focus",
 	"caption",
 	"pointer",
 	"mark",
@@ -290,6 +297,13 @@ function parseStep(
 			str("text");
 			ms("ms");
 			break;
+		case "focus":
+			field("target", "label", "ms", "textPx");
+			str("target");
+			str("label", false);
+			ms("ms");
+			num("textPx", 4, 200, false);
+			break;
 		case "pointer":
 			field("target", "ms");
 			str("target");
@@ -314,6 +328,7 @@ export function scriptDurationMs(script: Script): number {
 			case "pause":
 			case "scroll":
 			case "zoom":
+			case "focus":
 			case "caption":
 			case "pointer":
 				t += s.ms;

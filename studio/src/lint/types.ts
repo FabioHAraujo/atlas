@@ -23,7 +23,7 @@ export interface TimeRange {
  * pixels at the file's own resolution); `film` is the film.ts-level hint when the file comes from a film.
  */
 export interface Fix {
-	action: "add-headroom" | "reframe" | "move-out-of-safe-zone" | "enlarge-text" | "raise-contrast" | "normalize-loudness" | "limit-peaks" | "re-encode" | "trim" | "reduce-flashing" | "remove-black" | "remove-freeze" | "change-resolution" | "lower-bitrate" | "set-keyframe-interval";
+	action: "add-headroom" | "reframe" | "move-out-of-safe-zone" | "enlarge-text" | "raise-contrast" | "normalize-loudness" | "limit-peaks" | "re-encode" | "trim" | "reduce-flashing" | "remove-black" | "remove-freeze" | "change-resolution" | "lower-bitrate" | "set-keyframe-interval" | "slow-camera" | "set-camera-zoom" | "enlarge-source-text" | "rechunk-captions" | "retime-focus";
 	description: string;
 	params?: Record<string, number | string>;
 }
@@ -55,11 +55,22 @@ export interface Profile {
 	minDuration?: number;
 	/** integrated loudness target (LUFS), tolerance in LU, and true-peak ceiling (dBTP); undefined = no audio rules */
 	loudness?: { target: number; tolerance: number; truePeak: number };
-	/** fraction of the frame reserved by the platform UI: text and the subject must stay out of it */
+	/** fraction of the frame reserved by the platform UI (the union of `platforms`): text and the subject must stay out of it */
 	safe?: { top: number; bottom: number; left: number; right: number };
 	/** smallest legible glyph height (cap/x-height box) in px when the frame is shown at `displayHeight` px tall */
 	minTextPx: number;
 	displayHeight: number;
+	/**
+	 * The same measure for CAPTURED UI text that a shot asks the viewer to read (a `focus`). Smaller than `minTextPx`
+	 * because it is the app's own typography, which a camera can only enlarge up to the recording's resolution.
+	 * Derivation: the smallest text iOS ships (Caption 2) is 11 pt, an OCR glyph band of 0.8 x 11 = 8.8 px at the phone's
+	 * 844 pt display height; moving video cannot be re-read like a page, so the floor is twice that: 18 px.
+	 */
+	minFocusTextPx?: number;
+	/** UI zones per platform (fractions of the frame); the diagnostics name the platform whose zone is hit */
+	platforms?: Record<string, { top: number; bottom: number; left: number; right: number }>;
+	/** burned-caption rules: Netflix timed-text style guide (20 CPS, 42 chars per line, 2 lines), tightened to a phone */
+	captions?: { maxCps: number; maxCharsPerLine: number; maxLines: number; minGap: number; minDuration: number };
 	/** codecs accepted for the video stream */
 	codecs?: string[];
 	/** max video bitrate in kb/s, max keyframe interval in seconds */

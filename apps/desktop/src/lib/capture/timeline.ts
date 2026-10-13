@@ -38,6 +38,17 @@ export interface CameraHint {
 	scale: number;
 	target: Rect;
 }
+/** A `focus` step: this element must be readable for `ms` from `t`. `selector` lets Studio match it to a Focus. */
+export interface FocusHint {
+	t: number;
+	ms: number;
+	/** CSS px in window content coordinates, like `CameraHint.target`. */
+	target: Rect;
+	label?: string;
+	/** CSS px of the smallest text inside `target`. */
+	textPx?: number;
+	selector: string;
+}
 export interface CaptionHint {
 	t: number;
 	ms: number;
@@ -66,6 +77,8 @@ export interface Timeline {
 	duration_ms: number;
 	steps: StepRecord[];
 	camera: CameraHint[];
+	/** Absent in timelines recorded before the `focus` step existed; `parseTimeline` fills in []. */
+	focus: FocusHint[];
 	captions: CaptionHint[];
 	shots: ShotRecord[];
 	marks: MarkRecord[];
@@ -107,6 +120,7 @@ export class TimelineBuilder {
 			captions: [],
 			shots: [],
 			marks: [],
+			focus: [],
 			cursor: [],
 		};
 	}
@@ -146,6 +160,12 @@ export class TimelineBuilder {
 	camera(h: { target: Rect; scale: number; ms: number }) {
 		this.t.camera.push({ t: this.start(), ...h });
 	}
+	focus(h: { target: Rect; label?: string; ms: number; textPx?: number; selector: string }) {
+		const hint: FocusHint = { t: this.start(), ms: h.ms, target: h.target, selector: h.selector };
+		if (h.label !== undefined) hint.label = h.label;
+		if (h.textPx !== undefined) hint.textPx = h.textPx;
+		this.t.focus.push(hint);
+	}
 	caption(h: { text: string; ms: number }) {
 		this.t.captions.push({ t: this.start(), ...h });
 	}
@@ -178,6 +198,7 @@ export function shift(t: Timeline, delta: number): Timeline {
 		duration_ms: Math.max(0, t.duration_ms + delta),
 		steps: t.steps.map((s) => ({ ...s, start_ms: m(s.start_ms), end_ms: m(s.end_ms) })),
 		camera: t.camera.map((c) => ({ ...c, t: m(c.t) })),
+		focus: t.focus.map((c) => ({ ...c, t: m(c.t) })),
 		captions: t.captions.map((c) => ({ ...c, t: m(c.t) })),
 		shots: t.shots.map((c) => ({ ...c, t: m(c.t) })),
 		marks: t.marks.map((c) => ({ ...c, t: m(c.t) })),
@@ -202,8 +223,24 @@ export function parseTimeline(v: unknown): TimelineParse {
 		errors.push("duration_ms must be a number >= 0");
 	for (const k of ["steps", "camera", "captions", "shots", "marks", "cursor"] as const)
 		if (!Array.isArray(v[k])) errors.push(`${k} must be a list`);
+	if (v.focus !== undefined && !Array.isArray(v.focus)) errors.push("focus must be a list");
 	if (errors.length) return { ok: false, errors };
-	const t = v as unknown as Timeline;
+	// Additive field: a timeline recorded before `focus` existed has none, which is the same as no hints.
+	const t = { ...v, focus: v.focus ?? [] } as unknown as Timeline;
+	t.focus.forEach((h, i) => {
+		if (!isObj(h)) return void errors.push(`focus[${i}] must be an object`);
+		if (typeof h.t !== "number" || !(h.t >= 0)) errors.push(`focus[${i}].t must be a number >= 0`);
+		if (typeof h.ms !== "number" || !(h.ms >= 0)) errors.push(`focus[${i}].ms must be a number >= 0`);
+		if (typeof h.selector !== "string" || h.selector === "")
+			errors.push(`focus[${i}].selector must be a non-empty string`);
+		if (h.label !== undefined && typeof h.label !== "string")
+			errors.push(`focus[${i}].label must be a string`);
+		if (h.textPx !== undefined && typeof h.textPx !== "number")
+			errors.push(`focus[${i}].textPx must be a number`);
+		const r = h.target;
+		if (!isObj(r) || !(["x", "y", "width", "height"] as const).every((k) => Number.isFinite(r[k])))
+			errors.push(`focus[${i}].target must be a rect { x, y, width, height }`);
+	});
 	let prevEnd = 0;
 	t.steps.forEach((s, i) => {
 		if (!(s.end_ms >= s.start_ms)) errors.push(`steps[${i}] ends before it starts`);

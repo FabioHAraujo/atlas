@@ -160,6 +160,7 @@ function targetSelector(s: Step): string | undefined {
 		case "scroll":
 			return s.selector;
 		case "zoom":
+		case "focus":
 		case "pointer":
 			return s.target;
 		case "wait":
@@ -228,6 +229,14 @@ async function exec(
 			const r = app.rect(s.target);
 			if (!r) throw new Error(`zoom: no element matches ${s.target}`);
 			tl.camera({ target: r, scale: s.scale, ms: s.ms });
+			await env.sleep(s.ms);
+			return;
+		}
+		case "focus": {
+			const r = app.rect(s.target);
+			if (!r) throw new Error(`focus: no element matches ${s.target}`);
+			// Intent only: the page is untouched. Studio's camera applies the zoom when it cuts the clip.
+			tl.focus({ target: r, label: s.label, ms: s.ms, textPx: s.textPx, selector: s.target });
 			await env.sleep(s.ms);
 			return;
 		}

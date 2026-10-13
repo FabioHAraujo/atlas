@@ -35,8 +35,17 @@ export function parseArgs(argv: string[]): Parsed {
 	return { pos, flags };
 }
 
-/** Cuts to act on: all of them, or the ones matching `--aspect`. */
-export function pickCuts(film: Film, aspect: string | true | undefined): Cut[] {
+/**
+ * Cuts to act on: all of `film.cuts`, the ones matching `--aspect`, or the one named by `--cut <out>`, which may also be
+ * a derived rendition (`film.renditions`): a film can have a hand-authored 9:16 cut and a derived one.
+ */
+export function pickCuts(film: Film, aspect: string | true | undefined, cutOut?: string | true): Cut[] {
+	if (cutOut !== undefined) {
+		const all = [...film.cuts, ...(film.renditions ?? [])];
+		const hit = all.filter((c) => c.out === cutOut);
+		if (typeof cutOut !== "string" || hit.length === 0) throw new StudioError(`film "${film.id}" has no cut "${cutOut}"`, `cuts: ${all.map((c) => c.out).join(", ")}`);
+		return hit;
+	}
 	if (aspect === undefined) return film.cuts;
 	if (typeof aspect !== "string" || !(aspect in ASPECTS)) throw new StudioError(`bad --aspect "${aspect}"`, `use one of ${Object.keys(ASPECTS).join(", ")}`);
 	const cuts = film.cuts.filter((c) => c.aspect === (aspect as AspectId));

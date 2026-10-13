@@ -10,12 +10,13 @@ import { run } from "../lib/exec.ts";
 import { listFilms, loadFilm, parseArgs } from "../lib/films.ts";
 import { OUT, REPO, StudioError } from "../lib/paths.ts";
 import { checkBlack, checkClipping, checkFlashing, checkFrozen, checkLoudness, checkSpec, checkVmaf, isTransition, parseVmaf } from "./checks-video.ts";
+import { frameKindAt, lintCameraFile, loadSidecar, outsideViewports, sampleTimes, viewportsAt } from "./camera.ts";
 import { analyzeSubject, checkEdgeClipping, checkSafeArea } from "./checks-image.ts";
 import { detectBlack, detectClipping, detectFreeze, keyframeTimes, maxKeyframeGap, measureLoudness, probeMedia } from "./media.ts";
 import { checkContrast, checkTextSize, ocr, scopeTextToAuthored } from "./ocr.ts";
 import { decode, luminance } from "./pixels.ts";
 import { profileFor, profileForAspect } from "./profiles.ts";
-import type { Diagnostic, LintReport, Profile } from "./types.ts";
+import type { Diagnostic, LintReport, Profile, Rect } from "./types.ts";
 
 const IMAGE = /\.(jpe?g|png|webp)$/i;
 const VIDEO = /\.(mp4|webm|mov|mkv)$/i;
@@ -28,6 +29,7 @@ export function guessProfile(file: string, w: number, h: number, kind: "image" |
 	const ratio = w / h;
 	if (Math.abs(ratio - 9 / 16) < 0.02) return "social-vertical";
 	if (Math.abs(ratio - 1) < 0.02) return "social-square";
+	if (Math.abs(ratio - 4 / 5) < 0.02) return "social-portrait";
 	return basename(file).startsWith("film") ? "site-film" : "social-landscape";
 }
 
@@ -57,17 +59,19 @@ export interface LintOpts {
 	fast?: boolean;
 }
 
-async function lintImageFile(file: string, profile: Profile, report: LintReport, frame?: number): Promise<void> {
-	const img = await decode(file, { at: frame });
+/** Rects of the frame that are a camera viewport (a recording under the virtual camera): the app's own picture, framed by the camera rules, not by the generic window/typography rules. */
+async function lintImageFile(file: string, profile: Profile, report: LintReport, viewports: Rect[] = [], card = false): Promise<void> {
+	const img = await decode(file);
 	const d = report.diagnostics;
-	d.push(...checkEdgeClipping(img, profile));
+	// a zoomed recording fills its viewport by design: window-edge rules only apply to frames with no camera
+	if (viewports.length === 0 && !card) d.push(...checkEdgeClipping(img, profile));
 	const { engine, boxes } = await ocr(file).catch((e: unknown) => {
 		report.skipped.push({ check: "text/*, safe-area/*", reason: `OCR unavailable: ${(e as Error).message}` });
 		return { engine: "none" as const, boxes: [] };
 	});
 	if (engine !== "none" && !profile.captured) {
 		// legibility/contrast: only what the film authored; the captured app UI is the app's own typography
-		const { authored } = scopeTextToAuthored(boxes, analyzeSubject(img).box);
+		const { authored } = scopeTextToAuthored(outsideViewports(boxes, viewports), viewports.length ? undefined : analyzeSubject(img).box);
 		d.push(...checkTextSize(authored, img.h, profile), ...checkContrast(img, authored, profile), ...checkSafeArea(img, profile, authored));
 	}
 }
@@ -106,13 +110,13 @@ export async function lintFile(file: string, opts: LintOpts = {}): Promise<LintR
 			// OCR a still at the poster-ish middle, a third and two thirds: text that is only briefly on screen is still text
 			const tmp = join(process.env.TMPDIR ?? "/tmp", `lint-${process.pid}`);
 			await run(["mkdir", "-p", tmp]);
-			for (const f of [0.25, 0.5, 0.75]) {
-				const at = dur * f;
+			const sidecar = loadSidecar(file);
+			for (const at of sampleTimes(sidecar, dur)) {
 				if (isTransition(at, black)) continue; // mid-fade: the title is half transparent, not a defect
-				const png = join(tmp, `f${Math.round(f * 100)}.png`);
+				const png = join(tmp, `f${Math.round(at * 1000)}.png`);
 				await run(["ffmpeg", "-v", "error", "-y", "-ss", String(at), "-i", file, "-frames:v", "1", png]);
 				const sub: LintReport = { ...report, diagnostics: [], skipped: [] };
-				await lintImageFile(png, profile, sub);
+				await lintImageFile(png, profile, sub, sidecar ? viewportsAt(sidecar, at) : [], frameKindAt(sidecar, at) === "card");
 				for (const x of sub.diagnostics) d.push({ ...x, range: { start: +at.toFixed(2), end: +at.toFixed(2) } });
 				report.skipped.push(...sub.skipped.filter((s) => !report.skipped.some((r) => r.check === s.check)));
 			}
@@ -124,6 +128,8 @@ export async function lintFile(file: string, opts: LintOpts = {}): Promise<LintR
 			if (score === undefined) report.skipped.push({ check: "quality/vmaf", reason: "ffmpeg has no libvmaf or the files differ" });
 			else d.push(...checkVmaf(score));
 		}
+		// the camera rules read the sidecar the render wrote next to the cut; a cut without one has no virtual camera
+		await lintCameraFile(file, profile, report, opts.fast);
 	}
 	for (const x of d) report.summary[x.severity === "error" ? "errors" : x.severity === "warning" ? "warnings" : "infos"]++;
 	return report;

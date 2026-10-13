@@ -3,6 +3,7 @@
 // ad-hoc ffmpeg scripts. Provenance of the media is in site/public/media/README.md.
 
 import type { AppClipScene, Chapter, Cut, Film, NarrationLine, Scene, TerminalScene, TitleScene, VoiceSpec } from "../../src/lib/types.ts";
+import { socialRenditions, socialSource } from "./social.ts";
 
 // ---- 16:9 -------------------------------------------------------------------------------------------------------
 
@@ -264,6 +265,8 @@ const film: Film = {
 		license: "Generated music, used under the ElevenLabs plan terms of the account that generated it; verify those terms cover your distribution before using the film outside this site.",
 	},
 	cuts: [horizontal, vertical],
+	sources: [socialSource],
+	renditions: socialRenditions,
 };
 
 export default film;

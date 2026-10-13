@@ -77,3 +77,26 @@ describe("the vertical cut's overlay text stays inside the platform safe area at
 		expect(o.subtitle!.length * (o.subtitleSize ?? 48) * 0.43).toBeLessThanOrEqual(room);
 	});
 });
+
+describe("the social renditions are derived from one source, not hand-placed", () => {
+	test("every rendition reframes the `social` source and has a valid profile for its aspect", async () => {
+		const { validateRenditions } = await import("../../src/camera/validate.ts");
+		expect(validateRenditions(film)).toEqual([]);
+		expect(film.renditions!.map((c) => c.aspect).sort()).toEqual(["1:1", "4:5", "9:16"]);
+		for (const c of film.renditions!) expect(c.scenes).toEqual([]);
+	});
+
+	test("every app focus of the source has an anchor and a text size (what the camera needs to plan the zoom)", () => {
+		for (const s of film.sources![0]!.scenes) {
+			if (s.type !== "app") continue;
+			for (const f of s.focus ?? []) {
+				expect(f.text ?? f.selector ?? f.rect, `${s.id}/${f.id}`).toBeDefined();
+				expect(f.textPx, `${s.id}/${f.id}`).toBeGreaterThanOrEqual(4);
+			}
+		}
+	});
+
+	test("the published cuts are untouched: the social renditions are never in `cuts` (publish and check use those)", () => {
+		expect(film.cuts.map((c) => c.out)).toEqual(["film", "film-vertical"]);
+	});
+});

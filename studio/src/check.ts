@@ -15,6 +15,7 @@ import { probe, run } from "./lib/exec.ts";
 import { BUILD, REPO, STUDIO, StudioError } from "./lib/paths.ts";
 import type { Film } from "./lib/types.ts";
 import { enforce, lintPublished } from "./lint/gate.ts";
+import { validateRenditions } from "./camera/validate.ts";
 import { renderCut } from "./render.ts";
 
 const problems: string[] = [];
@@ -45,6 +46,8 @@ function brandSync(): void {
 }
 
 function validate(film: Film): void {
+	const camera = validateRenditions(film);
+	if (camera.length > 0) throw new StudioError(`${film.id}: ${camera.length} problem(s) in its social sources/renditions`, camera.join("\n"));
 	for (const cut of film.cuts) {
 		const ids = new Set<string>();
 		let total = 0;

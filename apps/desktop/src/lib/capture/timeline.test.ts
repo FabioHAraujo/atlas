@@ -91,6 +91,73 @@ describe("TimelineBuilder", () => {
 	});
 });
 
+describe("focus hints", () => {
+	function withFocus() {
+		const b = new TimelineBuilder({ size, fps: 60, clock: { origin_ms: 1000 } });
+		b.begin({ index: 0, do: "focus", id: "read" }, 1500, { x: 1, y: 2, width: 30, height: 40 });
+		b.focus({
+			target: { x: 1, y: 2, width: 30, height: 40 },
+			label: "Services",
+			ms: 1800,
+			textPx: 11,
+			selector: ".panel",
+		});
+		b.end(3300, { x: 1, y: 2, width: 30, height: 40 });
+		return b.finish({ ended_ms: 3300 });
+	}
+
+	test("the builder starts with no focus hints and stamps the step's start time", () => {
+		expect(sample().finish({ ended_ms: 3800 }).focus).toEqual([]);
+		expect(withFocus().focus).toEqual([
+			{
+				t: 500,
+				ms: 1800,
+				target: { x: 1, y: 2, width: 30, height: 40 },
+				label: "Services",
+				textPx: 11,
+				selector: ".panel",
+			},
+		]);
+	});
+
+	test("JSON written by the real builder parses back identical, focus included", () => {
+		const t = withFocus();
+		const r = parseTimeline(JSON.parse(JSON.stringify(t)));
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.timeline).toEqual(t);
+	});
+
+	test("a timeline recorded before focus existed (no `focus` key) still parses, as no hints", () => {
+		const old = JSON.parse(JSON.stringify(sample().finish({ ended_ms: 3800 })));
+		delete old.focus;
+		const r = parseTimeline(old);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.timeline.focus).toEqual([]);
+	});
+
+	test("a present `focus` must be a list of well-formed hints", () => {
+		const t = JSON.parse(JSON.stringify(withFocus()));
+		expect(parseTimeline({ ...t, focus: "x" }).ok).toBe(false);
+		expect(parseTimeline({ ...t, focus: {} }).ok).toBe(false);
+		expect(parseTimeline({ ...t, focus: [null] }).ok).toBe(false);
+		const noSel = structuredClone(t);
+		delete noSel.focus[0].selector;
+		expect(parseTimeline(noSel).ok).toBe(false);
+		const badRect = structuredClone(t);
+		badRect.focus[0].target = { x: 1 };
+		expect(parseTimeline(badRect).ok).toBe(false);
+		const badT = structuredClone(t);
+		badT.focus[0].t = "0";
+		expect(parseTimeline(badT).ok).toBe(false);
+	});
+
+	test("shift moves focus.t like every other track and keeps the rest", () => {
+		const s = shift(withFocus(), -200);
+		expect(s.focus[0]).toMatchObject({ t: 300, ms: 1800, selector: ".panel", label: "Services" });
+		expect(shift(withFocus(), -5000).focus[0].t).toBe(0);
+	});
+});
+
 describe("shift (align the timeline to the video's first frame)", () => {
 	test("moves every time by the same delta and drops what falls before t=0", () => {
 		const t = sample().finish({ ended_ms: 3800 });

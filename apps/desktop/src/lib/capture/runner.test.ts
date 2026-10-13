@@ -116,6 +116,77 @@ describe("runScript", () => {
 		expect(r.timeline.video).toMatchObject({ frames: 100, max_gap_ms: 30, first_frame_offset_ms: 40 });
 	});
 
+	test("focus records rect, label, selector and the viewer's time, taking exactly its declared ms", async () => {
+		const w = world();
+		const r = await runScript(
+			script([{ do: "focus", target: ".panel", label: "Every service", ms: 1800, textPx: 11, id: "read" }]),
+			{ out: "/tmp/v.mov", shotsDir: "/tmp/s" },
+			w,
+		);
+		expect(r.ok).toBe(true);
+		expect(r.timeline.focus).toHaveLength(1);
+		expect(r.timeline.focus[0]).toMatchObject({
+			target: { x: 10, y: 10, width: 300, height: 200 },
+			label: "Every service",
+			ms: 1800,
+			textPx: 11,
+			selector: ".panel",
+		});
+		const s = r.timeline.steps[0];
+		expect(r.timeline.focus[0].t).toBe(s.start_ms);
+		expect(s.end_ms - s.start_ms).toBe(1800);
+		expect(s.rect_start).toEqual({ x: 10, y: 10, width: 300, height: 200 });
+		expect(s.rect_end).toEqual({ x: 10, y: 10, width: 300, height: 200 });
+	});
+
+	test("focus without label/textPx records neither key (nothing invented)", async () => {
+		const r = await runScript(
+			script([{ do: "focus", target: ".btn", ms: 500 }]),
+			{ out: "/tmp/v.mov", shotsDir: "/tmp/s" },
+			world(),
+		);
+		expect(Object.keys(r.timeline.focus[0]).sort()).toEqual(["ms", "selector", "t", "target"]);
+	});
+
+	test("focus fails naming the selector when no element matches, and the recorder still stops", async () => {
+		const w = world();
+		const r = await runScript(
+			script([{ do: "focus", target: ".nope", ms: 500 }]),
+			{ out: "/tmp/v.mov", shotsDir: "/tmp/s" },
+			w,
+		);
+		expect(r.ok).toBe(false);
+		expect(r.error).toContain("focus: no element matches .nope");
+		expect(r.timeline.focus).toEqual([]);
+		expect(w.log.at(-1)).toBe("native.stop");
+	});
+
+	test("focus does not touch the page: no click, key, scroll, caption or cursor movement", async () => {
+		const w = world();
+		const touched: string[] = [];
+		w.app.caption = (t) => void touched.push(`caption ${t}`);
+		w.app.cursor.moveTo = async () => void touched.push("cursor");
+		await runScript(
+			script([{ do: "focus", target: ".panel", label: "x", ms: 300 }], { cursor: true }),
+			{ out: "/tmp/v.mov", shotsDir: "/tmp/s" },
+			w,
+		);
+		expect(w.log.filter((l) => !l.startsWith("native."))).toEqual([]);
+		expect(touched.filter((t) => t !== "caption null")).toEqual([]);
+	});
+
+	test("focus recorded before the video's first frame is shifted with the rest of the timeline", async () => {
+		const r = await runScript(
+			script([
+				{ do: "pause", ms: 200 },
+				{ do: "focus", target: ".panel", ms: 400 },
+			]),
+			{ out: "/tmp/v.mov", shotsDir: "/tmp/s" },
+			world({}, 40),
+		);
+		expect(r.timeline.focus[0].t).toBe(200 - 40);
+	});
+
 	test("zoom records the target rect and a camera hint, and takes its declared time", async () => {
 		const w = world();
 		const r = await runScript(

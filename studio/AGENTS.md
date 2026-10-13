@@ -26,13 +26,14 @@ studio/
 |---|---|
 | `bun studio check` | **The gate for studio changes.** tsc, brand tokens vs the site CSS, film data, a 1 s-per-scene smoke render of every cut (real compile + HyperFrames lint + render), and a determinism check, and a media lint of the published files (errors fail). ~1-2 min. |
 | `bun studio preview <film> [--aspect 9:16] [--open]` | Compiles, serves HyperFrames Studio on :3002, rebuilds on save of film.ts / scenes / brand. |
-| `bun studio render <film> [--aspect …] [--draft]` | Full render to `studio/out/<film>/` (mp4, webm, vtt, poster, scrub sprite, `*.report.json` with measured duration/LUFS/hashes). `--draft` is a fast low-quality silent-quality pass. |
+| `bun studio render <film> [--aspect …] [--cut <out>] [--draft]` | Full render to `studio/out/<film>/` (mp4, webm, vtt, poster, scrub sprite, `*.report.json` with measured duration/LUFS/hashes). `--draft` is a fast low-quality silent-quality pass. |
 | `bun studio voice <film> [--offline] [--models]` | Synthesize narration. Cached by hash of (line id, voice, model, settings, text); only changed lines hit the API. `--models` lists the account's TTS models (the film pins `model`; bump it deliberately). |
 | `bun studio capture app <scene>` / `tui <take>` / `list` | Record the real app or the vhs take into `.cache/` and register it (sha256) in `.cache/manifest.json`. |
 | `bun studio assets [list\|verify\|import <dir>]` | Inspect or verify the manifest; `import` seeds it from the 1.0 working dir. |
 | `bun studio publish <film> [--release vX.Y.Z] [--stills]` | Lints the render first and **refuses on errors**, then copies renders into `site/public/media/`, writes `manifest.json` (content hashes) and `film-chapters.json`; `--release` also `gh release upload`s the mp4/webm. `--stills` publishes only the posters (and their manifest entries). |
 | `bun studio still <film> [--aspect …] [--at s] [--out f]` | Re-render ONE still (the cut's poster by default): renders only the scene the time falls in, lints the frame, writes `out/<film>/<cut>-poster.jpg`. Refreshing a poster never needs a film render. |
-| `bun studio lint <film\|file\|dir> [--profile p] [--json] [--ref f] [--fast] [--strict]` | The video LSP. Exit 1 on any error. `--json` prints diagnostics for agents. |
+| `bun studio lint <film\|file\|dir> [--profile p] [--json] [--ref f] [--fast] [--strict]` | The video LSP. Exit 1 on any error. `--json` prints diagnostics for agents. A file with a `<name>.camera.json` beside it (a social cut) also gets the camera and caption rules. |
+| `bun studio fix <film> [--apply] [--cut out\|--aspect a] [--max N]` | lint -> apply the camera fixes the diagnostics suggest (writes `films/<id>/camera.json`) -> re-render -> lint, at most N rounds (default 4), then a report. Without `--apply` it only prints what it would change. See "Social cuts". |
 | `bun studio loops [--only loop-panel,shot-agents]` | The site's loops and screenshots from the `recipes/site-media.ts` captures (+ the vhs take for `loop-tui`): cut, encode under 600 KB, lint, then replace `site/public/media/loop-*`, `shot-*` and their manifest entries. Nothing is replaced when any file has a lint error. |
 | `bun studio release <version\|unreleased> [--as 1.1] [--voice] [--aspect …] [--draft]` | "What's new" video (16:9 + 9:16) from the CHANGELOG.md section. |
 
@@ -79,6 +80,50 @@ Add the type to `src/lib/types.ts` (`Scene` union), a builder `src/scenes/<type>
 Profiles (`lint/profiles.ts`): `site`, `site-film`, `site-loop`, `site-sibling`, `site-shot`, `social-vertical`, `social-square`, `social-landscape`, `still`. Default by file name and shape; override with `--profile`. `captured` profiles (loops, webm siblings, and `site-shot` for `shot-*.jpg` / `loop-*-poster.jpg`) skip text rules: the typography is the real app's, shown at the app's own size, and a screenshot of the product cannot be re-typeset. The film posters are composed frames and keep the strict `still` profile.
 
 Rules authors hit: **never crop the window of a recording** (use the full frame; the window's own bezel, corners and shadow are part of the picture, and the box needs 3% headroom **measured with the soft shadow, ~20 px**: `films/atlas-1-0/film.test.ts` pins it, the vertical box is 972 of 1080), and **the delivered files peak under -1 dBFS**: AAC and Opus overshoot the wav the mixer limits by 0.7-0.9 dB, so the limiter ceiling (`LIMITER_CEILING`) sits lower and `render` asserts the peak of the encoded mp4 and webm (`assertDelivered`), not of the intermediate. Scan sprites (`*-thumbs.jpg`) are not linted. Tests use synthetic windows plus real-poster and real-frame fixtures in `src/lint/__fixtures__/`: write the failing fixture first.
+
+## Social cuts: legible 9:16, 4:5 and 1:1 (virtual camera)
+
+A phone shows a 1080 px frame about 390 pt wide: the app's 13 px labels come out ~4 pt tall at zoom 1, which nobody reads. The fix is a **virtual camera** over the recording, planned from what the viewer must read, never pushed by hand. One film, many renditions:
+
+```
+films/<id>/social.ts   Film.sources[]   a source cut: scenes + `focus` lists (what must be readable, when)
+                       Film.renditions[] derived cuts (`reframe: { from, profile }`, scenes: []) 9:16, 1:1, 4:5
+films/<id>/camera.json                  the ONLY file `studio fix` writes: zoom overrides per `<cut>/<scene>/<focus>`
+src/camera/   types.ts (contract)  plan.ts (planner)  reframe.ts (layout per aspect)  focus.ts (resolve rects)
+              gsap.ts (keys -> frame-exact GSAP)  derive.ts (resolver, camera.json, sidecar)  proxy.ts
+src/captions/ chunk.ts layout.ts styles.ts html.ts     burned captions from the VO alignment
+src/lint/camera.ts                      camera/*, text/too-small-for-target, safe-area/caption, captions/* rules
+```
+
+**How an agent makes a social cut** (all deterministic; the agent edits data, never pixels):
+
+1. **Annotate focuses** on the source scenes in `films/<id>/social.ts`: `{ id, at, hold, text | selector | rect, textPx, label }`. `at` is the scene second the viewer must be able to read it. `textPx` is the CSS px of the smallest text in it (the app's labels are 11-14). Find the anchor with `text: "…"` (OCR of the recording's frame, cached by content, for footage recorded before focus steps), or, in a **recipe**, add a `{ do: "focus", target: "<selector>", label, ms, textPx }` step: the app records the element's rect in `timeline.json` and the focus uses `selector: "<selector>"` (exact, no OCR). A text that matches two lines is an error that lists the OCR lines: name a longer text.
+2. `bun studio render <film> --cut film-social-vertical` (add `--draft` while iterating, ~80 s for 30 s of 9:16). It derives scenes + camera from the source and `camera.json`, renders, and writes `<cut>.camera.json` (what the camera did, in output px and cut seconds) next to the mp4.
+3. `bun studio lint <film> --cut …` or `bun studio lint studio/out/<film>/<cut>.mp4 --json`. Every diagnostic has the shot id, a time range and a `fix`.
+4. `bun studio fix <film> --apply --cut <cut>`: applies the `set-camera-zoom` fixes to `camera.json`, re-renders, re-lints, up to `--max` rounds. It stops at 0 errors, when a round applies nothing, or at the cap, and prints each round. **Never** hand-edit pixels, boxes or the planned keys; if the report says `enlarge-source-text`, the recording's text is too small for any camera zoom (the resolution cap): change the focus to something larger, or re-capture with bigger text.
+5. Lint again and attach the report. 0 errors for the profile (`social-vertical`, `social-portrait`, `social-square`) is the bar.
+
+**The rules (numbers live in `lint/profiles.ts` and `camera/types.ts`, derivations in the comments):**
+
+| Rule | What it is |
+|---|---|
+| legibility | the glyph band of a focus' smallest text must reach `minFocusTextPx` (18) at the platform's `displayHeight`: zoom = `minTextPx * frameH / displayHeight / (textPx * 2 * 0.8 * fit)`; authored text (headlines, captions) uses the stricter `minTextPx` (28 on 9:16) |
+| resolution cap | never more than 2 output px per source px (OCR kept confidence 1.0 up to 3x bicubic on the app's UI text; 2x leaves margin). A focus that needs more is planned at the cap and flagged: the cure is bigger source text |
+| motion | pan <= 700 output px/s, zoom <= 0.9 e-folds/s (smootherstep peak counted), still 0.35 s before the text must be read, a move longer than 1.6 s or past 1400 px is a **cut**, never a whip-pan; the opening pose is the whole window (a complete first frame) |
+| frame | the viewport never shows outside the source; a focus wider than the viewport is framed whole (4% margin) and reported |
+| safe area | text, captions and focus rects stay out of the union of Reels/TikTok/Shorts zones (`VERTICAL_PLATFORMS`); diagnostics name the platform |
+| captions | from the VO alignment (line speech seconds spread over words by length, extra weight after punctuation): <= 17 CPS, <= 27 chars/line (9:16) or 32, <= 2 lines, >= 2 frames gap, >= 0.8 s, wrapped by the same Archivo width model the lint uses; sitting just above the bottom UI zone |
+
+| Code | What it catches |
+|---|---|
+| `camera/too-fast` | pan or zoom speed over the shot's limit at some instant; fix `slow-camera` |
+| `camera/subject-out-of-frame` | a focus rect leaves the viewport or the safe area while it must be read; fix `set-camera-zoom` (largest zoom that fits) |
+| `text/too-small-for-target` | OCR on the RENDERED frame at the focus' hold: the smallest text in the focus is under `minFocusTextPx`; fix `set-camera-zoom` (zoom x min/shown x 1.05) or `enlarge-source-text` when the cap forbids it |
+| `text/focus-empty` | no readable text in the focus rect: the camera points at the wrong place |
+| `safe-area/caption` | a caption block enters a platform UI zone |
+| `captions/cps\|line-length\|lines\|gap\|duration` | the Netflix timed-text rules tightened for a phone; fix `rechunk-captions` |
+
+Tests for every rule: `src/camera/*.test.ts`, `src/lint/camera.test.ts`, `src/captions/*.test.ts`, `src/fix.test.ts`, `src/scenes/*.test.ts`. A new rule needs its failing fixture first (real planner output and real OCR, never hand-typed sidecars).
 
 ## Media is not in git
 

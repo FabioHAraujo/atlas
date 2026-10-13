@@ -205,14 +205,22 @@ export function checkEdgeClipping(img: Image, profile: Profile): Diagnostic[] {
 }
 
 /** Fraction of the frame that a platform UI covers: `safe` is per-side, in fractions of that axis. */
-export function safeRect(img: Image, safe: NonNullable<Profile["safe"]>): Rect {
+export function safeRect(img: Pick<Image, "w" | "h">, safe: NonNullable<Profile["safe"]>): Rect {
 	const x = Math.round(img.w * safe.left);
 	const y = Math.round(img.h * safe.top);
 	return { x, y, w: img.w - x - Math.round(img.w * safe.right), h: img.h - y - Math.round(img.h * safe.bottom) };
 }
 
+/** Pixels of a rect outside a region, per side (0 = inside on that side). */
+export interface Overflow {
+	top: number;
+	bottom: number;
+	left: number;
+	right: number;
+}
+
 /** Anything of `rect` outside `safe`, per side, in pixels. */
-export function overflow(rect: Rect, safe: Rect): { top: number; bottom: number; left: number; right: number } {
+export function overflow(rect: Rect, safe: Rect): Overflow {
 	return {
 		top: Math.max(0, safe.y - rect.y),
 		bottom: Math.max(0, rect.y + rect.h - (safe.y + safe.h)),

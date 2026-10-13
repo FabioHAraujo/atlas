@@ -1,13 +1,20 @@
-import type { TerminalScene } from "../lib/types.ts";
+import type { Rect, TerminalScene } from "../lib/types.ts";
 import { placeBox } from "./app.ts";
 import { type BuildCtx, type SceneOutput, titleCss, titleHtml } from "./base.ts";
+
+/** The take fitted inside a viewport (contain), centered: even sizes, so the proxy encodes as H.264. */
+export function fitInViewport(v: Rect, aspect: number): { x: number; y: number; w: number; h: number } {
+	const w = Math.min(v.w, 2 * Math.floor((v.h * aspect) / 2));
+	const h = 2 * Math.floor(w / aspect / 2);
+	return { x: v.x + (v.w - w) / 2, y: v.y + (v.h - h) / 2, w, h };
+}
 
 /**
  * TerminalTake: a vhs take, cut to the dense segments by `prepare` (trim + concat + speed baked into the proxy), placed
  * centered on the field at the film's frame geometry.
  */
 export function buildTerminal(s: TerminalScene, ctx: BuildCtx, proxy: { file: string; aspect: number }): SceneOutput {
-	const b = placeBox({ x: "center", y: s.y ?? "center", w: s.width }, ctx.aspect, proxy.aspect);
+	const b = s.viewport ? fitInViewport(s.viewport, proxy.aspect) : placeBox({ x: "center", y: s.y ?? "center", w: s.width }, ctx.aspect, proxy.aspect);
 	const src = ctx.asset(proxy.file);
 	const overlay = s.overlay ? titleHtml("overlay", s.overlay, ctx, 48) : "";
 	return {

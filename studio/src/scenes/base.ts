@@ -54,7 +54,9 @@ export function fieldJs(zoom: number, duration: number): string {
 export function titleHtml(id: string, t: TitleText, ctx: BuildCtx, subtitleSize: number): string {
 	const sub = t.subtitle ? `<div class="sub" style="font-size:${t.subtitleSize ?? subtitleSize}px">${ctx.esc(t.subtitle)}</div>` : "";
 	const url = t.url ? `<div class="url">${ctx.esc(t.url)}</div>` : "";
-	const wrap = t.maxWidth ? ` wrap" style="top:${t.y}px;width:${t.maxWidth}px` : `" style="top:${t.y}px`;
+	// `centerX` moves the block's center off the frame's (the social safe rect is not symmetric); it needs `maxWidth` (the wrapped block)
+	const left = t.centerX !== undefined ? `;left:${t.centerX}px` : "";
+	const wrap = t.maxWidth ? ` wrap" style="top:${t.y}px;width:${t.maxWidth}px${left}` : `" style="top:${t.y}px`;
 	return `<div id="${id}" class="titleblock${wrap}"><div class="h" style="font-size:${t.titleSize}px">${ctx.esc(t.title)}</div>${sub}${url}</div>`;
 }
 

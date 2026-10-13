@@ -4,6 +4,7 @@
 import { lineAudio, listModels } from "./audio/voice.ts";
 import { main as bg } from "./backgrounds.ts";
 import { main as capture } from "./capture/index.ts";
+import { main as fix } from "./fix.ts";
 import { main as check } from "./check.ts";
 import { main as lint } from "./lint/index.ts";
 import { main as loops } from "./loops.ts";
@@ -21,7 +22,7 @@ import { main as still } from "./still.ts";
 
 const HELP = `bun studio <command>
 
-  render <film> [--aspect 16:9|9:16|1:1] [--draft]   compile, render, mix, derive webm/vtt/poster/sprite -> studio/out/<film>/
+  render <film> [--aspect 16:9|9:16|4:5|1:1] [--cut <out>] [--draft]   compile, render, mix, derive webm/vtt/poster/sprite -> studio/out/<film>/
   preview <film> [--aspect 16:9]                     live preview (HyperFrames Studio) of the compiled project, rebuilt on save
   still <film> [--aspect …] [--at s] [--out f]       re-render ONE still (the poster by default) without rendering the film; linted before it is written
   voice <film> [--models] [--offline]                synthesize narration (cached by text hash); --models lists ElevenLabs models
@@ -35,6 +36,7 @@ const HELP = `bun studio <command>
   lint <film|file|dir> [--profile p] [--json] [--ref f] [--fast] [--strict]   the "video LSP": frame/safe-area/text/flash/black/loudness/spec diagnostics with fixes
   loops [--only loop-panel,shot-agents]              the site's loops + screenshots from recipes/site-media.ts captures (+ the vhs take for loop-tui); linted before it replaces anything
   sounds [list|generate|pick] [id…] [--variants N]   the app's earcons: ElevenLabs sound effects -> trim/normalise -> apps/desktop/static/sounds
+  fix <film> [--apply] [--aspect …|--cut <out>] [--max N] lint -> apply the camera fixes the diagnostics suggest (films/<id>/camera.json) -> re-render -> lint, up to N rounds; prints a report
   films                                              list films
 `;
 
@@ -54,7 +56,7 @@ async function main(argv: string[]): Promise<void> {
 			return;
 		case "render": {
 			const film = await loadFilm(pos[0] ?? "");
-			for (const cut of pickCuts(film, flags.aspect)) {
+			for (const cut of pickCuts(film, flags.aspect, flags.cut)) {
 				const t0 = Date.now();
 				const r = await renderCut(film, cut, { draft: flags.draft === true, offline: flags.offline === true });
 				console.log(`✓ ${cut.out}  ${r.duration.toFixed(2)} s  ${r.width}x${r.height}  ${r.lufs.toFixed(1)} LUFS  build ${r.buildHash}  (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
@@ -108,6 +110,8 @@ async function main(argv: string[]): Promise<void> {
 			return lint(rest);
 		case "still":
 			return still(rest);
+		case "fix":
+			return fix(rest);
 		case "loops":
 			return loops(rest);
 		default:

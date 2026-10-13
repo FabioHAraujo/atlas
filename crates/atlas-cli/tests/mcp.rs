@@ -250,17 +250,38 @@ impl Project {
     }
 }
 
-/// A temp project: web (http.server, port+health), ticker (port-less, prints incl. ERROR),
+/// Static HTTP server for the `web` fixture, written to `web.py` in the project. NOT
+/// `python3 -m http.server`: its `server_bind` calls `socket.getfqdn()` before `listen()`, and
+/// on the macOS CI runners that reverse-DNS lookup stalls for tens of seconds, so the port
+/// never opened inside the 30s window (every `atlas dev --headless` fixture stayed `starting`
+/// with an empty `web.log` and note "waiting for :PORT"). Binding through
+/// `TCPServer.server_bind` skips the lookup. Guarded by `fixture_web_server_does_not_resolve_names`.
+const WEB_SERVER: &str = "\
+import http.server, socketserver, sys
+
+class Server(http.server.ThreadingHTTPServer):
+    server_bind = socketserver.TCPServer.server_bind
+
+http.server.test(
+    HandlerClass=http.server.SimpleHTTPRequestHandler,
+    ServerClass=Server,
+    port=int(sys.argv[1]),
+    bind='127.0.0.1',
+)
+";
+
+/// A temp project: web (static server, port+health), ticker (port-less, prints incl. ERROR),
 /// never (port that nothing listens on → never ready), plus actions.
 fn project() -> Project {
     let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(dir.path().join("web.py"), WEB_SERVER).unwrap();
     let web_port = free_port();
     let never_port = free_port();
     let yaml = format!(
         r#"name: mcp-fixture
 services:
   web:
-    command: python3 -m http.server $PORT --bind 127.0.0.1
+    command: python3 web.py $PORT
     port: {web_port}
     health: http://127.0.0.1:{web_port}/
   ticker:
@@ -285,6 +306,75 @@ actions:
         web_port,
         never_port,
     }
+}
+
+/// Run `args` under python with `socket.getfqdn` stalled (what the macOS CI runners' reverse
+/// DNS does) and report whether 127.0.0.1:`port` accepts a connection within `within`.
+fn serves_with_stalled_dns(dir: &Path, args: &[&str], port: u16, within: Duration) -> bool {
+    // `args[0]` is a stdlib module (`http.server`) or a script path in `dir`.
+    let wrapper = dir.join("stall_dns.py");
+    std::fs::write(
+        &wrapper,
+        "import runpy, socket, sys, time\n\
+         socket.getfqdn = lambda *a, **k: time.sleep(120)\n\
+         target = sys.argv[1]\n\
+         sys.argv = sys.argv[1:]\n\
+         if target.endswith('.py'):\n\
+         \x20   runpy.run_path(target, run_name='__main__')\n\
+         else:\n\
+         \x20   runpy.run_module(target, run_name='__main__', alter_sys=True)\n",
+    )
+    .unwrap();
+    let mut child = Command::new("python3")
+        .current_dir(dir)
+        .arg(&wrapper)
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn python3");
+    let deadline = Instant::now() + within;
+    let mut up = false;
+    while Instant::now() < deadline {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            up = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    up
+}
+
+/// Incident: every headless fixture timed out on the macOS runners because `python3 -m
+/// http.server` resolves the host name (`socket.getfqdn`) before it listens. The fixture's
+/// server must listen without any name lookup; stock `http.server` is the control that proves
+/// the stall is real (it must NOT come up in the same time).
+#[test]
+fn fixture_web_server_does_not_resolve_names() {
+    require_python!();
+    let p = project();
+    let port = free_port();
+    assert!(
+        !serves_with_stalled_dns(
+            p.root(),
+            &["http.server", &port.to_string(), "--bind", "127.0.0.1"],
+            port,
+            Duration::from_secs(3)
+        ),
+        "control: stock http.server should stall on getfqdn"
+    );
+    let port = free_port();
+    assert!(
+        serves_with_stalled_dns(
+            p.root(),
+            &["web.py", &port.to_string()],
+            port,
+            Duration::from_secs(5)
+        ),
+        "fixture web.py must listen even when name resolution hangs"
+    );
 }
 
 /// Project that additionally has a service that never becomes ready.

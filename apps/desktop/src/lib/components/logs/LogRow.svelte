@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { LogLine } from "#lib/logs/model.ts";
-	import { hms, hue } from "#lib/logs/text.ts";
+	import { hms } from "#lib/logs/text.ts";
+	import { svcColor } from "#lib/logs/svcColor.svelte.ts";
 	import { segments, type Seg } from "#lib/logs/segments.ts";
 	import { ROW } from "#lib/logs/viewport.svelte.ts";
 
@@ -25,7 +26,7 @@
 </script>
 
 {#if l.mark !== undefined}
-	<div class="mark" style="--h:{hue(l.name)}">
+	<div class="mark" style="--svc:{svcColor(l.name)}">
 		<span>{hms(l.ts)} · {l.mark}</span>
 	</div>
 {:else}
@@ -37,7 +38,7 @@
 		style={wrap ? "" : `height:${ROW}px`}
 	>
 		{#if showTime}<span class="ts">{hms(l.ts)}</span>{/if}
-		{#if showService}<span class="svc" style="--h:{hue(l.name)}">{l.name}</span>{/if}
+		{#if showService}<span class="svc" style="--svc:{svcColor(l.name)}">{l.name}</span>{/if}
 		<span class="txt"
 			>{#each segments(l, matcher, current) as p, i (i)}{#if p.link}<span
 						class="link"
@@ -92,7 +93,7 @@
 		width: 92px;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		color: oklch(0.68 0.14 var(--h));
+		color: var(--svc);
 	}
 	.txt {
 		color: var(--ca-text-primary);
@@ -126,7 +127,7 @@
 		height: 18px;
 		padding: 0 16px;
 		gap: 10px;
-		color: oklch(0.68 0.14 var(--h));
+		color: var(--svc);
 		font-size: 11px;
 		user-select: none;
 		-webkit-user-select: none;

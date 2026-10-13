@@ -100,7 +100,7 @@
 		opacity: 0.5;
 	}
 	.chip.warn {
-		color: var(--dot-warn);
+		color: var(--ca-semantic-warning);
 		background: color-mix(in oklab, var(--dot-warn) 14%, transparent);
 	}
 	.item.multi {

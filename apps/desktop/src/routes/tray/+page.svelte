@@ -17,7 +17,7 @@
 	import { onMount, tick } from "svelte";
 	import { errText } from "#lib/api.ts";
 	import { fmtMem } from "#lib/format.ts";
-	import { accentOf } from "#lib/shell/space.ts";
+	import { accentOf, hueOf, onAccent } from "#lib/shell/space.ts";
 	import {
 		EMPTY_SNAPSHOT,
 		agentsLine,
@@ -133,7 +133,11 @@
 	<section class="grid">
 		{#each cards as p (p.id)}
 			{@const tone = projectTone(p)}
-			<article class="card project" style:--c={accentOf(p.id, dark, p.hue)}>
+			<article
+				class="card project"
+				style:--c={accentOf(p.id, dark, p.hue)}
+				style:--on={onAccent(dark, p.hue ?? hueOf(p.id))}
+			>
 				<button class="hit" onclick={() => send({ kind: "project", id: p.id })} aria-label="Open {p.name}"
 				></button>
 				<div class="row">
@@ -182,7 +186,11 @@
 	{#if idle.length}
 		<section class="idle">
 			{#each idle as p (p.id)}
-				<div class="idle-row" style:--c={accentOf(p.id, dark, p.hue)}>
+				<div
+					class="idle-row"
+					style:--c={accentOf(p.id, dark, p.hue)}
+					style:--on={onAccent(dark, p.hue ?? hueOf(p.id))}
+				>
 					{@render tile(p.icon)}
 					<span class="name">{p.name}</span>
 					<button class="btn" disabled={busy[p.id]} onclick={() => toggleStack(p.id, false)}>
@@ -263,8 +271,9 @@
 		font-weight: 650;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
-		color: #b45309;
-		background: rgb(245 158 11 / 0.18);
+		/* the warning token reads 4.5:1 on its own 10-14% tint over every surface (derive.ts) */
+		color: var(--ca-semantic-warning);
+		background: color-mix(in oklab, var(--ca-semantic-warning) 14%, transparent);
 	}
 	.titles b {
 		font-size: 14px;
@@ -277,7 +286,7 @@
 		color: var(--ca-text-secondary);
 	}
 	.state.fail {
-		color: var(--dot-fail);
+		color: var(--ca-semantic-error);
 	}
 	.dot {
 		display: inline-block;
@@ -301,7 +310,7 @@
 		border-radius: 10px;
 		font-size: 12px;
 		background: color-mix(in oklch, var(--dot-fail) 16%, transparent);
-		color: var(--dot-fail);
+		color: var(--ca-semantic-error);
 	}
 	.grid {
 		display: grid;
@@ -364,7 +373,7 @@
 		color: var(--ca-text-secondary);
 	}
 	.meta.attn {
-		color: var(--dot-warn);
+		color: var(--ca-semantic-warning);
 		font-weight: 600;
 	}
 	.big {
@@ -428,7 +437,7 @@
 		font-size: 10px;
 		font-weight: 700;
 		line-height: 1;
-		color: white;
+		color: var(--on, #000);
 		background: linear-gradient(160deg, color-mix(in oklab, var(--c) 82%, white), var(--c));
 	}
 	.tile.emoji {
@@ -470,7 +479,7 @@
 	}
 	.rec.fail .rec-icon {
 		background: color-mix(in oklch, var(--dot-fail) 18%, transparent);
-		color: var(--dot-fail);
+		color: var(--ca-semantic-error);
 	}
 	.rec-text {
 		display: flex;

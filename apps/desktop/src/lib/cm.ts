@@ -265,7 +265,7 @@ const theme = EditorView.theme({
 	".cm-textfield": {
 		background: "var(--ca-surface-base)",
 		color: "var(--ca-text-primary)",
-		border: "0.5px solid var(--ca-outline-default)",
+		border: "0.5px solid var(--atlas-control-border, var(--ca-outline-default))",
 		borderRadius: "5px",
 		padding: "2px 6px",
 	},
@@ -277,7 +277,7 @@ const theme = EditorView.theme({
 		backgroundImage: "none",
 		background: "var(--ca-action-hover)",
 		color: "var(--ca-text-primary)",
-		border: "0.5px solid var(--ca-outline-default)",
+		border: "0.5px solid var(--atlas-control-border, var(--ca-outline-default))",
 		borderRadius: "5px",
 	},
 	".cm-button:active": { backgroundImage: "none", background: "var(--ca-action-selected)" },

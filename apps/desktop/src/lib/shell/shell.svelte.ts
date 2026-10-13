@@ -6,7 +6,7 @@ import { colorScheme } from "@codeatlasdev/ui";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { themes } from "#lib/stores/theme.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
-import { neighbour, accentOf, accentTextOf, hueOf, spreadHues, tintOf } from "#lib/shell/space.ts";
+import { neighbour, accentOf, accentTextOf, hueOf, onAccent, spreadHues, tintOf } from "#lib/shell/space.ts";
 import { spacePager } from "#lib/shell/pager.ts";
 import { hueFor } from "#lib/shell/identity.ts";
 import { emptyHistory, step, visit, type History, type Visit } from "#lib/shell/history.ts";
@@ -38,6 +38,10 @@ class Shell {
 
 	accent(spaceId: string) {
 		return accentOf(spaceId, this.dark, this.hues[spaceId]);
+	}
+	/** The glyph/letter colour on a fill of `accent(spaceId)`: black or white, whichever reads (`onAccent`). */
+	onAccent(spaceId: string) {
+		return onAccent(this.dark, this.hues[spaceId] ?? hueOf(spaceId));
 	}
 	/** The accent as text: AA on every chrome surface of the live theme (`accentTextOf`). `--space-accent` is for fills. */
 	accentText(spaceId: string) {

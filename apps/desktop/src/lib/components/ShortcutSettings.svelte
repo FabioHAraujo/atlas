@@ -189,7 +189,8 @@
 	}
 	.none {
 		font-size: 11.5px;
-		color: var(--ca-text-disabled);
+		/* "Add shortcut" is an action, not a disabled control: body-text contrast */
+		color: var(--ca-text-secondary);
 	}
 	.prompt {
 		display: inline-flex;

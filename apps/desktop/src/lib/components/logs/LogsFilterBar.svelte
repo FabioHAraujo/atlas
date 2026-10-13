@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Chip } from "@codeatlasdev/ui";
 	import type { Level } from "#lib/logs/model.ts";
-	import { hue } from "#lib/logs/text.ts";
+	import { svcColor } from "#lib/logs/svcColor.svelte.ts";
 
 	let {
 		names,
@@ -21,7 +21,7 @@
 	<div class="chips">
 		<Chip size="sm" label="All" selected={!only} onclick={() => (only = null)} />
 		{#each names as n (n)}
-			<span class="svcchip" style="--h:{hue(n)}">
+			<span class="svcchip" style="--svc:{svcColor(n)}">
 				<Chip
 					size="sm"
 					label={counts[n] ? `${n} · ${counts[n] > 999 ? "999+" : counts[n]}` : n}
@@ -68,7 +68,7 @@
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
-		background: oklch(0.68 0.14 var(--h));
+		background: var(--svc);
 		margin-right: 5px;
 		flex-shrink: 0;
 	}

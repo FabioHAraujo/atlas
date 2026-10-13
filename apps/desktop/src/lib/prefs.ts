@@ -68,6 +68,8 @@ export interface Prefs {
 		ligatures: boolean;
 		/** GPU terminal: WCAG contrast ratio text is lifted to (1 = off). */
 		minimum_contrast: number;
+		/** Set when the user picked `minimum_contrast` themselves: a stored 1 without it is the pre-4.5 default. */
+		minimum_contrast_chosen: boolean;
 		/** GPU terminal: copy the selection to the clipboard on release (Ghostty `copy-on-select`). */
 		copy_on_select: boolean;
 		/** GPU terminal: ⌥ acts as Alt (⌥B = ESC b) instead of typing macOS characters (Ghostty `macos-option-as-alt`). */
@@ -125,7 +127,8 @@ export const DEFAULT_PREFS: Prefs = {
 		max_scroll_history_lines: 10_000,
 		osc52: "ask",
 		ligatures: true,
-		minimum_contrast: 1,
+		minimum_contrast: 4.5,
+		minimum_contrast_chosen: false,
 		copy_on_select: true,
 		option_as_alt: "both",
 		click_to_move: true,
@@ -221,6 +224,9 @@ export function resolvePrefs(settings: Record<string, unknown>): Prefs {
 		return typeof v !== "string" || v.trim() !== "";
 	});
 	const raw = isObj(settings) ? settings : {};
+	// the old default (1 = off) was written back whole by the Terminal tab: without the marker it is not a choice
+	if (p.terminal.minimum_contrast === 1 && !p.terminal.minimum_contrast_chosen)
+		p.terminal.minimum_contrast = DEFAULT_PREFS.terminal.minimum_contrast;
 	p.lsp = sanitizeLsp(raw.lsp);
 	p.editor.rulers = sanitizeRulers(isObj(raw.editor) ? raw.editor.rulers : undefined);
 	return p;

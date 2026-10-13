@@ -237,12 +237,13 @@
 		>
 			{#if isDir}
 				{#if expanded[rel]}<ChevronDown size={11} />{:else}<ChevronRight size={11} />{/if}
-				{#if prefs.value.project_panel.folder_icons}<span class="ico"
+				{#if prefs.value.project_panel.folder_icons}<span class="ico" data-contrast-decorative
 						>{@html folderIcon(e.name, !!expanded[rel])}</span
 					>{/if}
 			{:else}
-				<span class="sp"></span>{#if prefs.value.project_panel.file_icons}<span class="ico"
-						>{@html fileIcon(e.name)}</span
+				<span class="sp"></span>{#if prefs.value.project_panel.file_icons}<span
+						class="ico"
+						data-contrast-decorative>{@html fileIcon(e.name)}</span
 					>{/if}
 			{/if}
 			{#if editing?.mode === "rename" && editing.rel === rel}

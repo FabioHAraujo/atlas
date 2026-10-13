@@ -259,7 +259,7 @@
 		padding: 5px 8px;
 		border-radius: 8px;
 		font-size: 11.5px;
-		color: var(--dot-warn);
+		color: var(--ca-semantic-warning);
 		background: color-mix(in oklab, var(--dot-warn) 12%, transparent);
 	}
 	.missing-bar span {

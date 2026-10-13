@@ -42,12 +42,16 @@
 		height: 28px;
 		padding: 0 8px;
 		border-radius: 7px;
-		border: 0.5px solid var(--ca-outline-subtle);
+		border: 0.5px solid var(--atlas-control-border, var(--ca-outline-default));
 		background: color-mix(in oklab, var(--ca-text-primary) 5%, transparent);
 		color: var(--ca-text-secondary);
 	}
 	.search:focus-within {
-		border-color: color-mix(in oklab, var(--ca-brand-main) 55%, var(--ca-outline-subtle));
+		border-color: color-mix(
+			in oklab,
+			var(--ca-brand-main) 55%,
+			var(--atlas-control-border, var(--ca-outline-default))
+		);
 	}
 	.search input {
 		flex: 1;

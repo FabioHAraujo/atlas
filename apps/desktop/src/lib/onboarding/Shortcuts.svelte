@@ -58,6 +58,7 @@
 		padding: 0 10px;
 		height: 32px;
 		border-radius: 9px;
+		border: 0.5px solid var(--atlas-control-border, var(--ca-outline-default));
 		background: color-mix(in oklab, var(--ca-text-primary) 5%, transparent);
 		color: var(--ca-text-secondary);
 	}

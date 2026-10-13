@@ -7,7 +7,7 @@
 
 import { typeInto } from "../capture/dom.ts";
 
-export { contrastAudit } from "./contrast.ts";
+export { contrastAudit, nonTextAudit } from "./contrast.ts";
 
 export interface Clock {
 	now(): number;

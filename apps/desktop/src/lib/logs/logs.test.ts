@@ -16,7 +16,13 @@ import {
 import { NO_FILTER, Refilter, View, accepts, compileQuery } from "./view.ts";
 import { Search, jumpLevel, matchesIn, rowAtTime } from "./search.ts";
 import { findLinks, resolvePath } from "./links.ts";
-import { format, hue, wrappedRows } from "./text.ts";
+import { format, hue, serviceColor, wrappedRows } from "./text.ts";
+import atlasThemes from "../themes/atlas.json";
+import draculaThemes from "../themes/dracula.json";
+import oneThemes from "../themes/one.json";
+import { contrast } from "../theme/color.ts";
+import { complete } from "../theme/derive.ts";
+import { parseFamily } from "../theme/schema.ts";
 
 let seq = 0;
 const mk = (line, name = "web", extra = {}) => ({
@@ -667,5 +673,35 @@ describe("performance (200k lines)", () => {
 		const nav = performance.now() - t1;
 		console.log(`search scan 200k: ${scan.toFixed(0)}ms; 10k next(): ${nav.toFixed(2)}ms`);
 		expect(nav).toBeLessThan(50);
+	});
+});
+
+// Incident (contrast audit): the service name was painted `oklch(0.68 0.14 <hue>)` on every theme: 2.4-3.4:1 for the
+// yellow/green hues on the light themes. The label is text: it reads 4.5:1 on the logs surface (and the other chrome
+// surfaces it can sit on) for EVERY service hue in EVERY bundled theme, hue kept, lightness only.
+describe("serviceColor", () => {
+	const themes = [atlasThemes, oneThemes, draculaThemes].flatMap((f) => parseFamily(f).themes);
+	const surfaces = ["background", "editor.background", "surface.background", "elevated_surface.background"];
+	for (const t of themes)
+		test(`${t.name}: every hue (0-359) reads >= 4.5 on every chrome surface`, () => {
+			const s = complete(t.style, t.appearance);
+			const bad: string[] = [];
+			for (let h = 0; h < 360; h++) {
+				const c = serviceColor(
+					h,
+					surfaces.map((k) => s[k]),
+				);
+				for (const k of surfaces) if (contrast(c, s[k].slice(0, 7)) < 4.5) bad.push(`h${h} ${c} on ${k}`);
+			}
+			expect(bad).toEqual([]);
+		});
+	test("a hue that already reads keeps the design lightness (dark themes: unchanged)", () => {
+		expect(serviceColor(250, ["#282a36"])).toBe(serviceColor(250, ["#282a36"]));
+		expect(serviceColor(250, ["#282a36"])).toMatch(/^#[0-9a-f]{6}$/);
+	});
+	test("the same service name keeps the same hue in every theme (stable identity)", () => {
+		const light = serviceColor(hue("api"), ["#fffbeb"]);
+		const dark = serviceColor(hue("api"), ["#282a36"]);
+		expect(light).not.toBe(dark);
 	});
 });

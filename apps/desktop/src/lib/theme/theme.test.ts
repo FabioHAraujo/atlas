@@ -4,8 +4,8 @@ import atlas from "../themes/atlas.json";
 import dracula from "../themes/dracula.json";
 import one from "../themes/one.json";
 import { ansi16, cssVars, syntaxTokens, terminalColors } from "../theme.ts";
-import { contrast, ensureContrast, fromOklch, over, toOklch } from "./color.ts";
-import { complete } from "./derive.ts";
+import { contrast, ensureContrast, fromOklch, over, readableOn, terminalLift, toOklch } from "./color.ts";
+import { CODE_PAINTS, codeSurfaces, complete } from "./derive.ts";
 import {
 	DEFAULT_SELECTION,
 	migrateSelection,
@@ -28,6 +28,7 @@ import {
 const families = { atlas, one, dracula };
 const bundled = Object.values(families).flatMap((f) => parseFamily(f).themes);
 const by = (name) => bundled.find((t) => t.name === name);
+const parseAlpha = (h) => (h.length === 9 ? parseInt(h.slice(7, 9), 16) / 255 : 1);
 
 describe("color math", () => {
 	test("OKLCH round-trips sRGB hex", () => {
@@ -139,7 +140,12 @@ describe("completeness: every token the app reads exists in every theme", () => 
 			"dark",
 		);
 		expect(s.text).toBe("#d0e0f0");
-		expect(s.syntax.keyword).toMatchObject({ color: "#abcdef", font_style: "italic" });
+		// the syntax colour reads on the editor but not on the derived selection: lifted (lightness only, hue kept),
+		// the font style is the theme's own
+		expect(s.syntax.keyword.font_style).toBe("italic");
+		expect(Math.abs(toOklch(s.syntax.keyword.color).h - toOklch("#abcdef").h)).toBeLessThan(6);
+		for (const bg of codeSurfaces(s))
+			expect(contrast(s.syntax.keyword.color, bg)).toBeGreaterThanOrEqual(4.5);
 		// Incident: an explicit grey that vanished on its own surface (light theme sidebar) used to be kept as is.
 		const bad = complete(
 			{ "editor.background": "#fafafa", text: "#383a42", "text.muted": "#c8c8c8" },
@@ -161,10 +167,18 @@ describe("completeness: every token the app reads exists in every theme", () => 
 			},
 			"dark",
 		);
-		expect(s.syntax.keyword.color).toBe("#ff00ff");
-		expect(s.syntax.function.color).toBe("#00ff00");
-		expect(s.syntax.string.color).toBe("#ffff00");
-		expect(s.syntax.type.color).toBe("#00ffff");
+		// Classic mapping by hue; lightness is lifted where the derived selection/search paints would not read
+		// (full-chroma #ff00ff on the derived selection is 3.9:1): the hue stays.
+		for (const [role, ansi] of [
+			["keyword", "#ff00ff"],
+			["function", "#00ff00"],
+			["string", "#ffff00"],
+			["type", "#00ffff"],
+		]) {
+			expect(Math.abs(toOklch(s.syntax[role].color).h - toOklch(ansi).h)).toBeLessThan(6);
+			for (const bg of codeSurfaces(s))
+				expect(contrast(s.syntax[role].color, bg)).toBeGreaterThanOrEqual(4.5);
+		}
 	});
 });
 
@@ -346,6 +360,233 @@ describe("contrast: semantic colours on their own tint (status chips, tags, bann
 	}
 });
 
+/**
+ * Syntax colours are text: every role reaches 4.5 on the editor background AND on every tint the editor paints under
+ * code (active line, selection focused and unfocused, selection match, bracket match, search matches). Measured
+ * before the rule: 21 roles under 4.5 across the six bundled themes (comments 1.5-2.5, One Light string 2.3).
+ * The rule moves lightness only (hue and chroma stay), like the UI text tokens; `terminal.ansi.*` is never touched.
+ */
+describe("contrast: syntax roles are text (>= 4.5 on the editor and every tint under code)", () => {
+	/**
+	 * Everything `cm.ts` paints under a token: each base (editor, active line, selection...) alone, and with each
+	 * transient paint (selection match, bracket match, search match, active search match) over it, and with every PAIR of
+	 * paints (a search match inside a highlighted symbol: both are painted, the stack measured 3.1:1 in One Dark).
+	 */
+	const under = (s) => {
+		const bases = codeSurfaces(s);
+		const paint =
+			([k, scale]) =>
+			(c) =>
+				over(s[k], c, parseAlpha(s[k]) * scale);
+		const tints = Object.fromEntries(bases.map((c, i) => [`base ${i}`, c]));
+		for (const [bi, base] of bases.entries())
+			for (const [i, p] of CODE_PAINTS.entries()) {
+				tints[`base ${bi} + ${CODE_PAINTS[i][0]}`] = paint(p)(base);
+				for (const [j, q] of CODE_PAINTS.entries())
+					if (j > i)
+						tints[`base ${bi} + ${CODE_PAINTS[i][0]} + ${CODE_PAINTS[j][0]}`] = paint(q)(paint(p)(base));
+			}
+		return tints;
+	};
+	for (const t of bundled)
+		test(`${t.name}: every syntax role >= 4.5 on every surface under code, hue kept`, () => {
+			const s = complete(t.style, t.appearance);
+			const fails = [];
+			for (const [role, v] of Object.entries(s.syntax))
+				for (const [surf, bg] of Object.entries(under(s))) {
+					const r = contrast(v.color.slice(0, 7), bg);
+					if (r < 4.5) fails.push(`${role} ${v.color} on ${surf}: ${r.toFixed(2)}`);
+				}
+			for (const [surf, bg] of Object.entries(under(s)))
+				if (contrast(s.text.slice(0, 7), bg) < 4.5) fails.push(`text on ${surf}`);
+			expect(fails).toEqual([]);
+		});
+
+	test("lifting moves lightness only: hue and chroma of a role that needed it are kept", () => {
+		for (const t of bundled) {
+			const raw = t.style.syntax ?? {};
+			const s = complete(t.style, t.appearance);
+			for (const [role, v] of Object.entries(raw)) {
+				if (!v?.color || !/^#[0-9a-f]{6}$/i.test(v.color)) continue;
+				const before = toOklch(v.color);
+				const after = toOklch(s.syntax[role].color);
+				if (before.c < 0.03) continue; // grey: hue is meaningless
+				const dh = Math.abs(((after.h - before.h + 540) % 360) - 180);
+				expect([t.name, role, dh < 6]).toEqual([t.name, role, true]);
+			}
+		}
+	});
+
+	test("a role that already reads is returned byte for byte", () => {
+		const s = complete(by("Dracula").style, "dark");
+		expect(s.syntax.function.color).toBe("#50fa7b");
+		expect(s.syntax.string.color).toBe("#f1fa8c");
+		expect(s.syntax.variable.color).toBe("#f8f8f2");
+	});
+
+	test("the terminal ANSI table is never touched by the syntax rule (spec palette stays)", () => {
+		for (const t of bundled) {
+			const s = complete(t.style, t.appearance);
+			for (const k of Object.keys(t.style).filter((k) => k.startsWith("terminal.ansi.")))
+				expect([t.name, k, s[k]]).toEqual([t.name, k, t.style[k]]);
+		}
+	});
+});
+
+/**
+ * WCAG 2.2 1.4.11 (non-text contrast): the focus ring, state indicators and icons need 3:1 against the colours NEXT
+ * to them, not only against the base surface: the hover/selected fill (`element.*`, the kit's vibrancy fill), a
+ * selected row (accent 16%) and the editor's active line / selection. Disabled controls are exempt from AA by WCAG
+ * but must be visible: `text.disabled` >= 3 on every chrome surface (asserted above).
+ */
+describe("contrast: non-text UI (focus ring, indicators, icons) against the fills next to them", () => {
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		test(`${t.name}: focus ring and state indicators >= 3 on hover/selected fills, accent tint and code surfaces`, () => {
+			const surfaces = [
+				"background",
+				"editor.background",
+				"surface.background",
+				"elevated_surface.background",
+			];
+			const fill = t.appearance === "dark" ? "#ffffff" : "#000000";
+			const fails = [];
+			for (const k of ["border.selected", "state.success", "state.warning", "state.info", "state.error"])
+				for (const surf of surfaces) {
+					const base = s[surf].slice(0, 7);
+					const next = {
+						"element.hover": over(s["element.hover"].slice(0, 7), base, parseAlpha(s["element.hover"])),
+						"element.selected": over(
+							s["element.selected"].slice(0, 7),
+							base,
+							parseAlpha(s["element.selected"]),
+						),
+						"vibrancy fill 12%": over(fill, base, 0.12),
+						"accent 16%": over(s["text.accent"].slice(0, 7), base, 0.16),
+					};
+					for (const [name, bg] of Object.entries(next)) {
+						const r = contrast(s[k].slice(0, 7), bg);
+						if (r < 3) fails.push(`${k} on ${name} over ${surf}: ${r.toFixed(2)}`);
+					}
+				}
+			for (const bg of codeSurfaces(s))
+				if (contrast(s["border.selected"].slice(0, 7), bg) < 3)
+					fails.push(`focus ring on code surface ${bg}`);
+			expect(fails).toEqual([]);
+		});
+	}
+});
+
+/**
+ * WCAG 2.2 1.4.11: a text field/select must be told apart from its surface at 3:1, by its border or its fill. The app's
+ * fields wore `border.variant` (8% of the text colour, ~1.2:1). `border.control` is the field boundary: derived (a theme
+ * need not ship it), >= 3:1 on every surface a field sits on, the sidebar over the native material included.
+ */
+describe("border.control: the boundary of a field/control", () => {
+	for (const t of bundled)
+		test(`${t.name}: >= 3:1 on every chrome surface and on the 5% field tint over each; hue of the text colour`, () => {
+			const s = complete(t.style, t.appearance);
+			expect(s["border.control"]).toMatch(/^#[0-9a-f]{6}$/);
+			const fails = [];
+			for (const k of [
+				"background",
+				"editor.background",
+				"surface.background",
+				"elevated_surface.background",
+			]) {
+				const bg = s[k].slice(0, 7);
+				for (const [name, under] of [
+					["surface", bg],
+					["field tint 5%", over(s.text.slice(0, 7), bg, 0.05)],
+				]) {
+					const r = contrast(s["border.control"], under);
+					if (r < 3) fails.push(`${name} over ${k}: ${r.toFixed(2)}`);
+				}
+			}
+			expect(fails).toEqual([]);
+		});
+	test("a theme that ships border.control keeps it when it already reads, lifts it when it does not", () => {
+		const ok = complete(
+			{ "editor.background": "#ffffff", text: "#111111", "border.control": "#555555" },
+			"light",
+		);
+		expect(ok["border.control"]).toBe("#555555");
+		const bad = complete(
+			{ "editor.background": "#ffffff", text: "#111111", "border.control": "#eeeeee" },
+			"light",
+		);
+		expect(bad["border.control"]).not.toBe("#eeeeee");
+		expect(contrast(bad["border.control"], "#ffffff")).toBeGreaterThanOrEqual(3);
+	});
+});
+
+/**
+ * Kit-owned surfaces take their colours from tokens the theme must provide (measured by the runtime audit): the white
+ * label of a destructive button on the (lifted, light) error colour was 1.8:1 in Dracula; the glass tooltip was 2.5:1
+ * on a light theme; the glass menu over One Light composited to 4.08:1.
+ */
+describe("kit surfaces: destructive button, tooltip, overlay", () => {
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		test(`${t.name}: error.on_fill reads 4.5 on the error fill; tooltip and overlay pairs read 4.5`, () => {
+			expect(contrast(s["error.on_fill"].slice(0, 7), s.error.slice(0, 7))).toBeGreaterThanOrEqual(4.5);
+			expect(
+				contrast(s["tooltip.foreground"].slice(0, 7), s["tooltip.background"].slice(0, 7)),
+			).toBeGreaterThanOrEqual(7);
+			// the overlay is OPAQUE: nothing behind it changes what text on it reads
+			expect(s["elevated_surface.background"]).toMatch(/^#[0-9a-f]{6}$/);
+			expect(
+				contrast(s.text.slice(0, 7), s["elevated_surface.background"].slice(0, 7)),
+			).toBeGreaterThanOrEqual(7);
+		});
+	}
+});
+
+describe("terminalLift (the terminal's minimum-contrast rule, for previews)", () => {
+	test("returns fg untouched when it reads or the rule is off; else lifts toward white on dark and black on light", () => {
+		expect(terminalLift("#f8f8f2", "#282a36", 4.5)).toBe("#f8f8f2");
+		expect(terminalLift("#6272a4", "#282a36", 1)).toBe("#6272a4");
+		const dark = terminalLift("#6272a4", "#282a36", 4.5);
+		expect(dark).not.toBe("#6272a4");
+		expect(contrast(dark, "#282a36")).toBeGreaterThanOrEqual(4.5);
+		const light = terminalLift("#1f8a4c", "#eef0f4", 4.5);
+		expect(contrast(light, "#eef0f4")).toBeGreaterThanOrEqual(4.5);
+	});
+	test("every ANSI colour of every bundled theme reads 4.5 on the terminal background after the lift", () => {
+		for (const t of bundled) {
+			const s = complete(t.style, t.appearance);
+			const bg = s["terminal.background"].slice(0, 7);
+			for (const k of Object.keys(s).filter((k) => k.startsWith("terminal.ansi.")))
+				expect([t.name, k, contrast(terminalLift(s[k].slice(0, 7), bg, 4.5), bg) >= 4.5]).toEqual([
+					t.name,
+					k,
+					true,
+				]);
+		}
+	});
+});
+
+describe("readableOn", () => {
+	test("the better of white and black on any fill: >= 4.58 always (the worst fill, mid grey #767676, is 4.54:1 with white)", () => {
+		for (const bg of [
+			"#000000",
+			"#ffffff",
+			"#767676",
+			"#777777",
+			"#ff0000",
+			"#00ff00",
+			"#ffff00",
+			"#0000ff",
+			"#8b5cf6",
+		])
+			expect([bg, contrast(readableOn(bg), bg) >= 4.5]).toEqual([bg, true]);
+	});
+	test("a light fill gets black, a dark fill white", () => {
+		expect(readableOn("#ffff00")).toBe("#000000");
+		expect(readableOn("#1f2937")).toBe("#ffffff");
+	});
+});
+
 describe("bundled theme files ship what the user sees", () => {
 	// What the file says must be what is applied: a UI colour the legibility pass lifts at runtime would make the
 	// theme preview, `export` and the JSON on disk lie about the theme.
@@ -456,6 +697,33 @@ describe("Dracula spec", () => {
 		expect(t.number.color).toBe("#644ac9");
 		expect(t.type.color).toBe("#036a96");
 		expect(t.comment.color).toBe("#6c664b");
+	});
+
+	// Documented deviation (THIRD_PARTY_NOTICES.md, docs/desktop.md): the FILES keep the spec hexes and the terminal
+	// ANSI table is untouched; the editor's syntax roles are what `complete()` applies: the spec colour when it reads
+	// 4.5:1 on every surface under code, else the same hue and chroma lifted in lightness until it does.
+	test("applied syntax: spec colour when it reads, same hue lifted when it does not (Dracula, Alucard)", () => {
+		for (const t of [by("Dracula"), by("Alucard")]) {
+			const applied = syntaxTokens(complete(t.style, t.appearance));
+			const surfaces = codeSurfaces(complete(t.style, t.appearance));
+			for (const [role, spec] of Object.entries(t.style.syntax)) {
+				const reads = surfaces.every((bg) => contrast(spec.color.slice(0, 7), bg) >= 4.5);
+				if (reads) expect([t.name, role, applied[role].color]).toEqual([t.name, role, spec.color]);
+				else {
+					expect(applied[role].color).not.toBe(spec.color);
+					expect(Math.abs(toOklch(applied[role].color).h - toOklch(spec.color).h)).toBeLessThan(6);
+				}
+				expect(!!applied[role].italic).toBe(spec.font_style === "italic");
+			}
+		}
+	});
+
+	test("Dracula keeps keyword/function/string/type/variable colours that already read", () => {
+		const t = syntaxTokens(complete(d, "dark"));
+		expect(t.function.color).toBe("#50fa7b");
+		expect(t.string.color).toBe("#f1fa8c");
+		expect(t.type.color).toBe("#8be9fd");
+		expect(t.variable.color).toBe("#f8f8f2");
 	});
 
 	test("both themes carry the spec URL and MIT attribution", () => {

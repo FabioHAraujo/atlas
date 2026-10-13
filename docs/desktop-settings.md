@@ -108,7 +108,8 @@ The project file wins over `~/.atlas/desktop/settings.json` field by field for t
 | `terminal.max_scroll_history_lines` | `10000` | 0–100000 |
 | `terminal.osc52` | `"ask"` | what happens when a program writes your clipboard: `allow`, `ask` or `deny`. Reading the clipboard is always denied |
 | `terminal.ligatures` | `true` | GPU terminal |
-| `terminal.minimum_contrast` | `1` | 1–21; WCAG ratio text is lifted to, `1` = off. GPU terminal |
+| `terminal.minimum_contrast` | `4.5` | 1–21; WCAG ratio a cell's text is lifted to at draw time (the theme's ANSI table is not changed), `1` = off. GPU terminal |
+| `terminal.minimum_contrast_chosen` | `false` | Written `true` when you set the minimum contrast yourself. A stored `minimum_contrast` of `1` without it is the pre-4.5 default (the Terminal tab used to write it back) and is read as `4.5`; set `1` in the Terminal tab to keep it off |
 | `terminal.copy_on_select` | `true` | GPU terminal |
 | `terminal.option_as_alt` | `"both"` | `both`, `left`, `right` or `none`. GPU terminal |
 | `terminal.click_to_move` | `true` | a click on the prompt moves the cursor (needs shell integration). GPU terminal |

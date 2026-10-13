@@ -9,6 +9,11 @@
  *   bun scripts/contrast-audit.ts --json /tmp/contrast.json --md /tmp/contrast.md
  *   ATLAS_DEBUG_SOCK=… bun scripts/contrast-audit.ts --attach   # use an instance you already started
  *
+ * Per screen it runs the text audit (`atlas desktop debug contrast`: every visible text node, syntax colours included,
+ * 4.5 body / 3 large / 3 disabled+placeholder+gutter) and the non-text audit (`__atlasDebug.nonTextAudit`: icons, field
+ * borders and the focused control's outline, 3:1, WCAG 2.2 1.4.11). Overlays (menus, tooltips, dialogs, toasts,
+ * popovers) portal to <body>, so those screens audit the whole document. The source of truth for release: 0 failures.
+ *
  * The fixture project is created under a temp dir (a git repo with an atlas.yaml and a TypeScript file), added to the
  * instance, and left behind with it (`--scratch` HOME is thrown away on `--stop`).
  */
@@ -147,6 +152,15 @@ const chord = (
 	mods = { metaKey: true, shiftKey: true } as Record<string, boolean>,
 ) =>
 	`window.dispatchEvent(new KeyboardEvent("keydown",${JSON.stringify({ key: mods.shiftKey ? k.toUpperCase() : k, code: k.length === 1 ? `Key${k.toUpperCase()}` : k, ...mods, bubbles: true, cancelable: true })}))`;
+/** Open a real trigger the way a user does: pointer events + click on the element (DOM events, never OS input). */
+const press = (sel: string) =>
+	`const e=document.querySelector(${JSON.stringify(sel)}); if(!e) throw new Error("no ${sel.replace(/"/g, "'")}"); for(const t of ["pointerdown","mousedown","pointerup","mouseup","click"]) e.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,button:0,view:window}));`;
+const settings = (target: string, extra = ""): Screen => ({
+	id: `settings-${target.replace("/", "-")}`,
+	setup: `${A}.updates.show(${JSON.stringify(target)}); ${extra}`,
+	teardown: `${A}.updates.open=false;`,
+});
+const ASK = `${A}.confirmDialog`;
 const SCREENS: Screen[] = [
 	{
 		id: "sidebar",
@@ -167,20 +181,28 @@ const SCREENS: Screen[] = [
 		wait: "document.querySelector('.cm-editor')",
 	},
 	{
-		id: "settings-appearance",
-		setup: `${A}.updates.show("appearance/appearance");`,
-		teardown: `${A}.updates.open=false;`,
+		// The find/replace panel with a query that matches (a search match under code) and a selection on the same
+		// line: the surfaces code is read on besides the plain editor. Driven through CodeMirror's own keymap.
+		id: "editor-find",
+		setup: `${selectWt} ${A}.ws.reveal(${A}.ws.doc.selected,(t)=>t.kind==="editor"&&t.path==="src/main.ts",{kind:"editor",label:"main.ts",path:"src/main.ts"}); await new Promise(r=>setTimeout(r,900)); const c=document.querySelector(".cm-content"); c.focus(); c.dispatchEvent(new KeyboardEvent("keydown",{key:"f",code:"KeyF",metaKey:true,bubbles:true,cancelable:true})); await new Promise(r=>setTimeout(r,300)); const i=document.querySelector(".cm-find input.cm-textfield, .cm-search input.cm-textfield"); if(i){ i.focus(); i.value="add"; i.dispatchEvent(new InputEvent("input",{bubbles:true})); i.dispatchEvent(new Event("change",{bubbles:true})); } const v=[...${A}.editors.values()][0]; v?.dispatch({selection:{anchor:0,head:16}});`,
+		wait: "document.querySelector('.cm-panel')",
 	},
 	{
-		id: "settings-languages",
-		setup: `${A}.updates.show("appearance/languages");`,
-		teardown: `${A}.updates.open=false;`,
+		// The completion popup (+ its detail/info) over the editor
+		id: "editor-completion",
+		setup: `${selectWt} ${A}.ws.reveal(${A}.ws.doc.selected,(t)=>t.kind==="editor"&&t.path==="src/main.ts",{kind:"editor",label:"main.ts",path:"src/main.ts"}); await new Promise(r=>setTimeout(r,900)); const v=[...${A}.editors.values()][0]; v.focus(); v.dispatch({changes:{from:v.state.doc.length,insert:" add"},selection:{anchor:v.state.doc.length+4}}); const c=document.querySelector(".cm-content"); c.dispatchEvent(new KeyboardEvent("keydown",{key:" ",code:"Space",ctrlKey:true,bubbles:true,cancelable:true})); await new Promise(r=>setTimeout(r,800));`,
 	},
-	{
-		id: "settings-updates",
-		setup: `${A}.updates.show("general");`,
-		teardown: `${A}.updates.open=false;`,
-	},
+	settings("general"),
+	settings("appearance/appearance"),
+	settings("appearance/editor"),
+	settings("appearance/languages"),
+	settings("appearance/interface"),
+	settings("appearance/terminal"),
+	settings("workspaces"),
+	settings("agents"),
+	settings("keyboard"),
+	settings("ssh"),
+	settings("help"),
 	{
 		id: "command-palette",
 		setup: chord("p"),
@@ -191,7 +213,90 @@ const SCREENS: Screen[] = [
 		setup: `${A}.updates.showWhatsNew();`,
 		teardown: `${A}.updates.whatsNewOpen=false;`,
 	},
+	{
+		// An update on offer: the sidebar pill, the sheet's "behind" actions and the channel chips
+		id: "whats-new-behind",
+		setup: `const u=${A}.updates; u.prefs={...u.prefs,skipped:null}; u.info={...(u.info??{}),cli:{...(u.info?.cli??{}),linked_to:null},app:{...(u.info?.app??{}),linked_to:null,dev:false}}; u.release={version:"99.0.0",url:"https://example.com",published_at:new Date().toISOString(),notes:"- a thing",channel:"stable",action:"update",downgrade:false,cli_behind:true,app_behind:true,cli_ahead:false,app_ahead:false}; u.showWhatsNew();`,
+		teardown: `${A}.updates.whatsNewOpen=false; ${A}.updates.release=null;`,
+	},
+	{
+		id: "update-pill",
+		setup: `const u=${A}.updates; u.prefs={...u.prefs,skipped:null}; u.info={...(u.info??{}),cli:{...(u.info?.cli??{}),linked_to:null},app:{...(u.info?.app??{}),linked_to:null,dev:false}}; u.release={version:"99.0.0",url:"https://example.com",published_at:new Date().toISOString(),notes:"x",channel:"stable",action:"update",downgrade:false,cli_behind:true,app_behind:true,cli_ahead:false,app_ahead:false};`,
+		teardown: `${A}.updates.release=null;`,
+		selector: "aside.sidebar",
+	},
+	{
+		id: "dialog-confirm",
+		setup: `${ASK}("Delete everything?",{description:"This cannot be undone.",confirmLabel:"Delete",destructive:true});`,
+		teardown: `${A}.ask.current?.resolve(false); ${A}.ask.current=null;`,
+	},
+	{
+		id: "dialog-prompt",
+		setup: `${A}.promptDialog("Rename worktree",{value:"main",placeholder:"name",description:"Pick a name",confirmLabel:"Rename"});`,
+		teardown: `${A}.ask.current?.resolve(null); ${A}.ask.current=null;`,
+	},
+	{
+		id: "dialog-discover",
+		setup: `${A}.discovery.show();`,
+		teardown: `${A}.discovery.open=false;`,
+	},
+	{
+		id: "toasts",
+		setup: `const k=${A}.toast; k.success("Copied http://localhost:4101"); k.info("api started"); k.warning("Slow query detected"); k.error("api failed to start"); await new Promise(r=>setTimeout(r,500));`,
+	},
+	{
+		id: "menu-worktree-row",
+		setup: `${selectWt} ${press("[aria-label='Worktree menu'], [aria-label='Project menu']")}`,
+		wait: "document.querySelector('[role=menu]')",
+	},
+	{
+		id: "menu-project",
+		setup: `${selectWt} ${press("[aria-label='Project menu']")}`,
+		wait: "document.querySelector('[role=menu]')",
+	},
+	{
+		id: "menu-new-tab",
+		setup: `${selectWt} ${press("[aria-label='New tab']")}`,
+		wait: "document.querySelector('[role=menu]')",
+	},
+	{
+		id: "tooltip",
+		setup: `${selectWt} const e=document.querySelector("[aria-label='New worktree'],[aria-label='New tab']"); e?.dispatchEvent(new PointerEvent("pointerenter",{bubbles:true,pointerType:"mouse"})); e?.dispatchEvent(new MouseEvent("mouseover",{bubbles:true})); e?.focus?.(); await new Promise(r=>setTimeout(r,900));`,
+	},
+	{
+		id: "focus-ring",
+		setup: `window.dispatchEvent(new KeyboardEvent("keydown",{key:"Tab",code:"Tab",bubbles:true})); document.documentElement.dataset.kbd=""; document.querySelector("aside.sidebar button, aside.sidebar [role=button]")?.focus();`,
+	},
+	{
+		// Settings → Appearance → Import theme…: a real click on the button the user presses
+		id: "dialog-theme-import",
+		setup: `${A}.updates.show("appearance/appearance"); await new Promise(r=>setTimeout(r,600)); const b=[...document.querySelectorAll("button")].find(b=>/^\\s*Import…/.test(b.textContent??"")); if(!b) throw new Error("no Import… button"); b.click();`,
+		wait: "document.querySelector('[role=dialog] textarea, [role=dialog] [data-dropzone], [role=dialog]')",
+		teardown: `${chord("Escape", {})}; ${A}.updates.open=false;`,
+	},
+	{
+		// The first-run checklist (state cleared so it shows) with its progress
+		id: "checklist",
+		setup: `${A}.onboarding.state={...${A}.onboarding.state,done:true,checklistDismissed:false,items:{}};`,
+	},
+	{
+		id: "tour",
+		setup: `${A}.onboarding.tourOpen=true;`,
+		teardown: `${A}.onboarding.tourOpen=false;`,
+	},
+	{
+		id: "shortcuts-sheet",
+		setup: `${A}.onboarding.helpOpen=true;`,
+		teardown: `${A}.onboarding.helpOpen=false;`,
+	},
 ];
+/**
+ * Bring the page to rest: finish every finite animation and transition. A sheet or menu mid-fade is text at a fraction
+ * of its colour, and in a page the OS reports as hidden (an agent window) animations do not advance at all (a kit
+ * drawer stayed at its 0.6 start opacity forever). `finish()` jumps to the end state, which is what a user sees at
+ * rest; infinite ones (spinners, skeleton pulses) are left running. No rAF: it never fires in a hidden page.
+ */
+const SETTLE = `for (const a of document.getAnimations()) if (a.effect?.getComputedTiming().iterations !== Infinity) { try { a.finish(); } catch {} } return true`;
 const only = arg("screens")?.split(",");
 const themes = arg("themes")
 	?.split(",")
@@ -212,10 +317,15 @@ type Cell = {
 	screen: string;
 	checked: number;
 	failures: Fail[];
-	code: number;
 	unknown: number;
 	error?: string;
 };
+type NonText = { selector: string; kind: string; ratio: number; required: number; fg: string; bg: string };
+/** The non-text audit (icons, field borders, focus ring) over the same root the text audit used. */
+const nonText = (selector?: string) =>
+	evalJs(
+		`const root=${selector ? `document.querySelector(${JSON.stringify(selector)})` : "document.body"}; if(!root) throw new Error("no root"); return window.__atlasDebug.nonTextAudit(root);`,
+	) as { checked: number; failures: NonText[] };
 const cells: Cell[] = [];
 const stop = () =>
 	flag("attach") ||
@@ -242,13 +352,13 @@ for (const t of THEMES.filter((t) => !themes || themes.includes(t.name))) {
 			"--timeout",
 			"8000",
 		);
+		evalJs(SETTLE);
 		const r = JSON.parse(dbg("contrast", ".hero"));
 		cells.push({
 			theme: t.name,
 			screen: "welcome",
 			checked: r.checked,
 			failures: r.failures,
-			code: r.code.length,
 			unknown: r.unknown.length,
 			error:
 				r.checked < 2
@@ -261,9 +371,8 @@ for (const t of THEMES.filter((t) => !themes || themes.includes(t.name))) {
 			screen: "welcome",
 			checked: 0,
 			failures: [],
-			code: 0,
 			unknown: 0,
-			error: String(e).slice(0, 200),
+			error: String(e).slice(-300),
 		});
 	}
 }
@@ -280,16 +389,28 @@ for (const t of THEMES.filter((t) => !themes || themes.includes(t.name))) {
 		try {
 			evalJs(`${s.setup}; return true`);
 			if (s.wait) dbg("wait", s.wait, "--expr", "--timeout", "8000");
-			await sleep(700);
+			await sleep(400);
+			evalJs(SETTLE);
 			const r = JSON.parse(
 				dbg("contrast", ...(s.selector ? [s.selector] : [])),
 			);
+			const nt = nonText(s.selector);
 			cells.push({
 				theme: t.name,
 				screen: s.id,
-				checked: r.checked,
-				failures: r.failures,
-				code: r.code.length,
+				checked: r.checked + nt.checked,
+				failures: [
+					...r.failures,
+					...nt.failures.map((f: NonText) => ({
+						selector: `[${f.kind}] ${f.selector}`,
+						text: f.kind,
+						ratio: f.ratio,
+						required: f.required,
+						fg: f.fg,
+						bg: f.bg,
+						vars: {},
+					})),
+				],
 				unknown: r.unknown.length,
 			});
 		} catch (e) {
@@ -298,9 +419,8 @@ for (const t of THEMES.filter((t) => !themes || themes.includes(t.name))) {
 				screen: s.id,
 				checked: 0,
 				failures: [],
-				code: 0,
 				unknown: 0,
-				error: String(e).slice(0, 200),
+				error: String(e).slice(-300),
 			});
 		} finally {
 			if (s.teardown) evalJs(`${s.teardown}; return true`);
@@ -342,10 +462,8 @@ for (const [k, e] of [...bySel]
 	.sort((a, b) => b[1].count - a[1].count)
 	.slice(0, 25))
 	md += `- ${e.count}x ${e.worst} / ${e.required}  \`${k}\`  "${e.sample}"\n`;
-const codeTotal = cells
-	.filter((c) => c.screen === "editor")
-	.reduce((n, c) => n + c.code, 0);
-md += `\nEditor syntax colours below their floor (a theme palette, listed apart, not a UI failure): ${codeTotal}\n`;
+const unknownTotal = cells.reduce((n, c) => n + c.unknown, 0);
+md += `\nText runs on a background the audit could not resolve (image/gradient; not a pass): ${unknownTotal}\n`;
 if (errors.length)
 	md += `\nScreens that could not be audited:\n${errors.map((c) => `- ${c.theme} / ${c.screen}: ${c.error}`).join("\n")}\n`;
 console.log(md);

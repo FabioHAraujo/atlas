@@ -5,6 +5,7 @@
 	import { themes } from "#lib/stores/theme.svelte.ts";
 	import type { Prefs } from "#lib/prefs.ts";
 	import { ANSI_VARS } from "#lib/ansi.ts";
+	import { terminalLift } from "#lib/theme/color.ts";
 	import { restartHost } from "#lib/stores/hostStatus.svelte.ts";
 	import { confirmDialog } from "#lib/stores/ask.svelte.ts";
 	import Group from "./Group.svelte";
@@ -35,6 +36,14 @@
 	let selFg = $derived(colors?.selectionFg ?? fg);
 	/** Palette slot 0–15: the terminal theme's color, else the app's `--ansi-*` variable. */
 	const ansi = (i: number) => colors?.ansi16[i] ?? `var(${ANSI_VARS[i]})`;
+	/** An ANSI colour as TEXT in the preview: lifted by the terminal's own minimum-contrast rule, as the terminal draws it. */
+	const asText = (i: number) => {
+		const c = colors?.ansi16[i];
+		const surface = colors?.bg ?? themes.current?.style["terminal.background"];
+		return c && typeof surface === "string"
+			? terminalLift(c, surface.slice(0, 7), t.minimum_contrast)
+			: ansi(i);
+	};
 	const ANSI_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7];
 </script>
 
@@ -101,12 +110,12 @@
 	<Row
 		id="contrast"
 		label="Minimum contrast"
-		description="Lightens or darkens text that is hard to read on its background. 1 turns it off; 4.5 meets accessibility guidance. Fast terminal only."
+		description="Lightens or darkens text that is hard to read on its background. 4.5 (the default) meets WCAG AA; 1 turns it off. Fast terminal only."
 	>
 		<NumInput
 			label="Minimum contrast"
 			value={t.minimum_contrast}
-			onchange={(v) => save({ minimum_contrast: v })}
+			onchange={(v) => save({ minimum_contrast: v, minimum_contrast_chosen: true })}
 		/>
 	</Row>
 </Group>
@@ -139,8 +148,8 @@
 					: 400}; padding: {t.padding_y}px {t.padding_x}px"
 			>
 				<div>
-					<span style="color: {ansi(2)}">~/atlas</span>
-					<span style="color: {ansi(4)}">main</span>
+					<span style="color: {asText(2)}">~/atlas</span>
+					<span style="color: {asText(4)}">main</span>
 					$ bun run
 					<span class="sel" style="background: {selBg}; color: {selFg}">dev</span>
 					<span class="cur {t.cursor_shape}" class:blink={t.blinking} style="--cur: {cursor}"></span>

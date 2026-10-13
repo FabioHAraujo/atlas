@@ -84,6 +84,7 @@
 	class="app"
 	style:--space-accent={shell.active ? shell.accent(shell.active.id) : undefined}
 	style:--space-accent-text={shell.active ? shell.accentText(shell.active.id) : undefined}
+	style:--space-on-accent={shell.active ? shell.onAccent(shell.active.id) : undefined}
 	style:--space-tint={shell.active ? shell.tint(shell.active.id) : undefined}
 >
 	<div class="sidebar-slot" class:hidden={!docks.sidebar} inert={!docks.sidebar}>

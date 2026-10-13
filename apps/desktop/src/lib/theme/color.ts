@@ -134,3 +134,29 @@ export function ensureContrast(fg: string, bg: string, min: number): string {
 }
 
 export const isDark = (bg: string): boolean => luminance(bg) < 0.18;
+
+/** Black or white, whichever reads better on the opaque fill `bg` (ties go to white). */
+export const readableOn = (bg: string): "#ffffff" | "#000000" =>
+	contrast("#ffffff", bg) >= contrast("#000000", bg) ? "#ffffff" : "#000000";
+
+/**
+ * What the GPU terminal draws for `fg` on `bg` at `minimum`: `fg` itself when it already reads, else lerped toward
+ * white (dark `bg`) or black (light `bg`) in 16 steps until it does: the same rule as `Palette::enforce_contrast`
+ * (`atlas-term/src/colors.rs`), so a preview shows what the terminal shows. `minimum <= 1` is off.
+ */
+export function terminalLift(fg: string, bg: string, minimum: number): string {
+	if (minimum <= 1 || contrast(fg, bg) >= minimum) return fg;
+	const target = luminance(bg) > 0.18 ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 };
+	const f = parseHex(fg);
+	let c = { r: f.r, g: f.g, b: f.b };
+	for (let step = 1; step <= 16; step++) {
+		// the Rust lerp: c + (target - c) * step / 16, truncated, from the previous step's colour
+		c = {
+			r: c.r + Math.trunc(((target.r - c.r) * step) / 16),
+			g: c.g + Math.trunc(((target.g - c.g) * step) / 16),
+			b: c.b + Math.trunc(((target.b - c.b) * step) / 16),
+		};
+		if (contrast(toHex(c), bg) >= minimum) break;
+	}
+	return toHex(c);
+}

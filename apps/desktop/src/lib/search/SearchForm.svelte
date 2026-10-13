@@ -138,7 +138,7 @@
 		gap: 2px;
 		height: 28px;
 		padding: 0 4px 0 8px;
-		border: 0.5px solid var(--ca-outline-subtle);
+		border: 0.5px solid var(--atlas-control-border, var(--ca-outline-default));
 		border-radius: 8px;
 		background: color-mix(in oklab, var(--ca-text-primary) 4%, transparent);
 		color: var(--ca-text-secondary);

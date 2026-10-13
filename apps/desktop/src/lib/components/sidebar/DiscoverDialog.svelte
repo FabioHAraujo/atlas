@@ -224,7 +224,7 @@
 		gap: 6px;
 		height: 30px;
 		padding: 0 8px;
-		border: 0.5px solid var(--ca-outline-subtle);
+		border: 0.5px solid var(--atlas-control-border, var(--ca-outline-default));
 		border-radius: 8px;
 		color: var(--ca-text-secondary);
 	}
@@ -339,7 +339,7 @@
 		color: var(--ca-text-secondary);
 	}
 	.tag.ok {
-		color: var(--dot-ok);
+		color: var(--ca-semantic-success);
 		background: color-mix(in oklab, var(--dot-ok) 14%, transparent);
 	}
 	.err {
@@ -347,7 +347,7 @@
 		align-items: center;
 		gap: 4px;
 		font-size: 11.5px;
-		color: var(--dot-fail);
+		color: var(--ca-semantic-error);
 	}
 	.move {
 		display: flex;
@@ -355,7 +355,7 @@
 		gap: 8px;
 		margin-top: 4px;
 		font-size: 12px;
-		color: var(--dot-warn);
+		color: var(--ca-semantic-warning);
 	}
 	.spacer {
 		flex: 1;

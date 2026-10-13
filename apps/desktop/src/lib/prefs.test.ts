@@ -151,3 +151,30 @@ test("resolving does not share mutable defaults between calls", () => {
 	expect(resolvePrefs({}).lsp).toEqual({});
 	expect(DEFAULT_PREFS.editor.rulers).toEqual([]);
 });
+
+// Incident (contrast audit): the default was 1 (off), so the ANSI "black"/"bright black" every TUI uses for dim text
+// rendered at 1.2-3.4:1 in all six themes. The GPU terminal lifts a cell to the floor at draw time (the theme's ANSI
+// table stays the spec's); the default is WCAG AA text, an explicit value the user set is kept (1 = off).
+test("terminal.minimum_contrast defaults to WCAG AA (4.5); an explicit value, including 1 (off), is kept", () => {
+	expect(resolvePrefs({}).terminal.minimum_contrast).toBe(4.5);
+	expect(
+		resolvePrefs({ terminal: { minimum_contrast: 1, minimum_contrast_chosen: true } }).terminal
+			.minimum_contrast,
+	).toBe(1);
+	expect(resolvePrefs({ terminal: { minimum_contrast: 7 } }).terminal.minimum_contrast).toBe(7);
+	expect(resolvePrefs({ terminal: { minimum_contrast: 99 } }).terminal.minimum_contrast).toBe(4.5);
+	expect(resolvePrefs({ terminal: { minimum_contrast: "high" } }).terminal.minimum_contrast).toBe(4.5);
+});
+
+// Incident (contrast audit): changing the default to 4.5 never reached existing installs: the settings file already
+// held `"minimum_contrast": 1` (the old default, written back whole by the Terminal tab). A stored 1 with no marker is
+// the old default, not a choice; one the user sets afterwards carries `minimum_contrast_chosen: true` and is kept.
+test("a persisted minimum_contrast of 1 without the chosen marker is the old default and migrates to 4.5", () => {
+	expect(resolvePrefs({ terminal: { minimum_contrast: 1 } }).terminal.minimum_contrast).toBe(4.5);
+	expect(
+		resolvePrefs({ terminal: { minimum_contrast: 1, minimum_contrast_chosen: true } }).terminal
+			.minimum_contrast,
+	).toBe(1);
+	expect(resolvePrefs({ terminal: { minimum_contrast: 7 } }).terminal.minimum_contrast).toBe(7);
+	expect(resolvePrefs({ terminal: { minimum_contrast: 1.5 } }).terminal.minimum_contrast).toBe(1.5);
+});

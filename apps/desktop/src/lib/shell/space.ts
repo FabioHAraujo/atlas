@@ -1,5 +1,5 @@
 /** Spaces: one per repo. Deterministic accent per id, ordering and switching, pure for tests. */
-import { contrast, ensureContrast, fromOklch } from "#lib/theme/color.ts";
+import { contrast, ensureContrast, fromOklch, mix } from "#lib/theme/color.ts";
 
 /** FNV-1a, 32 bit: stable across sessions and platforms. */
 function hash(s: string): number {
@@ -16,6 +16,18 @@ export const hueOf = (id: string): number => hash(id) % 360;
 
 /** Lightness/chroma tuned so the accent reads on both the light and the dark surface. */
 const TONE = { light: { l: 0.62, c: 0.17 }, dark: { l: 0.74, c: 0.14 } } as const;
+
+/**
+ * The letter colour on an accent tile (monogram, swatch check): black or white, whichever reads better on the WORSE end
+ * of the tile (`accent` -> `accent` 18% toward white), for the hue at this tone.
+ */
+export function onAccent(dark: boolean, hue: number): "#ffffff" | "#000000" {
+	const { l, c } = dark ? TONE.dark : TONE.light;
+	const fill = fromOklch({ l, c, h: hue });
+	const ends = [fill, mix(fill, "#ffffff", 0.18)];
+	const worst = (fg: string) => Math.min(...ends.map((bg) => contrast(fg, bg)));
+	return worst("#000000") >= worst("#ffffff") ? "#000000" : "#ffffff";
+}
 
 /** OKLCH accent for a space id. `hue` overrides the derived one (user choice later). */
 export function accentOf(id: string, dark: boolean, hue?: number): string {

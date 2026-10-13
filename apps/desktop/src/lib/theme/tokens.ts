@@ -29,6 +29,15 @@ export const UI_TOKENS: Record<string, string[]> = {
 	"border.variant": ["--ca-outline-subtle"],
 	border: ["--ca-outline-default"],
 	"border.focused": ["--ca-outline-strong"],
+	/** The boundary of a text field / select / control: 3:1 on every surface it sits on (WCAG 2.2 1.4.11). */
+	"border.control": ["--atlas-control-border"],
+	/** Label on the destructive button's fill (the error colour): black or white by contrast. */
+	"error.on_fill": ["--atlas-error-on-fill"],
+	/** The tooltip is inverted (text colour as fill, surface as ink): 7:1+ on any theme. */
+	"tooltip.background": ["--atlas-tooltip-bg"],
+	"tooltip.foreground": ["--ca-tooltip-fg"],
+	/** The overlay (menus, popovers) is opaque: what is behind it never changes what text on it reads. */
+	"overlay.background": ["--atlas-overlay-bg"],
 	/** Keyboard focus ring. */
 	"border.selected": ["--atlas-focus-ring"],
 	"element.hover": ["--ca-action-hover"],

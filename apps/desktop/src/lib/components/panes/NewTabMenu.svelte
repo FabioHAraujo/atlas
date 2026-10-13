@@ -92,7 +92,8 @@
 		border: 0;
 		border-radius: 4px;
 		background: none;
-		color: inherit;
+		/* the kit's trigger sets a dark-theme glass white here: inheriting it left the + at 1.03:1 on light themes */
+		color: var(--ca-text-secondary);
 		transition:
 			opacity 120ms ease-out,
 			background 120ms ease-out;

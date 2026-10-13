@@ -33,6 +33,7 @@
 	class="tile {icon.kind}"
 	class:ring
 	style:--c={shell.accent(id)}
+	style:--on={shell.onAccent(id)}
 	style:--s="{size}px"
 	aria-hidden="true"
 >
@@ -70,7 +71,7 @@
 	}
 	/* Monogram: solid accent so the letter has the contrast the icon-less tile lacks. */
 	.tile.monogram {
-		color: white;
+		color: var(--on);
 		background: linear-gradient(160deg, color-mix(in oklab, var(--c) 82%, white), var(--c));
 		box-shadow:
 			inset 0 0.5px 0 rgb(255 255 255 / 0.3),

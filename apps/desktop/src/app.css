@@ -434,3 +434,40 @@ a {
 	background: var(--ca-surface-sunken);
 	box-shadow: inset 0 0 0 1px var(--ca-outline-subtle);
 }
+
+/* Field boundaries (WCAG 2.2 1.4.11, 3:1): the kit draws text fields, text areas and selects with `--ca-outline-subtle`
+   (8% of the text colour, ~1.2:1). `--atlas-control-border` is derived per theme (theme/derive.ts, `border.control`) to
+   read 3:1 on every surface a field sits on. Focus and error colours stay the kit's; the doubled class out-ranks the
+   kit's hashed rules. */
+.ca-tf__wrap.ca-tf__wrap:not(.ca-tf__wrap--focused):not(.ca-tf__wrap--error),
+.ca-ta__wrap.ca-ta__wrap:not(.ca-ta__wrap--focused):not(.ca-ta__wrap--error) {
+	border-color: var(--atlas-control-border, var(--ca-outline-default));
+}
+
+/* Kit surfaces whose colours the kit takes from translucent glass tints (measured by the runtime audit, per theme):
+   - the destructive button's label is white on `--ca-semantic-error-fill`, the (lifted, light) error colour in dark
+     themes: 1.8:1. `--atlas-error-on-fill` is black or white by contrast (theme/derive.ts).
+   - the tooltip is inverted (text colour as fill, editor background as ink): 7:1+ on any theme, over any backdrop.
+   - menus and popovers (`glass-overlay`) paint an OPAQUE overlay surface: a blurred translucent tint over the page
+     measured 4.08:1 on One Light. */
+.ca-btn--destructive.ca-btn--destructive {
+	color: var(--atlas-error-on-fill, oklch(1 0 0));
+}
+.ca-tooltip-content.ca-tooltip-content {
+	background: var(--atlas-tooltip-bg, var(--ca-surface-overlay));
+	color: var(--ca-tooltip-fg, var(--ca-text-primary));
+	backdrop-filter: none;
+}
+.glass-overlay.glass-overlay {
+	background-color: var(--atlas-overlay-bg, var(--ca-surface-overlay));
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+/* A disabled destructive button: the disabled label colour (`--ca-text-disabled`, 3:1 on the chrome surfaces) must sit on
+   a chrome surface too, not on the red fill (1.2:1 measured). Same look as the disabled filled button above. */
+.ca-btn--destructive.ca-btn--destructive:disabled,
+.ca-btn--destructive.ca-btn--destructive[aria-disabled="true"] {
+	background: var(--ca-surface-sunken);
+	box-shadow: inset 0 0 0 1px var(--ca-outline-subtle);
+}

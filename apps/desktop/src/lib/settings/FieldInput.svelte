@@ -14,7 +14,7 @@
 		font: inherit;
 		font-size: 12.5px;
 		border-radius: 7px;
-		border: 0.5px solid var(--ca-outline-subtle);
+		border: 0.5px solid var(--atlas-control-border, var(--ca-outline-default));
 		background: var(--ca-surface-sunken);
 		color: var(--ca-text-primary);
 		user-select: text;
@@ -22,7 +22,11 @@
 	}
 	input:focus {
 		outline: none;
-		border-color: color-mix(in oklab, var(--ca-brand-main) 55%, var(--ca-outline-subtle));
+		border-color: color-mix(
+			in oklab,
+			var(--ca-brand-main) 55%,
+			var(--atlas-control-border, var(--ca-outline-default))
+		);
 	}
 	input.mono {
 		font-family: ui-monospace, monospace;

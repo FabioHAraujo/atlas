@@ -13,6 +13,8 @@ import {
 	mix,
 	opaque,
 	over,
+	parseHex,
+	readableOn,
 	toOklch,
 	withAlpha,
 } from "#lib/theme/color.ts";
@@ -96,6 +98,7 @@ export function complete(input: ThemeStyle, appearance: Appearance): ThemeStyle 
 	set(s, "border", withAlpha(fg, 0.16));
 	set(s, "border.variant", withAlpha(fg, 0.08));
 	set(s, "border.focused", withAlpha(fg, 0.3));
+	set(s, "border.control", mix(fg, bg, 0.45));
 	set(s, "border.selected", ensureContrast(accent, bg, 3));
 	set(s, "element.hover", withAlpha(fg, dark ? 0.075 : 0.055));
 	set(s, "element.selected", withAlpha(fg, dark ? 0.13 : 0.09));
@@ -143,6 +146,45 @@ const SURFACE_KEYS = ["background", "editor.background", "surface.background", "
 export const SIDEBAR_SEE_THROUGH = 0.18;
 
 /**
+ * `fg` moved along lightness (hue and chroma kept) toward the readable side of the theme, `dark` = toward light,
+ * until it reaches `min` on EVERY surface in `on`. Unlike `ensureContrast`, the direction does not depend on one
+ * surface, so a tint lighter than the editor on a dark theme cannot flip the lift toward black.
+ */
+function liftOn(fg: string, on: string[], min: number, dark: boolean): string {
+	const worst = (c: string) => Math.min(...on.map((bg) => contrast(c, bg)));
+	if (worst(fg) >= min) return fg;
+	const o = toOklch(fg);
+	for (let i = 1; i <= 80; i++) {
+		const out = fromOklch({ ...o, l: o.l + (dark ? i : -i) * 0.0075 });
+		if (worst(out) >= min) return out;
+	}
+	return dark ? "#ffffff" : "#000000";
+}
+
+/**
+ * The opaque surfaces code is read on for as long as the user looks at it, as `cm.ts` paints them over
+ * `editor.background`: the plain editor, the active line, the selection (focused, on the active line, unfocused at
+ * 55%). Syntax roles are lifted to AA on all of them. Exported so the tests measure what the derivation guarantees.
+ */
+export function codeSurfaces(s: ThemeStyle): string[] {
+	const bg = opaque(color(s["editor.background"])!);
+	const line = over(color(s["editor.active_line.background"]) ?? bg, bg, 1);
+	const sel = color(s.players?.[0]?.selection);
+	return [bg, line, ...(sel ? [over(sel, bg, 1), over(sel, bg, 0.55), over(sel, line, 1)] : [])];
+}
+
+/**
+ * The transient paints under code that the theme sets by ALPHA (selection match, matching bracket, both search
+ * matches): `legible()` caps their strength, hue kept, so that `text` and every syntax role still reads on them.
+ */
+export const CODE_PAINTS: [key: string, scale: number][] = [
+	["editor.document_highlight.read_background", 0.6],
+	["editor.document_highlight.bracket_background", 1],
+	["search.match_background", 1],
+	["search.active_match_background", 1],
+];
+
+/**
  * The legibility guarantee, for explicit theme values and derived ones alike (a theme file, a Ghostty import or a
  * VS Code theme can all ship a muted grey that vanishes on its own sidebar). Every UI text token is moved along
  * lightness, keeping hue and chroma, until it reaches its floor on the WORST surface it can sit on (the four chrome
@@ -151,7 +193,9 @@ export const SIDEBAR_SEE_THROUGH = 0.18;
  *  - 4.5 (WCAG AA body): text, text.muted, text.accent, the semantic colours, the link colour;
  *  - 3 (documented relaxation: WCAG exempts disabled controls and placeholders, they must still read): text.disabled;
  *  - 3: the keyboard focus ring and the state indicators (non-text UI).
- * Terminal and syntax colours and `editor.line_number` are never touched here (specs such as Dracula pin them).
+ * Syntax roles are text too: each reaches 4.5 on the editor background and on every tint `cm.ts` paints under code
+ * (`codeSurfaces`), lightness only. `terminal.ansi.*` and the terminal colours are never touched here (specs such as
+ * Dracula pin the ANSI table); the editor's syntax roles are not pinned, a role that fails is lifted.
  */
 function legible(s: ThemeStyle, dark: boolean) {
 	const surf = SURFACE_KEYS.map((k) => opaque(color(s[k])!));
@@ -198,9 +242,80 @@ function legible(s: ThemeStyle, dark: boolean) {
 			lift(k, AA, [...text, ...own]);
 		}
 	lift("text.disabled", 3, text);
+	// The field boundary reads 3:1 on every surface AND on the 5% text tint a field is filled with, over each.
+	const fieldFills = text.flatMap((bg) => [bg, over(opaque(color(s.text)!), bg, 0.05)]);
+	lift("border.control", 3, fieldFills);
+	// Non-text UI (WCAG 2.2 1.4.11): the focus ring and the state indicators need 3:1 against the colours NEXT to
+	// them too: the hover and selected fills, the kit's vibrancy fill and the accent tint of a selected row, over every
+	// surface (the sidebar included).
+	const neighbours = text.flatMap((bg) =>
+		[
+			over(opaque(color(s["element.hover"])!), bg, parseHex(color(s["element.hover"])!).a),
+			over(opaque(color(s["element.selected"])!), bg, parseHex(color(s["element.selected"])!).a),
+			over(dark ? "#ffffff" : "#000000", bg, 0.12),
+			over(opaque(color(s["text.accent"])!), bg, 0.16),
+		].concat(bg),
+	);
 	for (const k of ["border.selected", "state.success", "state.warning", "state.info", "state.error"])
-		lift(k, 3, surf);
+		lift(k, 3, [...neighbours, ...codeSurfaces(s)]);
 	lift("editor.line_number", 3, [surf[1]!]);
+	// Syntax roles are text: lifted (lightness only, toward the theme's readable side) until they read on every
+	// surface code is read on. The worst surface decides how far.
+	const editorBg = opaque(color(s["editor.background"])!);
+	const syntax = s.syntax as Record<string, SyntaxStyle>;
+	const code = codeSurfaces(s);
+	for (const [role, v] of Object.entries(syntax)) {
+		const c = color(v?.color);
+		if (!c) continue;
+		const lifted = liftOn(opaque(c), code, AA + 0.15, dark);
+		// a role that reads is returned byte for byte
+		if (lifted !== opaque(c)) syntax[role] = { ...v, color: lifted };
+	}
+	// The transient paints under code (selection match, bracket, search): a spec value such as Dracula's 70% orange
+	// search match leaves no text colour that reads (2.7:1 for the theme's own `text`). Strength is capped, hue kept,
+	// until `text` and every final syntax role read on them (4.5); never above what the theme asked for.
+	const fgs = [
+		opaque(color(s.text)!),
+		...Object.values(syntax).map((v) => opaque(color(v?.color) ?? editorBg)),
+	];
+	// Paints stack (a search match inside a highlighted symbol, over the active line or a selection): the strongest
+	// paint of the worst stack is weakened one step at a time until every text colour reads on every base, on each
+	// paint over it and on each PAIR of paints over it.
+	const alphaOf = (k: string) => parseHex(color(s[k])!).a;
+	const paintOver = (k: string, scale: number, base: string) =>
+		over(opaque(color(s[k])!), base, alphaOf(k) * scale);
+	const worstStack = () => {
+		let worst = { ratio: 99, keys: [] as string[] };
+		for (const base of code)
+			for (const [i, [k, scale]] of CODE_PAINTS.entries()) {
+				const one = paintOver(k, scale, base);
+				const stacks: [string[], string][] = [
+					[[k], one],
+					...CODE_PAINTS.slice(i + 1).map(([k2, s2]): [string[], string] => [
+						[k, k2],
+						paintOver(k2, s2, one),
+					]),
+				];
+				for (const [keys, bg] of stacks)
+					for (const fg of fgs) {
+						const r = contrast(fg, bg);
+						if (r < worst.ratio) worst = { ratio: r, keys };
+					}
+			}
+		return worst;
+	};
+	for (let i = 0; i < 400; i++) {
+		const { ratio, keys } = worstStack();
+		if (ratio >= AA + 0.02) break; // a hair above the floor: never on the boundary
+		const key = keys.reduce((a, b) => (alphaOf(b) > alphaOf(a) ? b : a));
+		const a = alphaOf(key);
+		if (a <= 0.04) break;
+		s[key] = withAlpha(opaque(color(s[key])!), Math.max(0.04, a - 0.02));
+	}
+	s["error.on_fill"] = readableOn(opaque(color(s.error)!));
+	s["tooltip.background"] = opaque(color(s.text)!);
+	s["tooltip.foreground"] = opaque(color(s["editor.background"])!);
+	s["overlay.background"] = opaque(color(s["elevated_surface.background"])!);
 	// Text on the accent fill: a theme's own choice stays when it reads, else the better of white and black.
 	const accent = opaque(color(s["text.accent"])!);
 	const onAccent = color(s["text.on_accent"]);

@@ -24,6 +24,8 @@ import { browserPrefs } from "#lib/stores/browser.svelte.ts";
 import { initHostStatus } from "#lib/stores/hostStatus.svelte.ts";
 import { INTRO_TIMING } from "#lib/onboarding/flow.ts";
 import { onboarding } from "#lib/onboarding/state.svelte.ts";
+import { ask, confirmDialog, promptDialog } from "#lib/stores/ask.svelte.ts";
+import { discovery } from "#lib/stores/discovery.svelte.ts";
 import { welcome } from "#lib/onboarding/welcome.svelte.ts";
 import { sound } from "#lib/sound/sound.svelte.ts";
 import { loadPrefs } from "#lib/stores/prefs.svelte.ts";
@@ -50,6 +52,12 @@ function exposeStores() {
 				...stores,
 				themes,
 				updates,
+				/** The overlays `scripts/contrast-audit.ts` opens: dialogs (`ask`), the project scan and the kit's toasts. */
+				ask,
+				confirmDialog,
+				promptDialog,
+				discovery,
+				toast,
 				/** The first-run flow and its persisted state, for `atlas desktop debug eval`. */
 				onboarding,
 				welcome,

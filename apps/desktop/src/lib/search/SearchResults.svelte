@@ -92,7 +92,7 @@
 				onkeydown={(e) => e.key === "Enter" && open(i)}
 			>
 				{#if collapsed[r.path]}<ChevronRight size={11} />{:else}<ChevronDown size={11} />{/if}
-				<span class="ico">{@html fileIcon(nameOf(r.path))}</span>
+				<span class="ico" data-contrast-decorative>{@html fileIcon(nameOf(r.path))}</span>
 				<span class="fname">{nameOf(r.path)}</span>
 				<span class="fdir">{dirOf(r.path)}</span>
 				<span class="count">{r.count}</span>

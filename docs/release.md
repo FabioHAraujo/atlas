@@ -210,3 +210,14 @@ xcrun stapler staple Atlas-X.Y.Z-aarch64-apple-darwin.dmg
 ```
 
 Until then the install docs say honestly that the app is ad-hoc signed.
+
+## Contrast audit (before every release)
+
+`bun run check` covers the token level (every text, syntax, indicator, focus-ring and field-border token on every surface and tint of the six bundled themes: `apps/desktop/src/lib/theme/theme.test.ts`, `debug/contrast.test.ts`). The runtime audit needs a debug app build, so it is a release step, not part of the gate:
+
+```bash
+bun run desktop:build:app                 # debug .app only (never a DMG)
+bun scripts/contrast-audit.ts --json /tmp/contrast.json --md /tmp/contrast.md
+```
+
+It starts its own agent instance (never your screen), switches through the six themes and walks ~35 screens (sidebar, panel, logs, editor with find and completion, every Settings tab, palette, What's new incl. an update on offer, confirm/prompt/discover/theme-import dialogs, toasts of every severity, row/project/new-tab menus, tooltip, focus ring, tour, checklist, shortcuts sheet). Per screen it runs the text audit (4.5 body, 3 large/disabled/placeholder/gutter) and the non-text audit (icons, field borders and the focused outline, 3:1). Exit 0 means **0 failures**; fix anything it lists before tagging. Decisions: syntax colours and inlay hints are text (4.5); disabled controls are exempt from AA by WCAG but held to 3 so they stay visible; a text field's 3:1 boundary is the box that wraps the field itself (its own border/fill, or a `label` around it); a container that also holds other controls (the command palette, a dialog) is a surface, and a bare input there is identified by its placeholder and caret; a ring/spinner is judged by its strongest part (the arc, not the faint track); file-type icons repeat the adjacent filename and are marked `data-contrast-decorative` (skipped by the non-text audit, never recoloured: they are brand colours); the GPU terminal's `terminal.minimum_contrast` defaults to 4.5 (the ANSI table is untouched, cells are lifted at draw time).

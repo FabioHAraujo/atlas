@@ -152,7 +152,7 @@
 		padding: 0 5px;
 		border-radius: 4px;
 		white-space: nowrap;
-		color: var(--dot-warn);
+		color: var(--ca-semantic-warning);
 		background: color-mix(in oklab, var(--dot-warn) 14%, transparent);
 	}
 	.twist {

@@ -2,6 +2,7 @@
 	import { Button, Select, SegmentedControl, THEME_PRESETS, colorScheme } from "@codeatlasdev/ui";
 	import { Check, FolderOpen, Monitor, Moon, Sun, Upload } from "@lucide/svelte";
 	import { themes } from "#lib/stores/theme.svelte.ts";
+	import { readableOn } from "#lib/theme/color.ts";
 	import Group from "./Group.svelte";
 	import Row from "./Row.svelte";
 	import { copyTheme, revealThemesFolder, saveTheme } from "./theme/actions.ts";
@@ -131,7 +132,7 @@
 				<button
 					class="sw"
 					class:on={colorScheme.preset === t.id}
-					style="--sw: {t.swatchColor}"
+					style="--sw: {t.swatchColor}; --on: {readableOn(t.swatchColor)}"
 					title={t.label}
 					aria-label={t.label}
 					aria-pressed={colorScheme.preset === t.id}
@@ -163,7 +164,7 @@
 		border-radius: 50%;
 		border: 0;
 		background: var(--sw);
-		color: white;
+		color: var(--on);
 		display: grid;
 		place-items: center;
 		box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.2);

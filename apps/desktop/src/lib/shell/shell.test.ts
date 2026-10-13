@@ -1,12 +1,21 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import atlas from "../themes/atlas.json";
 import dracula from "../themes/dracula.json";
 import one from "../themes/one.json";
-import { contrast, toOklch } from "../theme/color.ts";
+import { contrast, fromOklch, mix, toOklch } from "../theme/color.ts";
 import { complete } from "../theme/derive.ts";
 import { parseFamily } from "../theme/schema.ts";
-import { accentOf, accentTextOf, directionOf, hueOf, neighbour, spreadHues, tintOf } from "./space.ts";
+import {
+	accentOf,
+	accentTextOf,
+	directionOf,
+	hueOf,
+	neighbour,
+	onAccent,
+	spreadHues,
+	tintOf,
+} from "./space.ts";
 import { MAX_HISTORY, canGo, emptyHistory, step, visit } from "./history.ts";
 import { inHotZone, inPanel, peekAction } from "./peek.ts";
 
@@ -128,4 +137,32 @@ test("edge peek: hot zone, panel hit-test and intent transitions", () => {
 		do: "schedule-close",
 	});
 	expect(peekAction({ open: true }, { t: "force-close" })).toEqual({ do: "close-now" });
+});
+
+// Incident (contrast audit): the monogram letter of a project tile (and every user-colour swatch) was `color: white`
+// on the space accent: at the dark tone (L .74) that is ~2.2:1 for most hues. The letter reads 4.5:1 against BOTH
+// ends of the tile gradient (`color-mix(accent 82%, white)` -> accent) for every hue and both tones.
+describe("onAccent", () => {
+	const ends = (dark: boolean, hue: number) => {
+		const c = fromOklch({ ...(dark ? { l: 0.74, c: 0.14 } : { l: 0.62, c: 0.17 }), h: hue });
+		return [c, mix(c, "#ffffff", 0.18)];
+	};
+	for (const dark of [false, true])
+		test(`${dark ? "dark" : "light"} tone: every hue (0-359) has a letter colour that reads 4.5 on the whole tile`, () => {
+			const bad = [];
+			for (let h = 0; h < 360; h++) {
+				const fg = onAccent(dark, h);
+				for (const bg of ends(dark, h))
+					if (contrast(fg, bg) < 4.5) bad.push(`h${h} ${fg} on ${bg}: ${contrast(fg, bg).toFixed(2)}`);
+			}
+			// not every hue can reach 4.5 with black/white at these tones: those are the ones the tone must be fixed for
+			expect(bad).toEqual([]);
+		});
+});
+
+test("the identity swatches (oklch .68 .16 h) take a black check on EVERY hue", () => {
+	for (let h = 0; h < 360; h++) {
+		const fill = fromOklch({ l: 0.68, c: 0.16, h });
+		expect([h, contrast("#000000", fill) >= 4.5]).toEqual([h, true]);
+	}
 });

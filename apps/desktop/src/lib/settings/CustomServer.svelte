@@ -222,7 +222,7 @@
 		font-size: 12px;
 		line-height: 1.45;
 		border-radius: 7px;
-		border: 0.5px solid var(--ca-outline-subtle);
+		border: 0.5px solid var(--atlas-control-border, var(--ca-outline-default));
 		background: var(--ca-surface-sunken);
 		color: var(--ca-text-primary);
 		user-select: text;

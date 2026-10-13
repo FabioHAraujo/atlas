@@ -30,7 +30,7 @@
 	.actions .primary {
 		border-color: transparent;
 		background: var(--space-accent, var(--ca-brand-main));
-		color: white;
+		color: var(--space-on-accent, var(--ca-brand-contrast));
 	}
 	.actions .primary:hover {
 		background: color-mix(in oklab, var(--space-accent, var(--ca-brand-main)) 85%, black);

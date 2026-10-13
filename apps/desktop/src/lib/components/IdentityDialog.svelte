@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Dialog, SegmentedControl, toast } from "@codeatlasdev/ui";
 	import { Check, ImageIcon, Search } from "@lucide/svelte";
+	import { fromOklch, readableOn } from "#lib/theme/color.ts";
 	import { api, errText } from "#lib/api.ts";
 	import { lucideTable, LucideIcon, type IconNode } from "#lib/lucide.ts";
 	import { SWATCH_HUES, searchIcons, type IconChoice } from "#lib/shell/identity.ts";
@@ -49,6 +50,9 @@
 
 	const shown = $derived(searchIcons(names, query));
 	const autoHue = $derived(id ? (shell.hues[id] ?? 0) : 0);
+	/** A colour swatch of hue `h`: the same tone the space accents use on a dark surface; its check reads black/white by contrast. */
+	const swatch = (h: number) => `oklch(0.68 0.16 ${h})`;
+	const swatchHex = (h: number) => fromOklch({ l: 0.68, c: 0.16, h });
 	/** What the tile will look like: preview the draft without touching the stored identity. */
 	const dirty = $derived.by(() => {
 		const cur = project?.identity;
@@ -103,7 +107,8 @@
 					aria-checked={hue === undefined}
 					aria-label="Automatic color"
 					title="Automatic"
-					style:background={`oklch(0.68 0.16 ${autoHue})`}
+					style:background={swatch(autoHue)}
+					style:--on={readableOn(swatchHex(autoHue))}
 					onclick={() => (hue = undefined)}
 				>
 					{#if hue === undefined}<Check size={12} />{/if}
@@ -115,7 +120,8 @@
 						role="radio"
 						aria-checked={hue === h}
 						aria-label="Hue {h}"
-						style:background={`oklch(0.68 0.16 ${h})`}
+						style:background={swatch(h)}
+						style:--on={readableOn(swatchHex(h))}
 						onclick={() => (hue = h)}
 					>
 						{#if hue === h}<Check size={12} />{/if}
@@ -237,7 +243,7 @@
 		padding: 0;
 		border: 0;
 		border-radius: 50%;
-		color: white;
+		color: var(--on);
 		cursor: pointer;
 		box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.2);
 	}

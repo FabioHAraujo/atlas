@@ -54,7 +54,8 @@
 		width: 20px;
 		height: 20px;
 		border-radius: 50%;
-		color: white;
+		/* the success colour is lifted to AA on every surface, so the surface reads on it */
+		color: var(--ca-surface-base);
 		background: var(--ca-semantic-success);
 	}
 	.text {

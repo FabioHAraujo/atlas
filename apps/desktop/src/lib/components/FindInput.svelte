@@ -25,7 +25,7 @@
 		font-size: 12px;
 		padding: 4px 8px;
 		border-radius: 6px;
-		border: 0.5px solid var(--ca-outline-subtle);
+		border: 0.5px solid var(--atlas-control-border, var(--ca-outline-default));
 		background: var(--ca-surface-raised, var(--ca-bg-default));
 		color: var(--ca-text-primary);
 	}

@@ -101,7 +101,10 @@ const hex = (c: Rgba) => `#${[c.r, c.g, c.b].map((v) => clamp255(v).toString(16)
 
 export type Background = { kind: "color"; color: Rgba } | { kind: "unknown"; reason: string };
 
-const CANVAS: Rgba = { r: 255, g: 255, b: 255, a: 1 };
+const WHITE: Rgba = { r: 255, g: 255, b: 255, a: 1 };
+const BLACK: Rgba = { r: 0, g: 0, b: 0, a: 1 };
+/** The page canvas: the native window material under translucent chrome follows the appearance (`html.dark`). */
+const canvas = (): Rgba => (document.documentElement.classList.contains("dark") ? BLACK : WHITE);
 
 /** An element's own paint: its background colour (or `unknown` when an image/gradient/unparseable colour is on top). */
 function ownPaint(cs: CSSStyleDeclaration): Rgba | "unknown" | undefined {
@@ -119,13 +122,19 @@ function ownPaint(cs: CSSStyleDeclaration): Rgba | "unknown" | undefined {
  * An ancestor that paints with a canvas/WebGL (no CSS background) declares its effective colour with
  * `data-contrast-bg="#rrggbb"`, which acts as an opaque layer there.
  */
-export function effectiveBackground(el: Element): Background {
+export function effectiveBackground(el: Element, depth = 0): Background {
 	const layers: Rgba[] = [];
-	let base = CANVAS;
+	let base = canvas();
+	let declaredBase = false;
+	let overlay: Element | null = null;
 	for (let n: Element | null = el; n; n = n.parentElement) {
-		const paint = ownPaint(getComputedStyle(n));
+		const cs = getComputedStyle(n);
+		const paint = ownPaint(cs);
 		if (paint === "unknown")
 			return { kind: "unknown", reason: `${describe(n)} paints an image, gradient or unreadable colour` };
+		// the outermost floating layer (a menu, tooltip, popover, dialog scrim portaled to <body>)
+		if ((cs.position === "fixed" || cs.position === "absolute") && n.parentElement === document.body)
+			overlay = n;
 		if (paint) {
 			layers.push(paint);
 			if (paint.a >= 1) break;
@@ -135,10 +144,30 @@ export function effectiveBackground(el: Element): Background {
 			const c = parseCssColor(declared);
 			if (!c) return { kind: "unknown", reason: `${describe(n)} declares an unreadable data-contrast-bg` };
 			base = { ...c, a: 1 };
+			declaredBase = true;
 			break;
+		}
+		if (n === document.body || n === document.documentElement) break;
+	}
+	// A translucent floating layer (glass menu/popover) is painted over the PAGE, not over a white canvas: what shows
+	// through is the first element below it at its centre. Without a hit-test (no layout) the canvas is the fallback.
+	const opaqueHit = layers.some((l) => l.a >= 1);
+	if (overlay && !opaqueHit && !declaredBase && depth < 4) {
+		const r = overlay.getBoundingClientRect();
+		const below = elementsBelow(overlay, r.left + r.width / 2, r.top + r.height / 2);
+		if (below) {
+			const under = effectiveBackground(below, depth + 1);
+			if (under.kind === "unknown") return under;
+			base = under.color;
 		}
 	}
 	return { kind: "color", color: layers.reduceRight((below, top) => composite(top, below), base) };
+}
+
+/** The first element at (x, y) that is neither `overlay` nor inside it. */
+function elementsBelow(overlay: Element, x: number, y: number): Element | undefined {
+	const hits = document.elementsFromPoint?.(x, y) ?? [];
+	return hits.find((h) => h !== overlay && !overlay.contains(h) && h !== document.documentElement);
 }
 
 /** `tag#id.class.class` — enough to find the element again. */
@@ -212,9 +241,8 @@ export interface Report {
 	checked: number;
 	/** Text runs inside a `data-contrast-ignore` subtree (a theme preview paints another theme's colours on purpose). */
 	ignored: number;
+	/** Every text run below its floor, the editor's syntax colours included (they are text: `derive.ts` guarantees 4.5). */
 	failures: Finding[];
-	/** Editor syntax colours below their floor: a theme's own palette (pinned by specs such as Dracula's), listed apart from the UI failures. */
-	code: Finding[];
 	unknown: Unknown[];
 	top: { selector: string; count: number }[];
 }
@@ -249,7 +277,6 @@ const ownText = (el: Element) =>
 
 export function contrastAudit(root: Element): Report {
 	const failures: Finding[] = [];
-	const code: Finding[] = [];
 	const unknown: Unknown[] = [];
 	let checked = 0;
 	let ignored = 0;
@@ -282,7 +309,7 @@ export function contrastAudit(root: Element): Report {
 		const required = requiredRatio({ sizePx, weight, relaxed: relaxed(el) });
 		const r = ratio(fg, bg.color);
 		if (r + 1e-9 < required)
-			(el.closest(".cm-content") ? code : failures).push({
+			failures.push({
 				selector: selectorOf(el),
 				text: text.slice(0, 60),
 				ratio: Math.round(r * 100) / 100,
@@ -294,7 +321,7 @@ export function contrastAudit(root: Element): Report {
 				vars: tokensOf(el, fg0, bg.color),
 			});
 	}
-	return { checked, ignored, failures, code, unknown, top: summarize(failures) };
+	return { checked, ignored, failures, unknown, top: summarize(failures) };
 }
 
 /** Failures grouped by selector, most frequent first: where to start. */
@@ -304,4 +331,159 @@ export function summarize(f: Pick<Finding, "selector">[]): { selector: string; c
 	return [...by]
 		.map(([selector, count]) => ({ selector, count }))
 		.sort((a, b) => b.count - a.count || a.selector.localeCompare(b.selector));
+}
+
+export interface NonTextFinding {
+	selector: string;
+	kind: "icon" | "control-border" | "focus-ring";
+	ratio: number;
+	required: 3;
+	fg: string;
+	bg: string;
+}
+export interface NonTextReport {
+	checked: number;
+	ignored: number;
+	failures: NonTextFinding[];
+}
+
+/** The `fill`/`stroke` a graphic paints with: `currentColor` is the element's text colour; `none`/unparseable is no paint. */
+function paintOf(raw: string, cs: CSSStyleDeclaration): Rgba | undefined {
+	if (!raw || raw === "none") return undefined;
+	const c = parseCssColor(raw === "currentcolor" || raw === "currentColor" ? cs.color : raw);
+	return c && c.a > 0 ? c : undefined;
+}
+
+const SHAPES = "path, circle, rect, line, polyline, polygon, ellipse";
+
+/**
+ * What an icon draws with: its own stroke, else the paint of each of its shapes (lucide sets the stroke on the
+ * `svg`, but art such as a progress ring paints its `circle`s). `undefined` = nothing painted (the CSS default black
+ * fill of an empty or purely structural svg is not a drawing).
+ */
+function iconPaints(svg: Element, cs: CSSStyleDeclaration): Rgba[] {
+	const own = paintOf(cs.stroke, cs);
+	if (own) return [own];
+	const shapes = [...svg.querySelectorAll(SHAPES)];
+	if (!shapes.length)
+		return svg.childElementCount ? [paintOf(cs.fill, cs)].filter((p): p is Rgba => !!p) : [];
+	return shapes
+		.map((s) => {
+			const sc = getComputedStyle(s);
+			return paintOf(sc.stroke, sc) ?? paintOf(sc.fill, sc);
+		})
+		.filter((p): p is Rgba => !!p);
+}
+
+/**
+ * The box a text field is seen as: the nearest of itself and 3 ancestors that draws a BORDER (a bordered label around a
+ * chrome-less input is the field the user sees, whatever faint fill the input still carries), else the nearest that
+ * paints a fill, else the input itself.
+ */
+function fieldBox(el: Element): Element {
+	const chain: Element[] = [];
+	for (let n: Element | null = el; n && chain.length < 4; n = n.parentElement) {
+		// a container that holds other controls too (a palette: input + list of buttons) is a surface, not the field
+		if (
+			n !== el &&
+			n.tagName !== "LABEL" &&
+			n.querySelectorAll("input, textarea, select, button, [role=option]").length > 2
+		)
+			break;
+		chain.push(n);
+	}
+	const border = (n: Element) => {
+		const cs = getComputedStyle(n);
+		return (
+			parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== "none" && !!paintOf(cs.borderTopColor, cs)
+		);
+	};
+	const fill = (n: Element) => (parseCssColor(getComputedStyle(n).backgroundColor)?.a ?? 0) > 0;
+	return chain.find(border) ?? chain.find(fill) ?? el;
+}
+
+const CONTROLS = "input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea, select";
+
+/**
+ * WCAG 2.2 1.4.11 (non-text contrast, 3:1): the graphical objects UI is understood by. Measured on the real computed
+ * styles, like `contrastAudit`:
+ *  - `icon`: a visible `svg` against the surface under it, by its stroke, or its fill when it has no stroke;
+ *  - `control-border`: a text field, textarea or select must be told apart from its surface by its border or by its own
+ *    fill (the better of the two counts);
+ *  - `focus-ring`: an element that currently has focus and paints an `outline` (`:focus-visible`), against the surface.
+ * Disabled controls are exempt from AA by WCAG; they are held to the same 3 so they stay visible.
+ */
+export function nonTextAudit(root: Element): NonTextReport {
+	const failures: NonTextFinding[] = [];
+	let checked = 0;
+	let ignored = 0;
+	const push = (el: Element, kind: NonTextFinding["kind"], fg: Rgba, bg: Rgba, alpha: number) => {
+		checked++;
+		const top = composite({ ...fg, a: fg.a * alpha }, bg);
+		const r = ratio(top, bg);
+		if (r + 1e-9 < 3)
+			failures.push({
+				selector: selectorOf(el),
+				kind,
+				ratio: Math.round(r * 100) / 100,
+				required: 3,
+				fg: hex(top),
+				bg: hex(bg),
+			});
+	};
+	for (const el of [root, ...root.querySelectorAll("svg, input, textarea, select, :focus")]) {
+		const isSvg = el.tagName.toLowerCase() === "svg";
+		const isField = el.matches(CONTROLS);
+		const focused = el === document.activeElement && el !== document.body;
+		if (!isSvg && !isField && !focused) continue;
+		if (el.closest("[data-contrast-ignore], [data-contrast-decorative]")) {
+			ignored++;
+			continue;
+		}
+		const cs = getComputedStyle(el);
+		if (cs.display === "none" || cs.visibility === "hidden") continue;
+		const box = el.getBoundingClientRect();
+		if (box.width === 0 && box.height === 0) continue;
+		const alpha = opacityChain(el);
+		if (alpha < 0.02) continue;
+		const bg = effectiveBackground(el.parentElement ?? el);
+		if (bg.kind === "unknown") continue;
+		if (isSvg) {
+			// the graphic is perceivable when its strongest part is (a ring's faint track is context, its arc the information)
+			const seen = (c: Rgba) => ratio(composite({ ...c, a: c.a * alpha }, bg.color), bg.color);
+			const best = iconPaints(el, cs).sort((x, y) => seen(y) - seen(x))[0];
+			if (best) push(el, "icon", best, bg.color, alpha);
+		}
+		if (isField) {
+			const boxEl = fieldBox(el);
+			const bcs = getComputedStyle(boxEl);
+			const outer = effectiveBackground(boxEl.parentElement ?? boxEl);
+			if (outer.kind === "unknown") continue;
+			const side = parseFloat(bcs.borderTopWidth) > 0 ? paintOf(bcs.borderTopColor, bcs) : undefined;
+			const own = parseCssColor(bcs.backgroundColor);
+			const edges = [
+				side && composite(side, outer.color),
+				own && own.a > 0 ? composite(own, outer.color) : undefined,
+			];
+			const best = Math.max(0, ...edges.map((c) => (c ? ratio(c, outer.color) : 0)));
+			checked++;
+			const boxed = !!side || (!!own && own.a > 0);
+			if (boxed && best + 1e-9 < 3) {
+				const c = edges.find(Boolean) ?? outer.color;
+				failures.push({
+					selector: selectorOf(el),
+					kind: "control-border",
+					ratio: Math.round(best * 100) / 100,
+					required: 3,
+					fg: hex(c),
+					bg: hex(outer.color),
+				});
+			}
+		}
+		if (focused && parseFloat(cs.outlineWidth) > 0 && cs.outlineStyle !== "none") {
+			const ring = paintOf(cs.outlineColor, cs);
+			if (ring) push(el, "focus-ring", ring, bg.color, 1);
+		}
+	}
+	return { checked, ignored, failures };
 }

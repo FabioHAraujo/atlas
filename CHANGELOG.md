@@ -4,7 +4,9 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
 
-## [1.5.0-alpha.1] — 2026-10-13
+## [1.5.0-alpha.2] — 2026-10-13
+
+> `v1.5.0-alpha.1` was tagged but never published: a flaky file-watcher test failed its release build. This is the same release with that test fixed.
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
 

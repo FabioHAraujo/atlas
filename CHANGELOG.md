@@ -6,6 +6,8 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 ## [1.4.0] — 2026-10-13
 
+> Soak override: promoted after 0h on beta/rc, below the 48h minimum (forced with --force-soak).
+
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
 
 ### Added

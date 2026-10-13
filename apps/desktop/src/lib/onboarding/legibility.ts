@@ -4,6 +4,8 @@
  * Incident (user, live): the subtitle sat on the bright globe and the nodes and edges cut through the letters.
  */
 
+import { ATLAS } from "./intro/render.ts";
+
 export type Rgb = readonly [number, number, number];
 
 /** WCAG 2.x AA for body text (under 18.66 px bold / 24 px regular). */
@@ -86,8 +88,11 @@ export function layoutAt(k: number): { globeCy: number; globeFraction: number; d
 	};
 }
 
+/** The stage colour (what the copy sits on). */
+export const STAGE_HEX = ATLAS.stage.toLowerCase();
+export const STAGE_RGB: Rgb = [1, 3, 5].map((i) => parseInt(STAGE_HEX.slice(i, i + 2), 16)) as unknown as Rgb;
 /** The colour the scrim is made of: the stage black of the intro. */
-const SCRIM: Rgb = [4, 5, 10];
+const SCRIM: Rgb = STAGE_RGB;
 /** Extra contrast over AA, so antialiasing, subpixel positioning and a theme change cannot tip it under 4.5. */
 const HEADROOM = 0.5;
 /** The weakest scrim the copy ever sits on, even over a dark backdrop: it must never be bare on a glow. */

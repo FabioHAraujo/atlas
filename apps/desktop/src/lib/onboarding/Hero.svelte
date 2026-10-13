@@ -10,7 +10,7 @@
 	import { discovery } from "#lib/stores/discovery.svelte.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
 	import { ACTIONS, testId } from "./flow.ts";
-	import { copyScrim, STAGE_LAYOUT } from "./legibility.ts";
+	import { copyScrim, STAGE_HEX, STAGE_LAYOUT, STAGE_RGB } from "./legibility.ts";
 	import Globe from "./intro/Globe.svelte";
 	import { welcome as w } from "./welcome.svelte.ts";
 	import { themes } from "#lib/stores/theme.svelte.ts";
@@ -86,7 +86,7 @@
 <div
 	class="hero dark"
 	style={darkVars}
-	data-contrast-bg="#04050a"
+	data-contrast-bg={STAGE_HEX}
 	data-phase={w.phase}
 	data-testid={testId(w.phase)}
 	data-intro={mode === "intro" ? "playing" : "done"}
@@ -108,6 +108,7 @@
 		class:hidden={!showCopy}
 		style:--scrim={scrim.alpha}
 		style:--inset="{STAGE_LAYOUT.copyBottomInset}px"
+		style:--stage-rgb={STAGE_RGB.join(", ")}
 		aria-hidden="true"
 	></div>
 	<div
@@ -302,9 +303,9 @@
 		pointer-events: none;
 		background: radial-gradient(
 			ellipse 50% 50% at 50% 50%,
-			rgba(4, 5, 10, var(--scrim)) 0%,
-			rgba(4, 5, 10, calc(var(--scrim) * 0.9)) 55%,
-			rgba(4, 5, 10, 0) 100%
+			rgba(var(--stage-rgb), var(--scrim)) 0%,
+			rgba(var(--stage-rgb), calc(var(--scrim) * 0.9)) 55%,
+			rgba(var(--stage-rgb), 0) 100%
 		);
 		transition: opacity 400ms cubic-bezier(0.2, 0.8, 0.2, 1);
 	}

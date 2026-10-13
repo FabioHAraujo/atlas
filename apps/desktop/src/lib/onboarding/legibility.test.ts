@@ -214,3 +214,18 @@ describe("welcome copy reads on the always-dark stage in every theme", () => {
 		});
 	}
 });
+
+// Regression (review, 2026-10-13): the hero hand-wrote its stage colour for the contrast audit (#04050a) while the
+// globe paints #03040a. The declared background, the scrim and the painted sky must be one constant.
+import { ATLAS } from "./intro/render.ts";
+import { STAGE_HEX, STAGE_RGB } from "./legibility.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+test("the stage colour declared for the audit and used by the scrim is the colour the globe paints", () => {
+	expect(STAGE_HEX).toBe(ATLAS.stage.toLowerCase());
+	expect(STAGE_RGB).toEqual(hex(ATLAS.stage));
+	const hero = readFileSync(join(import.meta.dir, "Hero.svelte"), "utf8");
+	expect(hero).not.toMatch(/data-contrast-bg="#/);
+	expect(hero).not.toMatch(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*var\(--scrim\)/);
+});

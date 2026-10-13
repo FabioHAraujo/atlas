@@ -47,3 +47,28 @@ test("every media file kept out of git is in the manifest", () => {
 	expect(list.length).toBeGreaterThan(5);
 	for (const f of list) expect([f, f in real.files]).toEqual([f, true]);
 });
+
+// Regression (2026-10-13): index.astro used `src="/media/shot-workspace.jpg"` directly, so the re-captured screenshot
+// never reached visitors (same URL, 30-day cache) and the site kept showing the old app. Every /media reference in the
+// site's markup and data must go through mediaUrl (which appends ?v=<sha>), never a bare string path.
+test("no page, component or layout references /media/<file> without the version", () => {
+	const { readdirSync, statSync } = require("node:fs");
+	const roots = ["pages", "components", "layouts", "lib"].map((d) => join(import.meta.dir, "..", d));
+	const files: string[] = [];
+	const walk = (d: string) => {
+		for (const n of readdirSync(d)) {
+			const p = join(d, n);
+			if (statSync(p).isDirectory()) walk(p);
+			else if (/\.(astro|svelte|ts|tsx|md|mdx)$/.test(n) && !n.endsWith(".test.ts")) files.push(p);
+		}
+	};
+	for (const r of roots) {
+		try {
+			walk(r);
+		} catch {}
+	}
+	const bare = files.flatMap((f) =>
+		[...readFileSync(f, "utf8").matchAll(/["'`]\/media\/[^"'`?$]+["'`]/g)].map((m) => `${f.split("/src/")[1]}: ${m[0]}`),
+	);
+	expect(bare).toEqual([]);
+});

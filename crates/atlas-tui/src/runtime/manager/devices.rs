@@ -1,3 +1,4 @@
+use atlas_core::sys::CommandExt as _;
 use tokio::process::Command;
 
 use super::ServiceManager;
@@ -51,7 +52,11 @@ impl ServiceManager {
     }
 
     async fn detect_android_devices() -> Vec<(String, String)> {
-        let output = Command::new("adb").args(["devices", "-l"]).output().await;
+        let output = Command::new("adb")
+            .no_window()
+            .args(["devices", "-l"])
+            .output()
+            .await;
 
         let mut devices = Vec::new();
         if let Ok(out) = output

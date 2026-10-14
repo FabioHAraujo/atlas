@@ -10,19 +10,30 @@
 //! `-l -i -c` to `-l -c` to `-c` for shells that reject combined flags
 //! (csh/tcsh). Runs off the main thread; spawns wait for it at most a few
 //! seconds and fall back to the inherited environment (reported in the UI).
+//!
+//! Windows needs no probe: an app started from the Start menu already has the user's
+//! environment (the registry's user and system `Path`), so the probe reports that.
 
+#[cfg(unix)]
 use std::ffi::CStr;
+#[cfg(unix)]
 use std::io::Read;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 use std::sync::{Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(windows, allow(dead_code))]
 const MARK: &str = "__ATLAS_ENV__";
+#[cfg(unix)]
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(6);
 const SPAWN_WAIT: Duration = Duration::from_secs(8);
+#[cfg(unix)]
 const FLAG_SETS: [&[&str]; 3] = [&["-l", "-i", "-c"], &["-l", "-c"], &["-c"]];
 /// Per-session/terminal vars that must not leak into services.
 const SKIP: [&str; 6] = [
@@ -235,7 +246,21 @@ pub fn settings_patch(
     Ok(s)
 }
 
+/// Windows: the shells a terminal tab can run, as found on `PATH` (PowerShell 7, Windows
+/// PowerShell, Command Prompt, Git Bash).
+#[cfg(windows)]
+pub fn installed_shells() -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    ["pwsh", "powershell", "cmd", "bash"]
+        .iter()
+        .filter_map(|s| atlas_core::paths::which(s))
+        .map(|p| p.to_string_lossy().into_owned())
+        .filter(|p| seen.insert(p.to_lowercase()))
+        .collect()
+}
+
 /// Shells registered in `/etc/shells` that exist on disk.
+#[cfg(unix)]
 pub fn installed_shells() -> Vec<String> {
     shells_from(
         &std::fs::read_to_string("/etc/shells").unwrap_or_default(),
@@ -246,6 +271,7 @@ pub fn installed_shells() -> Vec<String> {
 /// Entries of an `/etc/shells` text that can report an environment: absolute, present (`exists`),
 /// deduplicated. Debian/Ubuntu also list restricted shells (`rbash` refuses `/usr/bin/env`, the
 /// probe's only external command) and multiplexers (`tmux`, `screen`), which are not shells.
+#[cfg_attr(windows, allow(dead_code))]
 fn shells_from(text: &str, exists: impl Fn(&str) -> bool) -> Vec<String> {
     const NOT_PROBEABLE: [&str; 4] = ["rbash", "rksh", "tmux", "screen"];
     let mut seen = std::collections::HashSet::new();
@@ -264,6 +290,7 @@ fn shells_from(text: &str, exists: impl Fn(&str) -> bool) -> Vec<String> {
 
 // ---------- probe ----------
 
+#[cfg(unix)]
 fn resolve_shell() -> (String, &'static str) {
     if let Some(s) = load_settings()
         .shell
@@ -290,6 +317,7 @@ fn resolve_shell() -> (String, &'static str) {
 }
 
 /// Login shell from the user database (set by `chsh`).
+#[cfg(unix)]
 fn account_shell() -> Option<String> {
     let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
     let mut buf = vec![0 as libc::c_char; 4096];
@@ -313,6 +341,27 @@ fn account_shell() -> Option<String> {
     (!s.is_empty()).then_some(s)
 }
 
+/// Windows: the environment we were started with is the user's (see the module doc).
+#[cfg(windows)]
+fn run() -> Probe {
+    let shell = load_settings()
+        .shell
+        .filter(|s| is_executable(Path::new(s)))
+        .or_else(|| installed_shells().into_iter().next())
+        .unwrap_or_else(|| std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into()));
+    Probe {
+        shell,
+        source: "windows",
+        flags: None,
+        error: None,
+        took_ms: 0,
+        vars: std::env::vars()
+            .filter(|(k, _)| !SKIP.contains(&k.as_str()))
+            .collect(),
+    }
+}
+
+#[cfg(unix)]
 fn run() -> Probe {
     let t0 = Instant::now();
     let (shell, source) = resolve_shell();
@@ -342,6 +391,7 @@ fn run() -> Probe {
     }
 }
 
+#[cfg(unix)]
 fn attempt(shell: &str, flags: &[&str]) -> Result<Vec<(String, String)>, String> {
     let script = format!("echo {MARK}; /usr/bin/env -0; echo {MARK}");
     let mut child = Command::new(shell)
@@ -377,6 +427,7 @@ fn attempt(shell: &str, flags: &[&str]) -> Result<Vec<(String, String)>, String>
 }
 
 /// `KEY=VALUE` pairs between the markers; rc files may print around them.
+#[cfg_attr(windows, allow(dead_code))]
 fn parse(out: &str) -> Option<Vec<(String, String)>> {
     let mut parts = out.split(MARK);
     parts.next()?;
@@ -429,6 +480,8 @@ mod tests {
     }
 
     /// Every shell installed here yields a PATH from a launchd-bare env.
+    // The probe runs a POSIX login shell.
+    #[cfg(unix)]
     #[test]
     fn probes_installed_shells() {
         for sh in installed_shells() {

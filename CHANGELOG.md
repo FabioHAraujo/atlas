@@ -4,6 +4,12 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
 
+## [Unreleased]
+
+### Added
+
+- **Atlas on Windows.** Windows 10 (1809+) and 11 on x64 get the CLI, the TUI, the MCP server and Atlas Desktop: install with `irm https://atlas.codeatlas.com.br/install.ps1 | iex` in PowerShell (no admin rights; `atlas.exe` in `~\.atlas\bin`, added to your user `PATH`), then `atlas desktop`, or run the per-user `Atlas-<version>-x86_64-pc-windows-msvc-setup.exe` from the release page; `atlas update` keeps both current. Terminals run on ConPTY with PowerShell 7, Windows PowerShell or `cmd.exe`, `atlas.yaml` commands run through `cmd.exe` like npm scripts, and the terminal host restarts instead of upgrading live. See [Windows](docs/installation.md#windows).
+
 ## [1.5.0-alpha.6] — 2026-10-14
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

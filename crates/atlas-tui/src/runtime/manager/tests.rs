@@ -161,7 +161,7 @@ async fn test_check_health_detects_exited_child() {
         ServiceDef {
             open_key: None,
             env: Default::default(),
-            command: Some("true".to_string()),
+            command: Some(crate::runtime::process::test_sh("true")),
             dir: None,
             // No port — exit-0 with no health endpoint = child_alive=false = Failed
             port: None,
@@ -362,7 +362,7 @@ fn one_service_cfg(command: &str, port: Option<u16>) -> ProjectConfig {
         ServiceDef {
             open_key: None,
             env: Default::default(),
-            command: Some(command.to_string()),
+            command: Some(crate::runtime::process::test_sh(command)),
             dir: None,
             port,
             health: None,
@@ -536,6 +536,8 @@ async fn test_stop_service_clears_pid_file() {
 
 /// A child that ignores SIGTERM is SIGKILLed once the grace expires, and a
 /// well-behaved one returns well before the grace does.
+// Signal traps: Unix only (Windows ends a process outright).
+#[cfg(unix)]
 #[tokio::test]
 async fn test_kill_gracefully_polls_then_kills() {
     let mut stubborn = Command::new("sh")
@@ -686,6 +688,8 @@ async fn test_on_demand_tunnel_closes_with_last_lease() {
 }
 
 /// A background process holding the pipes must not stall completion.
+// Background jobs and `$!`: sh syntax.
+#[cfg(unix)]
 #[tokio::test]
 async fn test_action_streaming_returns_with_background_pipe_holder() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -724,7 +728,9 @@ async fn action_output_is_persisted_and_streamed_as_log_lines() {
     for round in ["first", "second"] {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let ok = run_action_streaming(
-            &format!("echo {round}-out; echo {round}-err >&2; exit 3"),
+            &crate::runtime::process::test_sh(&format!(
+                "echo {round}-out; echo {round}-err >&2; exit 3"
+            )),
             dir.path(),
             &HashMap::new(),
             &logs,
@@ -829,7 +835,8 @@ async fn session_host_line(host_mode: &str, svc_env: &[(&str, &str)]) -> Option<
         .extend(svc_env.iter().map(|(k, v)| (k.to_string(), v.to_string())));
     cfg.actions = vec![
         serde_norway::from_str(&format!(
-            "key: m\nlabel: Mob\ncommand: 'echo TAURI=$TAURI_DEV_HOST ATLAS=$ATLAS_DEV_HOST'\nsession: true\nplatform: ios\nhost_mode: {host_mode}\n"
+            "key: m\nlabel: Mob\ncommand: '{}'\nsession: true\nplatform: ios\nhost_mode: {host_mode}\n",
+            crate::runtime::process::test_sh("echo TAURI=$TAURI_DEV_HOST ATLAS=$ATLAS_DEV_HOST")
         ))
         .unwrap(),
     ];
@@ -884,7 +891,11 @@ async fn session_exits_emits_session_ended() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut cfg = one_service_cfg("sleep 30", None);
     cfg.actions = vec![
-        serde_norway::from_str("key: q\nlabel: Quick\ncommand: 'true'\nsession: true\n").unwrap(),
+        serde_norway::from_str(&format!(
+            "key: q\nlabel: Quick\ncommand: '{}'\nsession: true\n",
+            crate::runtime::process::test_sh("true")
+        ))
+        .unwrap(),
     ];
     let mut mgr = ServiceManager::new(dir.path().to_path_buf(), &cfg, tx);
     mgr.run_session('q').await.unwrap();

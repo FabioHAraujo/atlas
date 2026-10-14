@@ -331,11 +331,14 @@ version = "1.5.0-alpha.6"
 dependencies = [
  "anyhow",
  "dirs",
+ "libc",
  "semver",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -385,6 +388,7 @@ name = "atlas-host"
 version = "1.5.0-alpha.6"
 dependencies = [
  "anyhow",
+ "atlas-core",
  "atlas-lsp",
  "base64 0.23.1",
  "dirs",
@@ -403,6 +407,7 @@ name = "atlas-lsp"
 version = "1.5.0-alpha.6"
 dependencies = [
  "anyhow",
+ "atlas-core",
  "dirs",
  "flate2",
  "hex",

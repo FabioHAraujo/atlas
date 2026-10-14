@@ -1,3 +1,4 @@
+use atlas_core::sys::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -41,6 +42,7 @@ impl DockerManager {
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
             let mut cmd = Command::new("docker");
+            cmd.no_window();
             cmd.args(["compose", "-f"]);
             cmd.arg(&self.compose_file);
             cmd.args(["up", "-d"]);
@@ -72,6 +74,7 @@ impl DockerManager {
     pub async fn stop(&mut self) {
         self.state = ServiceState::Stopped;
         let mut cmd = Command::new("docker");
+        cmd.no_window();
         cmd.args(["compose", "-f"]);
         cmd.arg(&self.compose_file);
         cmd.arg("down");
@@ -89,6 +92,7 @@ impl DockerManager {
 
     pub async fn is_docker_available() -> bool {
         let mut cmd = Command::new("docker");
+        cmd.no_window();
         cmd.args(["info"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())

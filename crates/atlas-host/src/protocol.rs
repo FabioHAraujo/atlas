@@ -39,7 +39,13 @@ use serde_json::Value;
 
 pub const PROTO: u32 = 2;
 /// Capabilities reported by `info`; the desktop gates features on these.
+/// Windows has no live `upgrade`: pty handles cannot move to a successor the way Unix passes
+/// master fds, so clients restart the daemon when it has no running terminal (see
+/// `upgrade::decide`).
+#[cfg(unix)]
 pub const CAPS: &[&str] = &["pty_attach_raw", "upgrade", "lsp"];
+#[cfg(windows)]
+pub const CAPS: &[&str] = &["pty_attach_raw", "lsp"];
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -2,8 +2,8 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::SystemTime;
 
+use atlas_core::sys::CommandExt as _;
 use serde::{Deserialize, Serialize};
-use tokio::process::Command;
 use tracing::info;
 
 use crate::config::PreCommandWhen;
@@ -159,8 +159,8 @@ pub async fn ensure_deps(
         use std::io::Write;
         writeln!(f, "$ {command}")?;
         let err = f.try_clone()?;
-        Command::new("sh")
-            .args(["-c", &command])
+        atlas_core::sys::shell_tokio(&command)
+            .no_window()
             .current_dir(root_dir)
             .stdin(Stdio::null())
             .stdout(f)
@@ -250,6 +250,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::runtime::process::test_sh;
 
     /// node_modules whose marker is older than any lockfile written after it.
     fn project_with_stale_lock() -> TempDir {
@@ -321,7 +322,8 @@ mod tests {
     #[tokio::test]
     async fn pre_command_always_reruns_when_fresh() {
         let dir = TempDir::new().unwrap();
-        let cmd = Some("mkdir -p node_modules && echo ran >> ran.txt");
+        let cmd = test_sh("mkdir -p node_modules && echo ran >> ran.txt");
+        let cmd = Some(cmd.as_str());
         // Default (None) with an explicit pre_command is `always`.
         for expected_lines in [1, 2] {
             assert_eq!(
@@ -341,7 +343,8 @@ mod tests {
     #[tokio::test]
     async fn pre_command_lockfile_does_not_rerun_when_fresh() {
         let dir = TempDir::new().unwrap();
-        let cmd = Some("mkdir -p node_modules && echo ran >> ran.txt");
+        let cmd = test_sh("mkdir -p node_modules && echo ran >> ran.txt");
+        let cmd = Some(cmd.as_str());
         let lockfile = Some(PreCommandWhen::Lockfile);
         assert_eq!(
             ensure_deps(dir.path(), cmd, lockfile, false).await,
@@ -364,7 +367,13 @@ mod tests {
     #[tokio::test]
     async fn pre_command_failure_reports_exit_and_stderr() {
         let dir = TempDir::new().unwrap();
-        let out = ensure_deps(dir.path(), Some("echo boom >&2; exit 3"), None, false).await;
+        let out = ensure_deps(
+            dir.path(),
+            Some(&test_sh("echo boom >&2; exit 3")),
+            None,
+            false,
+        )
+        .await;
         assert_eq!(out, DepsOutcome::Failed("exit 3: boom".into()));
         assert!(!dir.path().join("node_modules/.atlas-installed").exists());
     }
@@ -374,19 +383,26 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let logs = dir.path().join(".logs");
 
-        ensure_deps(dir.path(), Some("echo hi; echo oops >&2"), None, false).await;
+        let hi = test_sh("echo hi; echo oops >&2");
+        ensure_deps(dir.path(), Some(&hi), None, false).await;
         let log = fs::read_to_string(logs.join(SETUP_LOG)).unwrap();
-        assert!(log.starts_with("$ echo hi; echo oops >&2\n"), "{log}");
+        assert!(log.starts_with(&format!("$ {hi}\n")), "{log}");
         assert!(log.contains("hi") && log.contains("oops"), "{log}");
         assert!(log.trim_end().ends_with("exit status: 0"), "{log}");
         let ok: SetupStatus =
             serde_json::from_str(&fs::read_to_string(logs.join(SETUP_STATUS)).unwrap()).unwrap();
         assert_eq!(ok.state, "ok");
-        assert_eq!(ok.command, "echo hi; echo oops >&2");
+        assert_eq!(ok.command, hi);
         assert!(ok.finished_at.is_some() && ok.reason.is_none());
 
         // Next run truncates the log and records the failure + reason.
-        let out = ensure_deps(dir.path(), Some("echo boom >&2; exit 3"), None, false).await;
+        let out = ensure_deps(
+            dir.path(),
+            Some(&test_sh("echo boom >&2; exit 3")),
+            None,
+            false,
+        )
+        .await;
         assert_eq!(out, DepsOutcome::Failed("exit 3: boom".into()));
         let log = fs::read_to_string(logs.join(SETUP_LOG)).unwrap();
         assert!(

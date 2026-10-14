@@ -59,8 +59,8 @@ The first run downloads the `Atlas.app` that matches your CLI version from the p
 
 Requirements:
 
-- macOS 13+ on Apple silicon, or Linux x86_64 (glibc 2.35+, WebKitGTK 4.1). On Linux terminals use xterm.js rather than the native GPU terminal, the window uses your desktop's own title bar, and capture/recording and agent test instances are macOS only.
-- The atlas CLI. The app looks for it at `$ATLAS_BIN`, then `~/.atlas/bin/atlas`, then `atlas` on `PATH`.
+- macOS 13+ on Apple silicon, Linux x86_64 (glibc 2.35+, WebKitGTK 4.1), or Windows 10 (1809+) / 11 on x64 (WebView2). On Linux and Windows terminals use xterm.js rather than the native GPU terminal, the window uses the system's own title bar, and capture/recording and agent test instances are macOS only. Windows specifics (cmd.exe for `atlas.yaml` commands, ConPTY, no live host upgrade): [Installation › Windows](installation.md#windows).
+- The atlas CLI. The app looks for it at `$ATLAS_BIN`, then `~/.atlas/bin/atlas`, then (Windows) the `atlas.exe` its installer put next to the app, then `atlas` on `PATH`.
 - `curl` (preinstalled on macOS). No GitHub login is needed: releases are public.
 - Optional: `gh`, logged in (`gh auth login`), for the pull-request tab and checks.
 

@@ -4,6 +4,19 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
 
+## [1.5.0-alpha.5] — 2026-10-14
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Changed
+
+- **Settings, reorganized.** A larger window and clearer sections: General (updates, update channel, links and notifications), Appearance, **Editor** (editor preferences and Languages, which used to sit under Appearance), **Terminal**, Workspaces, Agents, Keyboard shortcuts, SSH hosts and Help. Every row has the same layout, the update channel is a compact list with details on demand, and search takes you to each setting's new place.
+- **Gitignored files are dimmed** in the explorer (and stay out of Source Control), so `node_modules`, `target` or `.env` no longer look like your code. Readable in every bundled theme.
+
+### Fixed
+
+- The **+** for a new tab disappeared when a group had more tabs than fit, for example with a terminal or browser tab open. The tabs now scroll on their own and **+** always stays in view.
+
 ## [1.5.0-alpha.4] — 2026-10-13
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

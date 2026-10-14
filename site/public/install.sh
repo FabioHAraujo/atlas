@@ -75,12 +75,15 @@ chmod +x "$tmp/atlas"
 "$tmp/atlas" install
 
 # This script installs the latest stable, then the freshly installed atlas moves to the channel it
-# follows (same verified download, one resolver: `atlas update`). Without ATLAS_CHANNEL that is
-# its default channel and nothing is saved; with one, `--channel` saves it (stable included).
+# follows (same verified download, one resolver: `atlas update`). Without ATLAS_CHANNEL that is the
+# default channel, passed as ATLAS_UPDATE_CHANNEL (not saved): the stable binary just installed may
+# predate the default and would otherwise stay on its own (1.4.0 follows stable). With one,
+# `--channel` saves it (stable included).
+DEFAULT_CHANNEL=alpha
 case "$(channel_step "${ATLAS_CHANNEL:-}")" in
   default)
-    say "updating to the newest build of your update channel"
-    "$HOME/.atlas/bin/atlas" update \
+    say "updating to the newest build of the ${DEFAULT_CHANNEL} channel"
+    ATLAS_UPDATE_CHANNEL="$DEFAULT_CHANNEL" "$HOME/.atlas/bin/atlas" update \
       || say "could not update now; run later: atlas update"
     ;;
   stable)

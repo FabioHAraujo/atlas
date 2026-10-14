@@ -4,6 +4,15 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
 
+## [1.5.0-alpha.4] — 2026-10-13
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Changed
+
+- **GitHub's "Latest" release is now the newest alpha, while Alpha is the default channel.** The releases page showed `v1.4.0` as "Latest" although every install that never chose a channel follows the newest alpha, which confused people. A build of the default channel is now published as a normal release marked "Latest"; betas and release candidates stay pre-releases. At GA, when the default goes back to Stable, only a Stable is "Latest" again with no other edit. The release flags come from the `default` recorded in `crates/atlas-core/data/channels.json`.
+- **Stable never follows that "Latest" badge.** `atlas update`, Atlas Desktop, the website (`/release.json?channel=stable`, `/download`) and both installers now read Stable as the newest release without a prerelease label from the release feed, so choosing Stable still means a real Stable (`v1.4.0` today), not the newest alpha. Installs on `v1.4.0` that never chose a channel keep resolving through `releases/latest`, so they are offered the newest alpha, which is the new default.
+
 ## [1.5.0-alpha.3] — 2026-10-13
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

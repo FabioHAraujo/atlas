@@ -68,7 +68,7 @@ Atlas uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 - **Prereleases:** `-alpha.N`, `-beta.N`, `-rc.N`, with a **dot before the counter** (`1.4.0-alpha.10` is newer than `1.4.0-alpha.9`; `alpha10` would compare as text). Precedence is `alpha < beta < rc < release`, and a prerelease of the next minor is newer than the previous release (`1.5.0-alpha.1 > 1.4.0`).
 - Build metadata (`+…`) is never used.
 - Any other label (`nightly`, `dev`, …) is not offered on any channel.
-- Each GitHub release of a prerelease is marked **pre-release**, so the "Latest release" badge and the Stable channel never point at it.
+- **What GitHub's "Latest" means.** While the default channel is Alpha (pre-GA), a release of the default channel is published as a normal release and marked **Latest**, so the badge, the releases page and `releases/latest` show the newest build a user who never chose gets: the newest alpha. Beta and rc builds stay marked **pre-release**. This is *not* the Stable channel: Atlas, the installer and the site never read Stable from `releases/latest`; Stable is the newest tag without a prerelease label in `releases.atom`. At GA the default is Stable again, every `-` tag is a pre-release again, and "Latest" is the newest Stable. The flags are decided by `scripts/release-version.ts github-flags` from the `default` in `crates/atlas-core/data/channels.json`.
 
 A channel offers the newest version, by SemVer precedence, among the releases it accepts: Stable accepts releases only; Beta accepts releases, `beta` and `rc`; Alpha accepts everything above plus `alpha`. A channel is therefore never worse than the one more conservative than it.
 
@@ -123,7 +123,7 @@ Atlas leaves alpha with a deliberate release, not a version-number event. The fi
 
 The version number of that release is whatever the next minor would be; Atlas does not jump to 2.0 to mark it.
 
-In that same release the default channel goes back to Stable: `#[default]` on `Channel` in `crates/atlas-core/src/channel.rs`, `DEFAULT_CHANNEL` in `site/functions/_lib/channels.ts` (a test fails if the two differ), `CHANNEL=${ATLAS_CHANNEL:-…}` in `scripts/bootstrap.sh`, the `The default while Atlas is in alpha.` sentence in the Alpha promise (`crates/atlas-core/data/channels.json`, repeated above) and `site/public/install.sh`. Installs that chose a channel are not touched; an install that only ever followed the default moves to Stable as soon as Stable is newer than its build, and is never downgraded.
+In that same release the default channel goes back to Stable: `#[default]` on `Channel` in `crates/atlas-core/src/channel.rs`, `"default"` in `crates/atlas-core/data/channels.json` (what `release.yml` reads: from then on `-` tags are pre-releases again and only a Stable is "Latest"; a test fails if it differs from the attribute), `DEFAULT_CHANNEL` in `site/functions/_lib/channels.ts` (a test fails if the two differ), `CHANNEL=${ATLAS_CHANNEL:-…}` in `scripts/bootstrap.sh`, the `The default while Atlas is in alpha.` sentence in the Alpha promise (`crates/atlas-core/data/channels.json`, repeated above) and `site/public/install.sh`. Installs that chose a channel are not touched; an install that only ever followed the default moves to Stable as soon as Stable is newer than its build, and is never downgraded.
 
 ## Verifying a download
 

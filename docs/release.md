@@ -117,9 +117,17 @@ Only the newest stable line gets fixes. If a hotfix touches code the next beta a
 
 1. **Test** (`macos-14`): `bun run check` (the full gate: every workspace crate, deny, skills, desktop frontend, release tooling).
 2. **Build** (`macos-14`): `cargo build --release --locked --target aarch64-apple-darwin -p atlas-cli` with `SOURCE_DATE_EPOCH` set to the commit time, ad-hoc `codesign` (so Gatekeeper does not SIGKILL the binary), package `atlas-<version>-aarch64-apple-darwin.tar.gz` plus a `.sha256`. A CycloneDX SBOM of the CLI's dependencies (`cargo cyclonedx`, installed with `--locked` when missing; the step warns and carries on if it cannot be) becomes `atlas-<version>-sbom.cdx.json`. Then Atlas Desktop: `cargo tauri build --bundles app,dmg` (ad-hoc signed through `bundle.macOS.signingIdentity: "-"`), packaged as `Atlas-<version>-aarch64-apple-darwin.app.tar.gz` (what `atlas desktop` and `atlas update` install) and `Atlas-<version>-aarch64-apple-darwin.dmg` (manual download), each with a `.sha256`.
-3. **Publish** (`ubuntu-latest`): `scripts/generate-manifest.py` writes `manifest.json` (`version`, `date`, `assets`, plus `channel`, `prerelease`, `commit` and, for a promotion, `promoted_from`); a `SHA256SUMS` file covers every asset and the manifest; then the GitHub Release (`softprops/action-gh-release`). The body is the version's `CHANGELOG.md` section followed by the install/update instructions; for a prerelease it opens with a line saying which channel the build is on.
+3. **Publish** (`ubuntu-latest`): `scripts/generate-manifest.py` writes `manifest.json` (`version`, `date`, `assets`, plus `channel`, `prerelease`, `commit` and, for a promotion, `promoted_from`); a `SHA256SUMS` file covers every asset and the manifest; then the GitHub Release (`softprops/action-gh-release`). The body is the version's `CHANGELOG.md` section followed by the install/update instructions; for a prerelease it opens with a line saying which channel the build is on (and, for a default-channel build that GitHub marks "Latest", that it is still not offered on the Stable channel).
 
-The GitHub flags come from the tag: **any tag containing `-` is a pre-release and never "Latest"** (`prerelease: true`, `make_latest: false`), so `releases/latest`, and with it the Stable channel and every installer, never moves for an alpha or beta.
+The GitHub flags come from the tag's channel against the **default channel** (`"default"` in `crates/atlas-core/data/channels.json`, pinned to `#[default]` on `Channel` by a test), through `scripts/release-version.ts github-flags` (unit-tested; the workflow has no `contains('-')` guess of its own):
+
+| Tag | Default `alpha` (pre-GA) | Default `stable` (GA) |
+|---|---|---|
+| `vX.Y.Z` | normal release, **Latest** | normal release, **Latest** |
+| `vX.Y.Z-alpha.N` | normal release, **Latest** (`prerelease: false`, `make_latest: true`) | pre-release, never Latest |
+| `vX.Y.Z-beta.N` / `-rc.N` | pre-release, never Latest | pre-release, never Latest |
+
+So pre-GA GitHub's "Latest" badge and `releases/latest` show the newest build of the default channel: what a user who never chose a channel gets. **That redirect is therefore not the Stable channel any more.** Clients never use it as "the stable tag": Stable is the newest tag without a prerelease label among `releases.atom` (older pages with `?after=<tag>` when a run of alphas fills the 10-entry window) and the redirect, which is only one more candidate. The release notes header says so for a default-channel alpha. The manifest's `prerelease` is the SemVer label, not GitHub's flag. At GA the default flips back to Stable (see [versioning](versioning.md#general-availability)) and the table's right column applies with no other edit.
 
 Publishing is skipped under `act` unless `ATLAS_PUBLISH=1` is set, which `act-release.sh --publish` does. The version comes from the tag name (`GITHUB_REF_NAME`), which the script passes to `act` through a synthetic event file.
 
@@ -153,10 +161,11 @@ bun run release:test          # the rules themselves
 None of these use the GitHub API, which is rate limited and which Atlas clients do not call either:
 
 ```bash
-# Stable: what `releases/latest` points at (the redirect Atlas and the installer follow)
+# What GitHub shows as "Latest": the newest build of the default channel (an alpha pre-GA), NOT the Stable channel
 curl -sI https://github.com/codeatlasdev/atlas/releases/latest | grep -i '^location:'
 
-# Beta / alpha: the feed clients read, newest first
+# Stable, beta and alpha: the feed clients read, newest first (Stable = the newest tag with no prerelease label;
+# older entries: releases.atom?after=<oldest tag shown>)
 curl -fsSL https://github.com/codeatlasdev/atlas/releases.atom | grep -o '<title>[^<]*</title>' | head
 
 # The assets and what each channel offers right now, as the clients compute it
@@ -180,7 +189,7 @@ A release that must not be installed is handled in the open and never rewritten:
 
 1. Mark it in `CHANGELOG.md`: `## [1.4.0-beta.2] — 2026-10-20 [YANKED]` with one line saying why and which version to use instead. Do not delete the section.
 2. Ship the fix as the next version (`beta.3`, or `patch` for a stable). Clients move up to it by SemVer precedence.
-3. Only the maintainer may then demote or remove the GitHub release: `gh release edit vX.Y.Z --prerelease` (a stable release stops being "Latest" once something newer is marked latest), or `gh release delete vX.Y.Z` for a build that is dangerous to keep downloadable. Never delete or move the **tag**: other clones and the resume logic rely on it, and a deleted version number is never reused (v1.2.0 was deleted and stays skipped).
+3. Only the maintainer may then demote or remove the GitHub release: `gh release edit vX.Y.Z --prerelease` (a release stops being "Latest" once something newer is marked latest; demoting a default-channel alpha hands "Latest" back to the previous build only when you also `gh release edit <tag> --latest`), or `gh release delete vX.Y.Z` for a build that is dangerous to keep downloadable. Never delete or move the **tag**: other clones and the resume logic rely on it, and a deleted version number is never reused (v1.2.0 was deleted and stays skipped).
 
 ## Provenance and signing: what is true today
 

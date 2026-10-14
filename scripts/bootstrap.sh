@@ -104,6 +104,34 @@ atom_tags() {
   sed -n 's|.*href="[^"]*/releases/tag/\([^"]*\)".*|\1|p' | sed 's/%2B/+/g; s/%2b/+/g'
 }
 
+# stable_from LATEST < tags
+#   The newest Stable (no prerelease label) among the feed tags on stdin and LATEST, the
+#   /releases/latest redirect (may be empty). Pre-GA the redirect is the newest alpha (release.yml
+#   publishes the default channel's builds as normal releases), so it is only a candidate, never
+#   "the stable tag". Prints nothing when none is a Stable. Same rule as
+#   atlas_core::github::stable_from.
+stable_from() { select_tag stable "${1:-}"; }
+
+# stable_tag_of_repo REPO LATEST FIRST_PAGE_TAGS
+#   The Stable tag: stable_from over the first feed page, reading older pages (`?after=` the
+#   oldest tag seen, 10 per page, at most 5) while a run of prereleases hides every Stable.
+stable_tag_of_repo() {
+  local repo="$1" latest="$2" seen="$3" found pages=0 last_page_len oldest page
+  last_page_len="$(printf '%s\n' "$seen" | grep -c .)" || last_page_len=0
+  while :; do
+    found="$(printf '%s\n' "$seen" | stable_from "$latest")"
+    [ -z "$found" ] || { printf '%s\n' "$found"; return 0; }
+    # A feed page is 10 long: a shorter one is the end of the history. Bounded either way.
+    [ "$last_page_len" -ge 10 ] && [ "$pages" -lt 5 ] || return 0
+    oldest="$(printf '%s\n' "$seen" | grep . | tail -n 1)"
+    page="$(curl -fsSL --proto '=https' --tlsv1.2 "https://github.com/$repo/releases.atom?after=$oldest" 2>/dev/null | atom_tags)" || return 0
+    [ -n "$page" ] || return 0
+    last_page_len="$(printf '%s\n' "$page" | grep -c .)"
+    seen="$(printf '%s\n%s\n' "$seen" "$page")"
+    pages=$((pages + 1))
+  done
+}
+
 # The script is also sourced by scripts/test-bootstrap-channel.sh for the functions above.
 if [ "${ATLAS_BOOTSTRAP_SOURCE_ONLY:-}" = 1 ]; then
   # shellcheck disable=SC2317 # `return` works when sourced, `exit` covers direct execution
@@ -153,25 +181,27 @@ ok "curl, tar, sha256 · $TARGET"
 
 step "Installing Atlas"
 
-# The latest *stable* release is the target of the /releases/latest redirect: no API call, so
-# no 60 requests/hour rate limit.
-stable_tag="$(curl -fsSI --proto '=https' --tlsv1.2 -o /dev/null -w '%{redirect_url}' "https://github.com/$REPO/releases/latest" 2>/dev/null)" || stable_tag=""
-case "$stable_tag" in */releases/tag/*) stable_tag="${stable_tag##*/releases/tag/}" ;; *) stable_tag="" ;; esac
-
 CHANNEL="$(chosen_channel "${ATLAS_CHANNEL:-}")"
 case "$CHANNEL" in
   stable|beta|alpha) ;;
   *) die "unknown ATLAS_CHANNEL '$CHANNEL' (expected stable, beta or alpha)" ;;
 esac
 
+# /releases/latest is the newest build of the default channel (an alpha pre-GA), no API call so no
+# 60 requests/hour rate limit. It is only a hint: Stable is the newest tag without a prerelease
+# label in releases.atom (10 newest published releases, prereleases included) plus that hint.
+latest_tag="$(curl -fsSI --proto '=https' --tlsv1.2 -o /dev/null -w '%{redirect_url}' "https://github.com/$REPO/releases/latest" 2>/dev/null)" || latest_tag=""
+case "$latest_tag" in */releases/tag/*) latest_tag="${latest_tag##*/releases/tag/}" ;; *) latest_tag="" ;; esac
+feed="$(curl -fsSL --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases.atom" 2>/dev/null)" || feed=""
+[ -n "$feed" ] || warn "could not read the release feed; using /releases/latest only"
+feed_tags="$(printf '%s\n' "$feed" | atom_tags)"
+stable_tag="$(stable_tag_of_repo "$REPO" "$latest_tag" "$feed_tags")"
+
 if [ "$CHANNEL" = stable ]; then
   tag="$stable_tag"
 else
-  # releases.atom lists the 10 newest published releases, prereleases included. The stable tag
-  # is a candidate too, so beta/alpha are never worse than stable.
-  feed="$(curl -fsSL --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases.atom" 2>/dev/null)" || feed=""
-  tag="$(printf '%s\n' "$feed" | atom_tags | select_tag "$CHANNEL" "$stable_tag")"
-  [ -n "$feed" ] || warn "could not read the release feed; falling back to the latest stable"
+  # The stable tag is a candidate too, so beta/alpha are never worse than stable.
+  tag="$(printf '%s\n' "$feed_tags" | select_tag "$CHANNEL" "$stable_tag")"
   [ -n "$tag" ] || tag="$stable_tag"
 fi
 [ -n "$tag" ] || die "Could not find a release of $REPO (is it published yet?). https://github.com/$REPO/releases"

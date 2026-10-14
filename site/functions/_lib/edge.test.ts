@@ -12,6 +12,8 @@ let latest = "v1.2.0";
 let down = false;
 let calls = 0;
 let feed: string[] = [];
+// `releases.atom?after=<tag>` pages: the entries older than <tag>.
+let pages: Record<string, string[]> = {};
 let unpublished = new Set<string>();
 const atom = (tags: string[]) => `<feed><link rel="alternate" href="https://github.com/codeatlasdev/atlas/releases"/>${tags.map((t) => `<entry><link rel="alternate" type="text/html" href="https://github.com/codeatlasdev/atlas/releases/tag/${encodeURIComponent(t)}"/></entry>`).join("")}</feed>`;
 const manifest = (v: string) => ({ version: v, date: "2026-10-12T00:00:00+00:00", assets: { "aarch64-apple-darwin": { desktop_dmg: { url: `https://github.com/x/releases/download/v${v}/Atlas-${v}.dmg`, sha256: "bb", size: 2 } } } });
@@ -22,6 +24,7 @@ beforeEach(() => {
 	down = false;
 	calls = 0;
 	feed = [];
+	pages = {};
 	unpublished = new Set();
 	(globalThis as unknown as { caches: unknown }).caches = { open: async () => fakeCache };
 	globalThis.fetch = (async (url: string | URL | Request) => {
@@ -30,6 +33,8 @@ beforeEach(() => {
 		const u = String(url);
 		if (u.endsWith("/releases/latest")) return new Response(null, { status: 302, headers: { location: `https://github.com/codeatlasdev/atlas/releases/tag/${latest}` } });
 		if (u.endsWith("/releases.atom")) return new Response(atom(feed), { headers: { "content-type": "application/atom+xml" } });
+		const after = u.match(/\/releases\.atom\?after=([^&]+)$/)?.[1];
+		if (after) return new Response(atom(pages[decodeURIComponent(after)] ?? []), { headers: { "content-type": "application/atom+xml" } });
 		const m = u.match(/download\/(v[^/]+)\/manifest\.json/);
 		if (m) return unpublished.has(m[1]) ? new Response("nf", { status: 404 }) : Response.json(manifest(m[1].slice(1)));
 		const c = u.match(/githubusercontent\.com\/codeatlasdev\/atlas\/(v[^/]+)\/CHANGELOG\.md/);
@@ -74,7 +79,7 @@ describe("resolveLatest", () => {
 });
 
 describe("resolveChannel", () => {
-	test("stable is the redirect alone: the feed is never fetched", async () => {
+	test("stable never trusts the redirect alone: with a real stable redirect the feed is read once and paging is not needed", async () => {
 		feed = ["v1.4.0-beta.1", "v1.3.0"];
 		latest = "v1.3.0";
 		const urls: string[] = [];
@@ -82,7 +87,7 @@ describe("resolveChannel", () => {
 		globalThis.fetch = ((u: string | URL | Request, i?: RequestInit) => (urls.push(String(u)), inner(u, i))) as typeof fetch;
 		const r = await resolveChannel("release", "stable", loadRelease);
 		expect(r.value?.version).toBe("1.3.0");
-		expect(urls.some((u) => u.endsWith("releases.atom"))).toBe(false);
+		expect(urls.filter((u) => u.includes("releases.atom"))).toEqual(["https://github.com/codeatlasdev/atlas/releases.atom"]);
 	});
 	test("beta follows the newest beta/rc, alpha the newest of everything, stable never a prerelease", async () => {
 		feed = ["v1.5.0-alpha.2", "v1.4.0-beta.2", "v1.4.0-beta.1", "v1.3.0"];
@@ -158,5 +163,47 @@ describe("resolveChannels", () => {
 		const inner = globalThis.fetch;
 		globalThis.fetch = ((u: string | URL | Request, i?: RequestInit) => (String(u).endsWith("/releases/latest") ? Promise.resolve(new Response(null, { status: 404 })) : inner(u, i))) as typeof fetch;
 		await expect(resolveChannels("release", loadRelease)).rejects.toThrow();
+	});
+});
+
+// Incident guard: while the default channel is alpha, release.yml publishes alphas as non-prerelease, so
+// `releases/latest` points at the newest alpha. Stable must still be the newest tag without a prerelease label.
+describe("stable while /releases/latest is an alpha", () => {
+	test("resolveChannel(stable) is the newest real stable from the feed, never the redirect's alpha", async () => {
+		latest = "v1.5.0-alpha.4";
+		feed = ["v1.5.0-alpha.4", "v1.5.0-alpha.3", "v1.4.0", "v1.4.0-beta.1"];
+		expect((await resolveChannel("release", "stable", loadRelease)).value?.version).toBe("1.4.0");
+	});
+	test("resolveLatest (the pages' stable path) follows the same rule", async () => {
+		latest = "v1.5.0-alpha.4";
+		feed = ["v1.5.0-alpha.4", "v1.4.0"];
+		expect((await resolveLatest("release", loadRelease)).value.version).toBe("1.4.0");
+	});
+	test("alpha and beta are unaffected; resolveChannels agrees", async () => {
+		latest = "v1.5.0-alpha.4";
+		feed = ["v1.5.0-alpha.4", "v1.4.0-beta.1", "v1.4.0"];
+		const r = await resolveChannels("release", loadRelease);
+		expect([r.value.stable?.version, r.value.beta?.version, r.value.alpha?.version]).toEqual(["1.4.0", "1.4.0", "1.5.0-alpha.4"]);
+	});
+	test("a window of alphas hides the stable: the feed is paged back with ?after= until a stable shows up", async () => {
+		latest = "v1.5.0-alpha.12";
+		const page1 = Array.from({ length: 10 }, (_, i) => `v1.5.0-alpha.${12 - i}`); // alpha.12 .. alpha.3
+		const page2 = ["v1.5.0-alpha.2", "v1.5.0-alpha.1", "v1.4.0"];
+		feed = page1;
+		pages = { "v1.5.0-alpha.3": page2 };
+		expect((await resolveChannel("release", "stable", loadRelease)).value?.version).toBe("1.4.0");
+	});
+	test("paging is bounded: no stable anywhere ends in an error, not a loop", async () => {
+		latest = "v1.9.0-alpha.99";
+		feed = Array.from({ length: 10 }, (_, i) => `v1.9.0-alpha.${99 - i}`);
+		pages = new Proxy({}, { get: (_t, after: string) => Array.from({ length: 10 }, (_, i) => `${after.slice(0, -2)}${Number(after.split(".").pop()) - 1 - i}`) }) as never;
+		await expect(resolveChannel("release", "stable", loadRelease)).rejects.toThrow();
+		expect(calls).toBeLessThan(40);
+	});
+	test("redirect is a real stable (GA behaviour): used even when the feed is unreachable", async () => {
+		latest = "v1.4.0";
+		const inner = globalThis.fetch;
+		globalThis.fetch = ((u: string | URL | Request, i?: RequestInit) => (String(u).includes("releases.atom") ? Promise.reject(new Error("feed down")) : inner(u, i))) as typeof fetch;
+		expect((await resolveChannel("release", "stable", loadRelease)).value?.version).toBe("1.4.0");
 	});
 });

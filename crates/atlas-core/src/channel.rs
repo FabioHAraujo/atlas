@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 /// Where a client looks for updates. [`Channel::default`] is what a machine follows until its
 /// user picks one (absent or unreadable `update-channel`): **Alpha** until the first Stable that
 /// meets the general availability criteria (`docs/versioning.md`). Mirrored by `DEFAULT_CHANNEL`
-/// in `site/functions/_lib/channels.ts` and `scripts/bootstrap.sh`; tests fail if they differ.
+/// in `site/functions/_lib/channels.ts` and `scripts/bootstrap.sh`, and recorded as `default` in
+/// `data/channels.json` (what `release.yml` reads); tests fail if they differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Channel {
@@ -113,6 +114,7 @@ pub struct ChannelInfo {
 
 #[derive(Debug, Deserialize)]
 struct Copy {
+    default: Channel,
     stage: String,
     stage_note: String,
     channels: Vec<ChannelInfo>,
@@ -124,6 +126,12 @@ fn copy() -> &'static Copy {
         serde_json::from_str(include_str!("../data/channels.json"))
             .expect("data/channels.json is valid")
     })
+}
+
+/// The default channel as `data/channels.json` records it, the file `release.yml` and the site read
+/// (a Rust `#[default]` is not readable from there). A test pins it to [`Channel::default`].
+pub fn default_in_data() -> Channel {
+    copy().default
 }
 
 /// Product maturity (`alpha` until general availability), independent of the channel.
@@ -308,6 +316,13 @@ mod tests {
         // Pre-GA: the channel nobody chose is Alpha. Flipping it back to Stable is this one line
         // plus the `#[default]` on `Channel` (see `docs/versioning.md`).
         assert_eq!(Channel::default(), Channel::Alpha);
+    }
+
+    // Incident guard: `release.yml` decides GitHub's prerelease/Latest flags from channels.json, not
+    // from this enum. If the two drifted, "Latest" on GitHub would point at the wrong channel.
+    #[test]
+    fn the_default_recorded_in_channels_json_is_the_default_attribute() {
+        assert_eq!(default_in_data(), Channel::default());
     }
 
     #[test]

@@ -122,6 +122,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Install Bun
+        if: ${{ !env.ACT }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      # prerelease / make_latest come from the tag's channel against the default channel
+      # (crates/atlas-core/data/channels.json): a build of the default channel is a normal, "Latest" release.
+      - name: GitHub release flags
+        id: flags
+        run: bun scripts/release-version.ts github-flags --tag "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT"
+
       - name: Download artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -154,7 +164,12 @@ jobs:
           esac
           : > notes.md
           if [ -n "$CH" ]; then
-            printf '> This is %s It is not offered on the Stable channel; see [versioning](https://atlas.codeatlas.com.br/docs/versioning).\n\n' "$CH" >> notes.md
+            # GitHub's "Latest" badge follows the default channel (alpha pre-GA), which is not the Stable channel.
+            if [ "${{ steps.flags.outputs.make_latest }}" = true ]; then
+              printf '> This is %s GitHub marks it "Latest" because it is what the default update channel offers while Atlas is in alpha; it is not offered on the Stable channel; see [versioning](https://atlas.codeatlas.com.br/docs/versioning).\n\n' "$CH" >> notes.md
+            else
+              printf '> This is %s It is not offered on the Stable channel; see [versioning](https://atlas.codeatlas.com.br/docs/versioning).\n\n' "$CH" >> notes.md
+            fi
           fi
           awk -v v="$V" '/^## /{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md >> notes.md
           cat >> notes.md <<'EOF'
@@ -198,6 +213,7 @@ jobs:
             manifest.json
             SHA256SUMS
           draft: false
-          # Any tag with a "-" is a prerelease: it never becomes "Latest", so the Stable channel never sees it.
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ !contains(github.ref_name, '-') }}
+          # A build of the default channel (alpha pre-GA) is a normal release and "Latest"; anything more adventurous is a
+          # prerelease. Stable clients never trust /releases/latest: they read the feed (docs/versioning.md).
+          prerelease: ${{ steps.flags.outputs.prerelease }}
+          make_latest: ${{ steps.flags.outputs.make_latest }}

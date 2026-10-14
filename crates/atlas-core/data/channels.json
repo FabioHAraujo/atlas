@@ -1,5 +1,6 @@
 {
-  "_doc": "Single source of the channel copy shown by the CLI, Atlas Desktop and the website. The `promise` strings must appear verbatim in docs/versioning.md (a test in atlas-core enforces it). Edit both together.",
+  "_doc": "Single source of the channel copy shown by the CLI, Atlas Desktop and the website. The `promise` strings must appear verbatim in docs/versioning.md (a test in atlas-core enforces it). Edit both together. `default` is the channel nobody chose: it must equal `#[default]` on `Channel` (a test enforces it), and `release.yml` publishes a release of that channel as a normal, \"Latest\" GitHub release (`scripts/release-version.ts github-flags`).",
+  "default": "alpha",
   "stage": "alpha",
   "stage_note": "Atlas is in alpha. Every channel, including Stable, can have rough edges and breaking changes until the first release that meets the general availability criteria in the versioning policy.",
   "channels": [

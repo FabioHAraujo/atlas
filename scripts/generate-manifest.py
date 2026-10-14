@@ -4,6 +4,10 @@
 Usage: generate-manifest.py <version> <artifacts-dir>
 Optional environment: ATLAS_COMMIT (default: GITHUB_SHA, then `git rev-parse HEAD`),
 ATLAS_PROMOTED_FROM (the prerelease tag a stable release was promoted from).
+
+`prerelease` means "the version carries a SemVer prerelease label" (X.Y.Z-alpha.N), which is what clients and the
+site badge as Alpha/Beta/RC. It is NOT GitHub's Release flag: release.yml publishes a build of the default channel
+(alpha pre-GA) as a normal, "Latest" release (scripts/release-version.ts github-flags).
 """
 import json
 import re

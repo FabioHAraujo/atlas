@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 448 447" fill="none" role="img" aria-label="Atlas">
+<title>Atlas</title>
+<defs>
+  <linearGradient id="g" x1="40" y1="20" x2="390" y2="410" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#BFD0FF"/>
+    <stop offset=".45" stop-color="#3D5BFF"/>
+    <stop offset="1" stop-color="#1B33F0"/>
+  </linearGradient>
+</defs>
+<style>
+  .t { transform-box: fill-box; transform-origin: center; opacity: 0;
+        animation: pop .6s cubic-bezier(.2,.9,.3,1.25) var(--d) forwards,
+                   wave 3.2s ease-in-out calc(1.8s + var(--w)) infinite; }
+  @keyframes pop { 0% { opacity: 0; transform: scale(.55); } 100% { opacity: 1; transform: scale(1); } }
+  @keyframes wave { 0%,70%,100% { opacity: 1; } 35% { opacity: .78; } }
+  @media (prefers-reduced-motion: reduce) { .t { animation: none; opacity: 1; } }
+</style>
+<g fill="url(#g)">
+  <path class="t" style="--d:0.000s;--w:0.00s" d="{{TILE:0}}"/>
+  <path class="t" style="--d:0.030s;--w:0.06s" d="{{TILE:1}}"/>
+  <path class="t" style="--d:0.060s;--w:0.12s" d="{{TILE:2}}"/>
+  <path class="t" style="--d:0.210s;--w:0.42s" d="{{TILE:3}}"/>
+  <path class="t" style="--d:0.120s;--w:0.24s" d="{{TILE:4}}"/>
+  <path class="t" style="--d:0.180s;--w:0.36s" d="{{TILE:5}}"/>
+  <path class="t" style="--d:0.090s;--w:0.18s" d="{{TILE:6}}"/>
+  <path class="t" style="--d:0.270s;--w:0.54s" d="{{TILE:7}}"/>
+  <path class="t" style="--d:0.150s;--w:0.30s" d="{{TILE:8}}"/>
+  <path class="t" style="--d:0.240s;--w:0.48s" d="{{TILE:9}}"/>
+  <path class="t" style="--d:0.330s;--w:0.66s" d="{{TILE:10}}"/>
+  <path class="t" style="--d:0.300s;--w:0.60s" d="{{TILE:11}}"/>
+  <path class="t" style="--d:0.390s;--w:0.78s" d="{{TILE:12}}"/>
+  <path class="t" style="--d:0.480s;--w:0.96s" d="{{TILE:13}}"/>
+  <path class="t" style="--d:0.360s;--w:0.72s" d="{{TILE:14}}"/>
+  <path class="t" style="--d:0.420s;--w:0.84s" d="{{TILE:15}}"/>
+  <path class="t" style="--d:0.510s;--w:1.02s" d="{{TILE:16}}"/>
+  <path class="t" style="--d:0.450s;--w:0.90s" d="{{TILE:17}}"/>
+  <path class="t" style="--d:0.630s;--w:1.26s" d="{{TILE:18}}"/>
+  <path class="t" style="--d:0.570s;--w:1.14s" d="{{TILE:19}}"/>
+  <path class="t" style="--d:0.690s;--w:1.38s" d="{{TILE:20}}"/>
+  <path class="t" style="--d:0.600s;--w:1.20s" d="{{TILE:21}}"/>
+  <path class="t" style="--d:0.660s;--w:1.32s" d="{{TILE:22}}"/>
+  <path class="t" style="--d:0.540s;--w:1.08s" d="{{TILE:23}}"/>
+  <path class="t" style="--d:0.780s;--w:1.56s" d="{{TILE:24}}"/>
+  <path class="t" style="--d:0.720s;--w:1.44s" d="{{TILE:25}}"/>
+  <path class="t" style="--d:0.750s;--w:1.50s" d="{{TILE:26}}"/>
+  <path class="t" style="--d:0.840s;--w:1.68s" d="{{TILE:27}}"/>
+  <path class="t" style="--d:0.900s;--w:1.80s" d="{{TILE:28}}"/>
+  <path class="t" style="--d:0.990s;--w:1.98s" d="{{TILE:29}}"/>
+  <path class="t" style="--d:0.930s;--w:1.86s" d="{{TILE:30}}"/>
+  <path class="t" style="--d:1.050s;--w:2.10s" d="{{TILE:31}}"/>
+  <path class="t" style="--d:0.810s;--w:1.62s" d="{{TILE:32}}"/>
+  <path class="t" style="--d:0.960s;--w:1.92s" d="{{TILE:33}}"/>
+  <path class="t" style="--d:0.870s;--w:1.74s" d="{{TILE:34}}"/>
+  <path class="t" style="--d:1.020s;--w:2.04s" d="{{TILE:35}}"/>
+</g>
+</svg>

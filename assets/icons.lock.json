@@ -1,0 +1,21 @@
+{
+	"sources": {
+		"assets/logo.svg": "f29c3ef0e6f4d5fd83efc4d878156a891b811109dbe8c5a3cf257bfb90f46986",
+		"assets/templates/app-icon.svg": "74334050a298686b6e06536c42073dcb5e5365ab3d079d74b87998ceb6fdb740",
+		"assets/templates/tray-template.svg": "678b5c780047437e72754c90ae7443cb4c0d2552f85285352da3d78007a724ab",
+		"assets/templates/logo-animated.svg": "eec79fe859f1869fd37d86799ac194a68cd7034d894588dacd5654f206e08b86",
+		"scripts/icons.ts": "9c21ebe060dd5f7d4f5cbfe6af0463f01a60cf1ab0d0ddaf69697d944d7aa9d0"
+	},
+	"rasters": {
+		"assets/app-icon-1024.png": "1024x1024:78362c58b89e8aad891421acc4fe31f5e3a65b2b30221482cbd5a6f3346d1327",
+		"crates/atlas-desktop/icons/32x32.png": "32x32:2011bf2e9881cf4ad8ebf984c2e7fa9ec3aaf2b64beff27a7b7b6bc2661642a7",
+		"crates/atlas-desktop/icons/128x128.png": "128x128:5fb7e8817b699db699a922f9eb68e479f93620672e729dd60a7e01e80a2fc970",
+		"crates/atlas-desktop/icons/128x128@2x.png": "256x256:4146700356ad06707b226ec43ad22ad5d0928af7f3d9606a86ca2ca55f8c18e4",
+		"crates/atlas-desktop/icons/icon.png": "512x512:fcc121e948b43d6251c2401019578e00d428eee59cee61dea133b2dead653292",
+		"crates/atlas-desktop/icons/icon.ico": "1bda05bbca71c767e727075592711338f6b267255b3daf8e0a1da61014374e57",
+		"crates/atlas-desktop/icons/icon.icns": "385af928bd4740e8bd1627fc227d6af1b9a40886280655e93c199e81680a664d",
+		"crates/atlas-desktop/icons/tray.png": "44x44:a740d666024ad159eeaca5698eddc424587af98a6fa517b5a02be3ac069697c8",
+		"site/public/apple-touch-icon.png": "180x180:ecc0123862beb9bd160e72103a2917837a52a1819457a4b51ec67b2fe327a5d3",
+		"site/public/favicon.ico": "109180474e76585a5dda081efc64df578114717c9563f4547dff239963a13f82"
+	}
+}

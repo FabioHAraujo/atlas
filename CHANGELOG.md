@@ -14,6 +14,14 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 - Settings → Shell no longer offers `rbash`, `tmux` or `screen` from `/etc/shells` (they cannot report an environment), and the shell fallback is `/bin/sh` where zsh is not installed.
 
+## [1.5.0-alpha.3] — 2026-10-13
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Changed
+
+- **Alpha is now the default update channel.** Until a Stable release meets the [general availability criteria](docs/versioning.md#general-availability), an install or update that never chose a channel (no `~/.atlas/update-channel`, no `ATLAS_UPDATE_CHANNEL`) follows Alpha, the newest build from `main`: `atlas update`, Atlas Desktop, `install.sh`, `bootstrap.sh` and the website's Download button all offer it. The default is built into each version, so Atlas 1.4.0 keeps following Stable: to move it to Alpha, run `atlas update channel alpha` (or pick Alpha in Settings → General → Updates) once; versions from this one on follow Alpha by default. Stable and Beta work as before: choose one with `atlas update channel stable`, in Settings → General → Updates, or `ATLAS_CHANNEL=stable` for the installer, and it is kept. When a real Stable ships, the default goes back to Stable with a one-line change.
+
 ## [1.5.0-alpha.2] — 2026-10-13
 
 > `v1.5.0-alpha.1` was tagged but never published: a flaky file-watcher test failed its release build. This is the same release with that test fixed.

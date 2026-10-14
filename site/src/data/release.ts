@@ -1,8 +1,8 @@
-// Latest release, resolved at build time for /download. Asset names carry the version, so a stable
+// Releases resolved at build time for /download: the primary button (the default channel) and one card per other channel. Asset names carry the version, so a stable
 // `/releases/latest/download/<asset>` URL does not exist; the build reads the release's own manifest.json
 // (version, date, sha256 and size per asset). If GitHub is unreachable the page still builds and falls back to
 // the releases page (`resolved: false`), and the client script resolves the version again at runtime.
-import { CHANNELS, atomTags, resolve, type Channel } from "../../functions/_lib/channels";
+import { CHANNELS, DEFAULT_CHANNEL, atomTags, resolve, type Channel } from "../../functions/_lib/channels";
 import { SITE } from "./site";
 
 const REPO = "codeatlasdev/atlas";
@@ -54,39 +54,52 @@ async function releaseOf(tag: string): Promise<Release | null> {
 	};
 }
 
+/** The newest published release `channel` accepts, walking down past tags whose release is not published yet (a tag is pushed before
+ * its release is built). Same resolution as the edge: `releases.atom` + the stable tag. Never older than stable. */
+async function releaseFor(channel: Channel, stable: string | null, feed: string[]): Promise<Release | null> {
+	let candidates = feed;
+	for (let tag = resolve(channel, candidates, stable); tag; tag = resolve(channel, candidates, stable)) {
+		const rel = await releaseOf(tag);
+		if (rel) return rel;
+		if (tag === stable) return null;
+		candidates = candidates.filter((t) => t !== tag);
+	}
+	return null;
+}
+
+async function feedTags(): Promise<string[]> {
+	const res = await fetch(`https://github.com/${REPO}/releases.atom`, { signal: timeout() });
+	return res.ok ? atomTags(await res.text()) : [];
+}
+
+/** The release the primary Download button offers: the DEFAULT channel's (Alpha until a real Stable exists), which is Stable's own
+ * release when nothing newer is published. The page then hydrates from /release.json, which resolves the same way at the edge. */
 export async function latestRelease(): Promise<Release> {
 	try {
-		const tag = await stableTag();
-		return (tag && (await releaseOf(tag))) || fallback;
+		const stable = await stableTag();
+		const feed = DEFAULT_CHANNEL === "stable" ? [] : await feedTags().catch(() => []);
+		return (await releaseFor(DEFAULT_CHANNEL, stable, feed)) ?? fallback;
 	} catch {
 		return fallback;
 	}
 }
 
-/** What Beta and Alpha offer at build time (the same resolution the edge does: releases.atom + the stable tag, walking down past
- * tags whose release is not published yet). `null` for a channel with nothing newer than Stable: the page then says "No release yet"
- * and the edge (/channels.json) fills it in at runtime. */
-export async function channelReleases(): Promise<Record<Exclude<Channel, "stable">, Release | null>> {
-	const none = { beta: null, alpha: null };
+/** What every channel except the default offers at build time. A channel other than Stable with nothing newer than Stable is `null`:
+ * the page then says "No release yet" and the edge (/channels.json) fills it in at runtime. Stable is always its own release. */
+export async function channelReleases(): Promise<Partial<Record<Channel, Release | null>>> {
+	const others = CHANNELS.filter((c) => c !== DEFAULT_CHANNEL);
+	const out: Partial<Record<Channel, Release | null>> = Object.fromEntries(others.map((c) => [c, null]));
 	try {
 		const stable = await stableTag();
-		const res = await fetch(`https://github.com/${REPO}/releases.atom`, { signal: timeout() });
-		if (!res.ok) return none;
-		const feed = atomTags(await res.text());
-		const out: Record<string, Release | null> = {};
-		for (const c of CHANNELS.filter((c) => c !== "stable")) {
-			let candidates = feed;
-			out[c] = null;
-			for (let tag = resolve(c, candidates, stable); tag && tag !== stable; tag = resolve(c, candidates, stable)) {
-				out[c] = await releaseOf(tag);
-				if (out[c]) break;
-				candidates = candidates.filter((t) => t !== tag);
-			}
+		const feed = await feedTags().catch(() => []);
+		for (const c of others) {
+			const rel = await releaseFor(c, stable, feed);
+			out[c] = c !== "stable" && rel?.tag === stable ? null : rel;
 		}
-		return out as Record<Exclude<Channel, "stable">, Release | null>;
 	} catch {
-		return none;
+		// Offline build: the cards keep their empty state and the edge fills them in.
 	}
+	return out;
 }
 
 export const fmtSize = (n: number) => `${(n / 1_048_576).toFixed(1)} MB`;

@@ -17,7 +17,7 @@
 	} from "@lucide/svelte";
 	import type { Component } from "svelte";
 	import { updates as u } from "#lib/stores/updates.svelte.ts";
-	import { cardState, confirmCopy, type Channel } from "#lib/updates.ts";
+	import { cardState, confirmCopy, DEFAULT_CHANNEL, type Channel } from "#lib/updates.ts";
 
 	const ICON: Record<Channel, Component<{ size?: number }>> = {
 		stable: ShieldCheck,
@@ -25,7 +25,9 @@
 		alpha: FlaskConical,
 	};
 
-	let cards = $derived(cardState(u.channels, u.info?.app.version, u.channelState?.channel ?? "stable"));
+	let cards = $derived(
+		cardState(u.channels, u.info?.app.version, u.channelState?.channel ?? DEFAULT_CHANNEL),
+	);
 	let locked = $derived(!!u.channelState?.env_override || !!u.running);
 	/** The card the reader picked and has not confirmed yet. */
 	let pending = $state<Channel | null>(null);

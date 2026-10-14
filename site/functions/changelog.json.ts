@@ -1,4 +1,4 @@
-// GET /changelog.json[?channel=stable|beta|alpha] -> the public changelog at the channel's newest tag (default stable) as data:
+// GET /changelog.json[?channel=stable|beta|alpha] -> the public changelog at the channel's newest tag (default: the default channel, alpha until a real Stable exists) as data:
 // { tag, entries: [{ version, date, id, html, kind, superseded }] }. The markdown at a channel's newest tag carries the whole history.
 import { renderChangelog } from "./_lib/changelog";
 import { loadChangelog, resolveChannel } from "./_lib/edge";

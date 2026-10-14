@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CHANNELS, accepts, atomTags, channelOfVersion, channelsPayload, isChannel, parseTag, precedence, resolve, supersededPrerelease, withChannel } from "./channels";
+import { CHANNELS, DEFAULT_CHANNEL, type Channel, accepts, atomTags, channelOfVersion, channelsPayload, isChannel, parseTag, precedence, resolve, supersededPrerelease, withChannel } from "./channels";
 
 // The vectors are shared with atlas-core (Rust): both resolvers must agree on every case.
 const vectors = (await Bun.file(new URL("../../../testdata/channels/resolve.json", import.meta.url)).json()) as {
@@ -13,6 +13,19 @@ describe("resolve (shared vectors with atlas-core)", () => {
 	for (const c of vectors.cases)
 		for (const ch of CHANNELS)
 			test(`${c.name} [${ch}]`, () => expect(resolve(ch, c.tags, c.stable_tag)).toBe(c.expect[ch] ?? null));
+});
+
+describe("DEFAULT_CHANNEL", () => {
+	// One decision, two languages: the Rust `#[default]` on `Channel` is the source of truth; the site must follow the same channel.
+	test("is the variant marked #[default] on atlas_core::channel::Channel", async () => {
+		const rs = await Bun.file(new URL("../../../crates/atlas-core/src/channel.rs", import.meta.url)).text();
+		const rustDefault = rs.match(/#\[default\]\s*(\w+)/)?.[1]?.toLowerCase();
+		expect(DEFAULT_CHANNEL).toBe(rustDefault as Channel);
+	});
+	test("is alpha until a real Stable exists, and is a known channel", () => {
+		expect(DEFAULT_CHANNEL).toBe("alpha");
+		expect(isChannel(DEFAULT_CHANNEL)).toBe(true);
+	});
 });
 
 describe("parseTag", () => {

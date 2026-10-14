@@ -7,7 +7,8 @@
 # (binary to ~/.atlas/bin, PATH entry, bundled skills) and offers to wire up
 # any detected coding agent (omp, Claude Code, Codex).
 #
-# ATLAS_CHANNEL=stable|beta|alpha  pick the release channel (default: stable). An explicit
+# ATLAS_CHANNEL=stable|beta|alpha  pick the release channel (default: alpha while Atlas is in
+#                                  alpha, like `atlas update`; DEFAULT_CHANNEL below). An explicit
 #                                  value is remembered in ~/.atlas/update-channel, so
 #                                  `atlas update` keeps following it. See docs/versioning.md.
 set -euo pipefail
@@ -15,6 +16,16 @@ set -euo pipefail
 REPO="codeatlasdev/atlas"
 
 # ── Channel selection (pure: no network, no output; sourced by the tests) ─────
+
+# The channel nobody chose. Mirrors `#[default]` on atlas_core::channel::Channel (the test
+# fails if they differ). Pre-GA it is alpha; flipping it back to stable is this one line.
+DEFAULT_CHANNEL=alpha
+
+# chosen_channel VALUE: the channel to install for an ATLAS_CHANNEL value (empty or unset is
+# the default). An unknown value is returned as is, so the caller can reject it.
+chosen_channel() {
+  printf '%s\n' "${1:-$DEFAULT_CHANNEL}"
+}
 
 # select_tag CHANNEL STABLE_TAG < tags
 #   Reads candidate release tags, one per line (what releases.atom lists; junk allowed), and
@@ -148,7 +159,7 @@ step "Installing Atlas"
 stable_tag="$(curl -fsSI --proto '=https' --tlsv1.2 -o /dev/null -w '%{redirect_url}' "https://github.com/$REPO/releases/latest" 2>/dev/null)" || stable_tag=""
 case "$stable_tag" in */releases/tag/*) stable_tag="${stable_tag##*/releases/tag/}" ;; *) stable_tag="" ;; esac
 
-CHANNEL="${ATLAS_CHANNEL:-stable}"
+CHANNEL="$(chosen_channel "${ATLAS_CHANNEL:-}")"
 case "$CHANNEL" in
   stable|beta|alpha) ;;
   *) die "unknown ATLAS_CHANNEL '$CHANNEL' (expected stable, beta or alpha)" ;;

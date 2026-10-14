@@ -11,7 +11,7 @@ Atlas ships the CLI and the desktop app together with the same version. Every re
 
 ## Channels
 
-You choose what you receive. The default is **Stable**; nothing changes channel unless you ask.
+You choose what you receive. **Until the first Stable that meets the [general availability criteria](#general-availability), the default is Alpha**: an install or update that never picked a channel follows the newest build from `main`. Anyone who chose a channel (the installer, Settings, `atlas update channel`, `ATLAS_UPDATE_CHANNEL`) keeps it, and Stable stays one command away. Once a real Stable exists the default goes back to **Stable**.
 
 | Channel | Version looks like | Cut from | Risk |
 |---|---|---|---|
@@ -21,11 +21,11 @@ You choose what you receive. The default is **Stable**; nothing changes channel 
 
 ### Stable
 
-The default. Only builds that already ran as a beta, with nothing changed since but the version number.
+Only builds that already ran as a beta, with nothing changed since but the version number.
 
 - **Risk:** lowest risk of the three.
 - **Cadence:** when a soaked beta is promoted, usually every few weeks.
-- **For:** everyone, and anyone who uses Atlas for real work.
+- **For:** anyone who uses Atlas for real work and wants only soaked builds.
 - **Switching to it:** you move to the next Stable release that is newer than the version you run. Atlas never installs an older build by itself.
 - While Atlas is in alpha, Stable means soaked through alpha and beta, not finished.
 
@@ -40,7 +40,7 @@ Feature-complete builds that are being soaked before they become Stable. Only fi
 
 ### Alpha
 
-Fresh builds cut straight from main, with little soak. Features can be unfinished and behavior can change between builds.
+The default while Atlas is in alpha. Fresh builds cut straight from main, with little soak. Features can be unfinished and behavior can change between builds.
 
 - **Risk:** expect rough edges and breaking changes.
 - **Cadence:** whenever the maintainer cuts one, often several times a week.
@@ -54,7 +54,7 @@ Fresh builds cut straight from main, with little soak. Features can be unfinishe
 | Desktop | Settings → General → Updates → **Update channel** |
 | CLI | `atlas update channel` (shows each channel and what it offers now), `atlas update channel beta` (sets it), `atlas update --channel beta` (sets it and updates) |
 | Scripts / CI | `ATLAS_UPDATE_CHANNEL=beta` overrides the saved choice |
-| Installer | `curl -fsSL https://atlas.codeatlas.com.br/install.sh \| ATLAS_CHANNEL=beta bash` |
+| Installer | `curl -fsSL https://atlas.codeatlas.com.br/install.sh \| ATLAS_CHANNEL=stable bash` (or `beta`, `alpha`); without it the installer follows the default channel |
 
 The choice is one word in `~/.atlas/update-channel`, shared by the CLI and the app.
 
@@ -122,6 +122,8 @@ Atlas leaves alpha with a deliberate release, not a version-number event. The fi
 6. macOS builds are signed with a Developer ID and notarized, or the install docs say honestly why not.
 
 The version number of that release is whatever the next minor would be; Atlas does not jump to 2.0 to mark it.
+
+In that same release the default channel goes back to Stable: `#[default]` on `Channel` in `crates/atlas-core/src/channel.rs`, `DEFAULT_CHANNEL` in `site/functions/_lib/channels.ts` (a test fails if the two differ), `CHANNEL=${ATLAS_CHANNEL:-…}` in `scripts/bootstrap.sh`, the `The default while Atlas is in alpha.` sentence in the Alpha promise (`crates/atlas-core/data/channels.json`, repeated above) and `site/public/install.sh`. Installs that chose a channel are not touched; an install that only ever followed the default moves to Stable as soon as Stable is newer than its build, and is never downgraded.
 
 ## Verifying a download
 

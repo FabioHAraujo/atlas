@@ -700,10 +700,14 @@ mod tests {
         let root = d.path().canonicalize().unwrap();
         let (tx, mut rx) = broadcast::channel(8);
         let _w = watch(&root, tx).expect("watcher");
-        // The watcher can report the tempdir itself late under load, which is a Full reload by design
-        // (a directory change): flaked the v1.5.0-alpha.1 release build. Drain until quiet first.
+        // Timing workaround, root cause unproven: the watcher can report the tempdir itself late under
+        // load (a directory path is a Full reload), which flaked the v1.5.0-alpha.1 release build.
+        // Drain until quiet, at most 3 s, then expect only the events this test causes.
         tokio::time::sleep(Duration::from_millis(200)).await;
-        while tokio::time::timeout(DEBOUNCE * 3, rx.recv()).await.is_ok() {}
+        let quiet_by = tokio::time::Instant::now() + Duration::from_secs(3);
+        while tokio::time::Instant::now() < quiet_by
+            && tokio::time::timeout(DEBOUNCE * 3, rx.recv()).await.is_ok()
+        {}
         std::fs::write(root.join("a.css"), "a{}").unwrap();
         let m = tokio::time::timeout(Duration::from_secs(5), rx.recv())
             .await

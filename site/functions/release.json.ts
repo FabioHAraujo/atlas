@@ -1,4 +1,4 @@
-// GET /release.json[?channel=stable|beta|alpha] -> the newest published release of a channel (default stable): tag, version, date,
+// GET /release.json[?channel=stable|beta|alpha] -> the newest published release of a channel (default: the default channel, alpha until a real Stable exists): tag, version, date,
 // dmg + cli assets with sha256/size, plus `channel` and `prerelease`. /download hydrates from this, so the button always points at
 // the newest .dmg whatever the last site deploy was. 404-free: a channel with nothing newer than stable answers with stable's release.
 import { withChannel } from "./_lib/channels";

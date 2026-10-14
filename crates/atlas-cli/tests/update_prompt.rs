@@ -164,11 +164,14 @@ fn now() -> u64 {
         .as_secs()
 }
 
-/// Fresh cache (no live check) advertising a version far above the running one.
+/// Fresh cache (no live check) advertising a version far above the running one, computed for
+/// the channel the sandbox follows: no `update-channel` file and no env override, so the
+/// default (`atlas_core::channel`), which is read from the library rather than spelled here.
 fn newer_cache() -> String {
     format!(
-        r#"{{"last_checked":{},"available_version":"99.0.0"}}"#,
-        now()
+        r#"{{"last_checked":{},"available_version":"99.0.0","channel":"{}"}}"#,
+        now(),
+        atlas_core::channel::Channel::default()
     )
 }
 
@@ -249,6 +252,24 @@ fn yes_runs_the_update_and_a_failure_offers_to_continue() {
     assert!(r["ok"].as_bool().unwrap(), "{r}");
     assert_eq!(r["status"], 0, "{r}");
     assert!(!out(&r).contains(TUI_STARTED), "TUI must not start: {r}");
+}
+
+/// Incident guard for flipping the default channel: a cache written without a `channel` field
+/// is Stable's (older atlas versions only knew Stable). An install that follows another default
+/// must not show Stable's offer as its own, or `99.0.0` would be "an update" it never asked for.
+#[test]
+fn a_cache_from_another_channel_is_not_the_defaults_offer() {
+    if atlas_core::channel::Channel::default() == atlas_core::channel::Channel::Stable {
+        return; // the Stable-era cache IS the default's: nothing to guard
+    }
+    let cache = format!(
+        r#"{{"last_checked":{},"available_version":"99.0.0"}}"#,
+        now()
+    );
+    let sb = Sandbox::new(&cache);
+    let r = sb.run(&[(TUI_STARTED, None)], &[]);
+    assert!(r["ok"].as_bool().unwrap(), "{r}");
+    assert!(!out(&r).contains("Update now?"), "{r}");
 }
 
 #[test]

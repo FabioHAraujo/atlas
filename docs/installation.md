@@ -29,16 +29,16 @@ curl -fsSL https://raw.githubusercontent.com/codeatlasdev/atlas/main/scripts/boo
 
 ### Install a beta or alpha
 
-`ATLAS_CHANNEL=stable|beta|alpha` picks the [release channel](versioning.md#channels) (default `stable`). Both installers accept it:
+`ATLAS_CHANNEL=stable|beta|alpha` picks the [release channel](versioning.md#channels). Without it you get the **default channel, which is Alpha while Atlas is in alpha** (the newest build from `main`; Stable once a real Stable exists), so the plain one-liner above already installs the newest alpha. Both installers accept it:
 
 ```bash
-curl -fsSL https://atlas.codeatlas.com.br/install.sh | ATLAS_CHANNEL=beta sh
+curl -fsSL https://atlas.codeatlas.com.br/install.sh | ATLAS_CHANNEL=stable sh   # only soaked builds
 curl -fsSL https://raw.githubusercontent.com/codeatlasdev/atlas/main/scripts/bootstrap.sh | ATLAS_CHANNEL=beta bash
 ```
 
-`install.sh` installs the latest Stable and then runs `atlas update --channel beta`, so the choice is saved and the newer build comes through the same verified update path. `bootstrap.sh` picks the right release itself.
+`install.sh` installs the latest Stable and then runs `atlas update` (the default channel, nothing saved) or `atlas update --channel <name>` (an explicit choice, saved), so the newer build comes through the same verified update path. `bootstrap.sh` picks the right release itself.
 
-Beta installs the newest beta or release candidate, Alpha the newest alpha, beta or release candidate; both fall back to the latest Stable when that is newer (or when nothing else is published). The installer reads only the `releases/latest` redirect and the public `releases.atom` feed (no GitHub API, so no rate limit) and picks the highest SemVer precedence. An explicit `ATLAS_CHANNEL` is saved to `~/.atlas/update-channel`, so `atlas update` keeps following it. What each channel promises: [Versioning and release channels](versioning.md).
+Beta installs the newest beta or release candidate, Alpha the newest alpha, beta or release candidate; both fall back to the latest Stable when that is newer (or when nothing else is published), and Stable installs releases only. The installer reads only the `releases/latest` redirect and the public `releases.atom` feed (no GitHub API, so no rate limit) and picks the highest SemVer precedence. An explicit `ATLAS_CHANNEL` is saved to `~/.atlas/update-channel`, so `atlas update` keeps following it; with none, nothing is saved and `atlas update` follows the default. What each channel promises: [Versioning and release channels](versioning.md).
 
 Then check it worked (open a new shell if you changed your `PATH`):
 
@@ -104,7 +104,7 @@ atlas update --channel alpha     # save alpha and update from it
 atlas update --downgrade         # install the older build your channel offers (asks first; see below)
 ```
 
-Atlas follows one of three [release channels](versioning.md#channels): `stable` (default), `beta` or `alpha`. The choice lives in `~/.atlas/update-channel` and is shared with Atlas Desktop; `ATLAS_UPDATE_CHANNEL=beta` overrides it for one process. Updates never go backwards on their own: if you switch to a more conservative channel than the build you run, `atlas update` tells you so and waits until the channel passes your version, unless you run `atlas update --downgrade` (older builds may not read data newer ones wrote; it asks for confirmation, `--yes` skips it).
+Atlas follows one of three [release channels](versioning.md#channels): `stable`, `beta` or `alpha` (the default while Atlas is in alpha). The choice lives in `~/.atlas/update-channel` and is shared with Atlas Desktop; `ATLAS_UPDATE_CHANNEL=beta` overrides it for one process. Updates never go backwards on their own: if you switch to a more conservative channel than the build you run, `atlas update` tells you so and waits until the channel passes your version, unless you run `atlas update --downgrade` (older builds may not read data newer ones wrote; it asks for confirmation, `--yes` skips it).
 
 `atlas update` also brings an installed Atlas Desktop to the same version. Atlas checks for a new release of your channel in the background at most every 6 hours and prints a one-line notice after commands when one is available; `atlas dev` offers to update before the dashboard opens. Set `ATLAS_NO_UPDATE_PROMPT=1` to silence the prompt. It refuses to run while you are using a [linked dev build](#link-a-dev-build). Full reference: [`atlas update`](cli.md#atlas-update).
 

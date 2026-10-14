@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Atlas ships on three [release channels](docs/versioning.md): Stable (the default), Beta and Alpha. Atlas is in alpha, so there is no long-term support line: **security fixes go into the newest Stable release**, and reach Beta and Alpha through the normal flow. Update with `atlas update`.
+Atlas ships on three [release channels](docs/versioning.md): Stable, Beta and Alpha (the default while Atlas is in alpha). Atlas is in alpha, so there is no long-term support line: **security fixes go into the newest Stable release**, and reach Beta and Alpha through the normal flow. Update with `atlas update`.
 
 | Version | Security fixes |
 |---|---|

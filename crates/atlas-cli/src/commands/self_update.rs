@@ -1008,6 +1008,29 @@ mod tests {
         );
     }
 
+    /// Pre-GA default is Alpha. A 1.4.0 Stable install that never chose a channel has an old
+    /// cache (written by Stable-only atlas versions, `channel: None`) and no channel file: that
+    /// cache is not the default channel's, so the next check refetches, and the newest alpha is
+    /// then reported as an upgrade (never as a downgrade or "current").
+    #[test]
+    fn a_stable_install_that_never_chose_a_channel_is_offered_the_newest_alpha() {
+        let dir = tempfile::tempdir().unwrap();
+        let on = atlas_core::channel::effective(None, channel::read_from(&dir.path().join("none")));
+        assert_eq!(on, Channel::Alpha);
+        let old: UpdateCache =
+            serde_json::from_str(r#"{"last_checked":1,"available_version":"1.4.0"}"#).unwrap();
+        assert!(old.is_stale_for(on, 2), "a Stable-era cache is not Alpha's");
+        assert_eq!(old.available_for(&ver("1.3.0"), on), None);
+        let fresh = old.checked_for(on, newer_than("1.4.0", "1.5.0-alpha.2"));
+        assert_eq!(fresh.channel.as_deref(), Some("alpha"));
+        assert_eq!(
+            fresh.available_for(&ver("1.4.0"), on).as_deref(),
+            Some("1.5.0-alpha.2")
+        );
+        // Stable's tag is older than the alpha that runs after the update: never offered back.
+        assert_eq!(background_available(&ver("1.5.0-alpha.2"), "1.4.0"), None);
+    }
+
     #[test]
     fn changing_channel_keeps_the_dismissal_of_its_version() {
         let mut c = UpdateCache::default();

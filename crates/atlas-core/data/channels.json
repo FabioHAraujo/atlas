@@ -6,11 +6,11 @@
     {
       "id": "stable",
       "label": "Stable",
-      "promise": "The default. Only builds that already ran as a beta, with nothing changed since but the version number.",
+      "promise": "Only builds that already ran as a beta, with nothing changed since but the version number.",
       "risk": "low",
       "risk_label": "Lowest risk of the three",
       "cadence": "When a soaked beta is promoted, usually every few weeks.",
-      "audience": "Everyone, and anyone who uses Atlas for real work.",
+      "audience": "Anyone who uses Atlas for real work and wants only soaked builds.",
       "switch_to": "You move to the next Stable release that is newer than the version you run. Atlas never installs an older build by itself.",
       "alpha_era_note": "While Atlas is in alpha, Stable means soaked through alpha and beta, not finished."
     },
@@ -27,7 +27,7 @@
     {
       "id": "alpha",
       "label": "Alpha",
-      "promise": "Fresh builds cut straight from main, with little soak. Features can be unfinished and behavior can change between builds.",
+      "promise": "The default while Atlas is in alpha. Fresh builds cut straight from main, with little soak. Features can be unfinished and behavior can change between builds.",
       "risk": "high",
       "risk_label": "Expect rough edges and breaking changes",
       "cadence": "Whenever the maintainer cuts one, often several times a week.",

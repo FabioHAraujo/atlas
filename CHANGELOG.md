@@ -10,6 +10,11 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 - **Code of Conduct updated to the Contributor Covenant 3.0** (was 2.1), with the reporting channel (a private report on the repository) and the moderators (the maintainers) filled in. Linked from the README badge, the issue chooser and the pull request checklist.
 
+### Fixed
+
+- **New terminals opened blank until a reload (Linux).** An xterm.js terminal asked the terminal host for its history before its listener was registered; a fast host answered first, the history was lost and every later byte waited behind it. The terminal (and the chat tab) now attach only once they listen.
+- **"Starting your stack…" never finished for a stack with no services.** A project whose `atlas.yaml` declares no services (all commented out) stayed on the welcome progress forever; it is done once the runner has reported. Its health dot, header pill (now _No services_, not an orange _0 of 0 up_) and popover card say it is up.
+
 ## [1.5.0-alpha.8] — 2026-10-14
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

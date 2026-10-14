@@ -75,6 +75,8 @@ pub fn window_number<R: tauri::Runtime>(_: &tauri::Window<R>) -> Option<isize> {
 
 /// Show the main window. An agent instance (`agent_mode`) puts it on its private virtual display and shows it
 /// WITHOUT activating the app: never on the user's monitors, never focus.
+// The early `return` is the shape `agent_display`'s guard test checks; off macOS the agent branch is empty.
+#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_return))]
 fn show_main(app: &AppHandle) {
     let Some(w) = app.get_window("main") else {
         return;
@@ -83,14 +85,14 @@ fn show_main(app: &AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
-    } else {
-        // Agent instances need the private virtual display (macOS); elsewhere they stay hidden.
-        #[cfg(target_os = "macos")]
-        {
-            // Watching first: whatever the placement below does or fails to do, the window cannot stay on his screen.
-            agent_display::guard_user_displays(app);
-            agent_display::park_and_show(app, &w);
-        }
+        return;
+    }
+    // Agent instances need the private virtual display (macOS); elsewhere they stay hidden.
+    #[cfg(target_os = "macos")]
+    {
+        // Watching first: whatever the placement below does or fails to do, the window cannot stay on his screen.
+        agent_display::guard_user_displays(app);
+        agent_display::park_and_show(app, &w);
     }
 }
 

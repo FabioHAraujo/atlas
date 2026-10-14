@@ -380,6 +380,20 @@ async fn portless_crash_loop_never_runs_and_does_not_unblock_healthy_dep() {
     m.stop_all().await;
 }
 
+/// Race seen under the parallel gate: the no-probe watcher sends Running after
+/// MIN_UPTIME without looking at the child, so a child that already exited but
+/// was not reaped yet by check_health flashed Running.
+#[tokio::test]
+async fn late_running_event_for_an_exited_child_is_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut m, _rx) = manager(&dir, vec![("worker", svc("exit 2"))]);
+    m.start_app_services(&names(&["worker"])).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    m.update_state("worker", ServiceState::Running);
+    assert_ne!(m.get_state("worker"), Some(ServiceState::Running));
+    m.stop_all().await;
+}
+
 /// A port-less service that stays alive past MIN_UPTIME does turn Running.
 #[tokio::test]
 async fn portless_service_runs_after_min_uptime() {

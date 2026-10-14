@@ -8,7 +8,8 @@
 # adds it to PATH for fish/zsh/bash and installs the bundled agent skills. Then the installed
 # atlas moves to the channel you follow: the default (alpha while Atlas is in alpha, so the
 # newest build from main) or the one in ATLAS_CHANNEL, which is remembered.
-# No sudo. Prebuilt binaries exist for macOS on Apple silicon only.
+# No sudo. Prebuilt binaries: macOS on Apple silicon and Linux x86_64 (glibc 2.35+: Arch, Fedora,
+# Debian 12, Ubuntu 22.04 and newer). Linux packages (.deb, .rpm, Arch, AppImage) are on the release page.
 set -eu
 
 # What to do after the install for an ATLAS_CHANNEL value. Prints `default` (no value: the
@@ -49,15 +50,22 @@ die() { printf '  x %s\n' "$1" >&2; exit 1; }
 
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v tar >/dev/null 2>&1 || die "tar is required"
-command -v shasum >/dev/null 2>&1 || die "shasum is required"
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+  die "sha256sum or shasum is required"
+fi
 [ "$(channel_step "${ATLAS_CHANNEL:-}")" != invalid ] || die "unknown ATLAS_CHANNEL '$ATLAS_CHANNEL' (expected stable, beta or alpha)"
 
 os="$(uname -s)"
 arch="$(uname -m)"
 case "$os-$arch" in
   Darwin-arm64) target="aarch64-apple-darwin" ;;
+  Linux-x86_64 | Linux-amd64) target="x86_64-unknown-linux-gnu" ;;
   *)
-    die "Atlas ships prebuilt binaries for macOS on Apple silicon only; this is $os/$arch.
+    die "Atlas ships prebuilt binaries for macOS on Apple silicon and Linux x86_64; this is $os/$arch.
     Build from source instead: https://github.com/$REPO/blob/main/docs/installation.md#build-from-source"
     ;;
 esac
@@ -98,7 +106,7 @@ curl -fsSL --proto '=https' --tlsv1.2 -o "$tmp/$asset" "$base/$asset" || die "do
 curl -fsSL --proto '=https' --tlsv1.2 -o "$tmp/$asset.sha256" "$base/$asset.sha256" || die "download failed: $asset.sha256"
 
 want="$(cut -d' ' -f1 < "$tmp/$asset.sha256")"
-got="$(shasum -a 256 "$tmp/$asset" | cut -d' ' -f1)"
+got="$(sha256 "$tmp/$asset")"
 [ -n "$want" ] && [ "$want" = "$got" ] || die "sha256 mismatch for $asset (expected $want, got $got)"
 say "sha256 verified"
 

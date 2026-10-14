@@ -206,7 +206,21 @@ fn link_target(p: &Path) -> Option<String> {
         .map(|t| t.to_string_lossy().into_owned())
 }
 
+/// Linux: the AppImage this process runs from (`$APPIMAGE`, set by its runtime), else the distro
+/// package's `/usr/bin/atlas-desktop`; none for a dev build.
+#[cfg(not(target_os = "macos"))]
+fn own_bundle() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("APPIMAGE").map(PathBuf::from)
+        && p.is_absolute()
+    {
+        return Some(p);
+    }
+    let exe = std::env::current_exe().ok()?;
+    (atlas_core::paths::packaged_app().as_deref() == Some(exe.as_path())).then_some(exe)
+}
+
 /// `.../Atlas.app` when this binary is `.../Atlas.app/Contents/MacOS/<bin>`.
+#[cfg(target_os = "macos")]
 fn own_bundle() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let app = exe.parent()?.parent()?.parent()?;
@@ -379,10 +393,13 @@ async fn stream(app: &AppHandle, args: &[&str]) -> Result<(), String> {
 
 /// Modification time of this bundle's `Info.plist`: changes when the app was replaced.
 fn bundle_stamp() -> Option<std::time::SystemTime> {
-    std::fs::metadata(own_bundle()?.join("Contents/Info.plist"))
-        .ok()?
-        .modified()
-        .ok()
+    // Linux: the AppImage is one file, replaced by rename on update.
+    let stamp = if cfg!(target_os = "macos") {
+        own_bundle()?.join("Contents/Info.plist")
+    } else {
+        own_bundle()?
+    };
+    std::fs::metadata(stamp).ok()?.modified().ok()
 }
 
 /// Every channel with the copy and what it offers this app right now (network; an offline
@@ -548,10 +565,17 @@ pub fn relaunch(app: AppHandle) -> Result<(), String> {
     let bundle = atlas_core::paths::installed_app()
         .or_else(own_bundle)
         .ok_or("not running from an installed Atlas.app")?;
+    // macOS opens the bundle through Launch Services; Linux runs the AppImage/binary in its own session.
+    let script = if cfg!(target_os = "macos") {
+        r#"sleep 1; /usr/bin/open "$0""#
+    } else {
+        r#"sleep 1; exec setsid "$0" </dev/null >/dev/null 2>&1"#
+    };
     std::process::Command::new("/bin/sh")
         .arg("-c")
-        .arg(r#"sleep 1; /usr/bin/open "$0""#)
+        .arg(script)
         .arg(&bundle)
+        .stdin(std::process::Stdio::null())
         .spawn()
         .map_err(|e| e.to_string())?;
     app.exit(0);

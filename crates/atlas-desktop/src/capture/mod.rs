@@ -11,16 +11,23 @@ mod chrome;
 pub(crate) mod occlusion;
 #[cfg(target_os = "macos")]
 mod png;
+// Parsing is pure and tested everywhere; only the ScreenCaptureKit side uses it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub mod request;
 #[cfg(target_os = "macos")]
 mod sck;
 #[cfg(target_os = "macos")]
 mod snapshot;
 
+#[cfg(target_os = "macos")]
 use std::sync::Arc;
 
-use serde_json::{Value, json};
-use tauri::{AppHandle, Manager};
+use serde_json::Value;
+#[cfg(target_os = "macos")]
+use serde_json::json;
+use tauri::AppHandle;
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 
 /// Commands this module answers itself (the rest of ctl goes to the frontend).
 pub const COMMANDS: [&str; 4] = [
@@ -49,6 +56,22 @@ pub fn snapshot_to(
 ) -> Result<(), String> {
     let view = app.get_webview("main").ok_or("no webview \"main\"")?;
     snapshot::region_png(&view, region, out)
+}
+
+/// Non-macOS: no `WKWebView.takeSnapshot`; the region is kept as (x, y, w, h, scale) only so the
+/// debug bridge (debug builds) type-checks, and [`snapshot_to`] refuses.
+#[cfg(all(not(target_os = "macos"), debug_assertions))]
+pub fn snapshot_region(x: f64, y: f64, w: f64, h: f64, scale: f64) -> (f64, f64, f64, f64, f64) {
+    (x, y, w, h, scale)
+}
+
+#[cfg(all(not(target_os = "macos"), debug_assertions))]
+pub fn snapshot_to(
+    _: &AppHandle,
+    _: Option<(f64, f64, f64, f64, f64)>,
+    _: &std::path::Path,
+) -> Result<(), String> {
+    Err("page snapshots need macOS (WKWebView.takeSnapshot)".into())
 }
 
 #[derive(Default)]

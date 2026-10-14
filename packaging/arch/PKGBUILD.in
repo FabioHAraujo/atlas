@@ -1,0 +1,29 @@
+# Maintainer: CodeAtlas <https://atlas.codeatlas.com.br>
+#
+# Atlas for Arch Linux: the `atlas` CLI and Atlas Desktop, repackaged from the release's .deb.
+# Rendered by packaging/arch/render.sh (version and checksums filled in); the release attaches the
+# built package and this rendered PKGBUILD, which is also what goes to the AUR.
+
+pkgname=codeatlas-atlas-bin
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc="Atlas, the developer platform for everyone: one atlas.yaml runs your stack (CLI, TUI, MCP server and Atlas Desktop)"
+arch=('x86_64')
+url="https://atlas.codeatlas.com.br"
+license=('MIT OR Apache-2.0')
+depends=('webkit2gtk-4.1' 'gtk3' 'libsoup3' 'cairo' 'gdk-pixbuf2' 'glib2' 'hicolor-icon-theme' 'git')
+optdepends=(
+  'libayatana-appindicator: tray icon'
+  'docker: infra: services in atlas.yaml'
+  'github-cli: pull requests and checks in Atlas Desktop'
+)
+provides=('atlas' 'atlas-desktop')
+conflicts=('atlas' 'atlas-desktop')
+options=('!strip' '!debug')
+source_x86_64=("atlas_@VERSION@_amd64.deb::https://github.com/codeatlasdev/atlas/releases/download/v@VERSION@/atlas_@VERSION@_amd64.deb")
+sha256sums_x86_64=('@SHA256@')
+
+package() {
+  # makepkg extracted the .deb (an ar archive); its data.tar holds /usr.
+  bsdtar -xf data.tar.* -C "$pkgdir"
+}

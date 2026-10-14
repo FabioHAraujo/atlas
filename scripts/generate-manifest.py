@@ -43,11 +43,23 @@ def get_sha256(filepath):
             return f.read().strip().split()[0]
     return ""
 
+def desktop_files(version, platform_key):
+    """(manifest key, asset name) of the Atlas Desktop assets of a platform. `desktop` is what
+    `atlas desktop` installs (`asset_name` in crates/atlas-cli/src/commands/desktop.rs); the rest are
+    for people who download a package by hand."""
+    if platform_key.endswith("-apple-darwin"):
+        return (("desktop", f"Atlas-{version}-{platform_key}.app.tar.gz"),
+                ("desktop_dmg", f"Atlas-{version}-{platform_key}.dmg"))
+    deb_arch, rpm_arch = {"x86_64": ("amd64", "x86_64"), "aarch64": ("arm64", "aarch64")}[platform_key.split("-")[0]]
+    return (("desktop", f"Atlas-{version}-{platform_key}.AppImage"),
+            ("desktop_deb", f"atlas_{version}_{deb_arch}.deb"),
+            ("desktop_rpm", f"atlas-{version}-1.{rpm_arch}.rpm"),
+            ("desktop_arch", f"codeatlas-atlas-bin-{version.replace('-', '', 1)}-1-{rpm_arch}.pkg.tar.zst"))
+
 def desktop_assets(dir_path, version, platform_key):
-    """The Atlas Desktop bundle (`app`, installed by `atlas desktop`) and its `.dmg`."""
+    """The Atlas Desktop assets of a platform that exist in `dir_path`."""
     out = {}
-    for key, name in (("desktop", f"Atlas-{version}-{platform_key}.app.tar.gz"),
-                      ("desktop_dmg", f"Atlas-{version}-{platform_key}.dmg")):
+    for key, name in desktop_files(version, platform_key):
         path = os.path.join(dir_path, name)
         if os.path.exists(path):
             out[key] = {
@@ -65,6 +77,7 @@ def main():
         ("aarch64-apple-darwin", "atlas-aarch64-apple-darwin"),
         ("x86_64-apple-darwin", "atlas-x86_64-apple-darwin"),
         ("universal-apple-darwin", "atlas-universal-apple-darwin"),
+        ("x86_64-unknown-linux-gnu", "atlas-x86_64-unknown-linux-gnu"),
     ]
 
     assets = {}

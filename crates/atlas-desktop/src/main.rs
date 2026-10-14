@@ -1,6 +1,8 @@
 //! Atlas Desktop: native client of the `atlas dev` runners.
 
 mod agent;
+// Pure, tested decision code driven only by the AppKit side: unused outside macOS, still built so its tests run.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod agent_mode;
 mod boot;
 mod browser;
@@ -20,12 +22,19 @@ mod live_server;
 mod menu;
 #[cfg(target_os = "macos")]
 mod page_layers;
+#[cfg(not(target_os = "macos"))]
+#[path = "page_layers_stub.rs"]
+mod page_layers;
+// Pure, tested decision code driven only by the AppKit side: unused outside macOS, still built so its tests run.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod page_stage;
 mod registry;
 mod remote;
 mod shell_env;
 #[cfg(target_os = "macos")]
 mod swipe_clock;
+// Pure, tested decision code driven only by the AppKit side: unused outside macOS, still built so its tests run.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod swipe_engine;
 #[cfg(target_os = "macos")]
 mod swipe_mac;
@@ -34,6 +43,10 @@ mod swipe_mac;
 mod swipe_mac;
 #[cfg(test)]
 mod swipe_trace;
+#[cfg(target_os = "macos")]
+mod term;
+#[cfg(not(target_os = "macos"))]
+#[path = "term_stub.rs"]
 mod term;
 mod tray;
 mod updates;
@@ -62,6 +75,8 @@ pub fn window_number<R: tauri::Runtime>(_: &tauri::Window<R>) -> Option<isize> {
 
 /// Show the main window. An agent instance (`agent_mode`) puts it on its private virtual display and shows it
 /// WITHOUT activating the app: never on the user's monitors, never focus.
+// The early `return` is the shape `agent_display`'s guard test checks; off macOS the agent branch is empty.
+#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_return))]
 fn show_main(app: &AppHandle) {
     let Some(w) = app.get_window("main") else {
         return;
@@ -72,6 +87,7 @@ fn show_main(app: &AppHandle) {
         let _ = w.set_focus();
         return;
     }
+    // Agent instances need the private virtual display (macOS); elsewhere they stay hidden.
     #[cfg(target_os = "macos")]
     {
         // Watching first: whatever the placement below does or fails to do, the window cannot stay on his screen.
@@ -410,6 +426,7 @@ fn main() {
                 boot::mark("ready");
             }
             // Dock icon click with the window hidden.
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = ev {
                 show_main(app);
             }

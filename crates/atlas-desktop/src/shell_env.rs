@@ -237,12 +237,26 @@ pub fn settings_patch(
 
 /// Shells registered in `/etc/shells` that exist on disk.
 pub fn installed_shells() -> Vec<String> {
+    shells_from(
+        &std::fs::read_to_string("/etc/shells").unwrap_or_default(),
+        |p| is_executable(Path::new(p)),
+    )
+}
+
+/// Entries of an `/etc/shells` text that can report an environment: absolute, present (`exists`),
+/// deduplicated. Debian/Ubuntu also list restricted shells (`rbash` refuses `/usr/bin/env`, the
+/// probe's only external command) and multiplexers (`tmux`, `screen`), which are not shells.
+fn shells_from(text: &str, exists: impl Fn(&str) -> bool) -> Vec<String> {
+    const NOT_PROBEABLE: [&str; 4] = ["rbash", "rksh", "tmux", "screen"];
     let mut seen = std::collections::HashSet::new();
-    std::fs::read_to_string("/etc/shells")
-        .unwrap_or_default()
-        .lines()
+    text.lines()
         .map(str::trim)
-        .filter(|l| l.starts_with('/') && is_executable(Path::new(l)))
+        .filter(|l| l.starts_with('/'))
+        .filter(|l| {
+            let name = l.rsplit('/').next().unwrap_or(l);
+            !NOT_PROBEABLE.contains(&name)
+        })
+        .filter(|l| exists(l))
         .filter(|l| seen.insert(l.to_string()))
         .map(String::from)
         .collect()
@@ -266,7 +280,13 @@ fn resolve_shell() -> (String, &'static str) {
     {
         return (s, "$SHELL");
     }
-    ("/bin/zsh".into(), "default")
+    // zsh is macOS's default; a Linux box may not have it.
+    let default = if is_executable(Path::new("/bin/zsh")) {
+        "/bin/zsh"
+    } else {
+        "/bin/sh"
+    };
+    (default.into(), "default")
 }
 
 /// Login shell from the user database (set by `chsh`).
@@ -394,6 +414,18 @@ mod tests {
         assert!(parse(&format!("{MARK}\nPATH=/a\0")).is_none());
         assert!(parse(&format!("{MARK}\nFOO=1\0{MARK}")).is_none());
         assert!(parse("nothing").is_none());
+    }
+
+    /// Guards the first Linux build: Ubuntu's `/etc/shells` lists `rbash` (it refuses `/usr/bin/env`, so the
+    /// probe can never succeed) and `tmux`, and offering either in Settings breaks every spawn.
+    #[test]
+    fn shell_list_drops_restricted_shells_and_multiplexers() {
+        let debian = "# /etc/shells: valid login shells\n/bin/sh\n/usr/bin/sh\n/bin/bash\n/bin/rbash\n\
+                      /usr/bin/rbash\n/usr/bin/dash\n/usr/bin/tmux\n/usr/bin/screen\n/bin/bash\n/opt/gone/zsh\n";
+        assert_eq!(
+            shells_from(debian, |p| !p.starts_with("/opt/gone")),
+            ["/bin/sh", "/usr/bin/sh", "/bin/bash", "/usr/bin/dash"]
+        );
     }
 
     /// Every shell installed here yields a PATH from a launchd-bare env.

@@ -9,13 +9,13 @@ description: "Install Atlas from a release, update it, or build it from source."
 
 | | |
 |---|---|
-| OS | macOS 13+ on Apple silicon for the prebuilt CLI and Atlas Desktop (the [download page](https://atlas.codeatlas.com.br/download/) has the .dmg and checksums). Intel Macs, Windows and Linux builds are coming soon; meanwhile [build from source](#build-from-source). |
+| OS | macOS 13+ on Apple silicon, or Linux x86_64 with glibc 2.35+ (Arch, Manjaro, Fedora, Debian 12, Ubuntu 22.04 and newer), for the prebuilt CLI and Atlas Desktop. Intel Macs, Linux on ARM and Windows are coming; meanwhile [build from source](#build-from-source). |
 | `docker` | Optional. Needed only when your `atlas.yaml` has an `infra:` block (OrbStack and Docker Desktop both work). |
 | `git`, `gh` | Optional. Atlas Desktop uses `git` for worktrees and the `gh` CLI for pull requests and checks. |
 
 ## Install a release
 
-The installer downloads the latest stable release binary from GitHub, verifies its SHA-256 and runs the binary's own `atlas install`: it copies `atlas` to `~/.atlas/bin/atlas`, adds that directory to `PATH` for every detected shell (fish, zsh, bash) and installs the bundled agent skills. It needs `curl`, `tar` and `shasum`, never `sudo`, and exits with a message on anything other than macOS on Apple silicon.
+The installer downloads the latest stable release binary from GitHub, verifies its SHA-256 and runs the binary's own `atlas install`: it copies `atlas` to `~/.atlas/bin/atlas`, adds that directory to `PATH` for every detected shell (fish, zsh, bash) and installs the bundled agent skills. It needs `curl`, `tar` and `sha256sum` (or `shasum`), never `sudo`, and exits with a message on anything other than macOS on Apple silicon or Linux x86_64.
 
 ```bash
 curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh
@@ -48,11 +48,11 @@ atlas version
 
 ### Manual install
 
-Download `atlas-<version>-aarch64-apple-darwin.tar.gz` and its `.sha256` from the [releases page](https://github.com/codeatlasdev/atlas/releases), then:
+Download `atlas-<version>-<platform>.tar.gz` and its `.sha256` from the [releases page](https://github.com/codeatlasdev/atlas/releases) (`aarch64-apple-darwin` for macOS, `x86_64-unknown-linux-gnu` for Linux), then:
 
 ```bash
-shasum -a 256 -c atlas-*-aarch64-apple-darwin.tar.gz.sha256
-tar xzf atlas-*-aarch64-apple-darwin.tar.gz
+shasum -a 256 -c atlas-*.tar.gz.sha256      # Linux: sha256sum -c atlas-*.tar.gz.sha256
+tar xzf atlas-*.tar.gz
 ./atlas install
 ```
 
@@ -66,7 +66,31 @@ The release binary is ad-hoc signed. If Gatekeeper complains about a binary you 
 atlas desktop
 ```
 
-The first run downloads the `Atlas.app` that matches your CLI version, verifies its checksum, installs it into `/Applications` and opens it. Later runs just open it. You can also download `Atlas-<version>-aarch64-apple-darwin.dmg` from the release page by hand. See the [Desktop app](desktop.md) for the details.
+The first run downloads the app that matches your CLI version, verifies its checksum, installs it and opens it. Later runs just open it.
+
+- **macOS:** `Atlas.app` goes into `/Applications`. You can also download `Atlas-<version>-aarch64-apple-darwin.dmg` from the release page by hand.
+- **Linux:** the AppImage goes to `~/.local/bin/atlas-desktop`, with an "Atlas" entry in your application menu. `atlas update` keeps it on the CLI's version.
+
+See the [Desktop app](desktop.md) for the details.
+
+## Linux packages
+
+Every release also ships Atlas as native packages for Linux x86_64. Each one installs **both** the `atlas` CLI and Atlas Desktop (`/usr/bin/atlas`, `/usr/bin/atlas-desktop`, a menu entry), and pulls in WebKitGTK through your package manager. Download them from the [releases page](https://github.com/codeatlasdev/atlas/releases/latest):
+
+| Distribution | Asset | Install |
+|---|---|---|
+| Arch Linux, Manjaro, EndeavourOS | `codeatlas-atlas-bin-<version>-1-x86_64.pkg.tar.zst` | `sudo pacman -U codeatlas-atlas-bin-*.pkg.tar.zst` |
+| Debian, Ubuntu, Mint, Pop!_OS | `atlas_<version>_amd64.deb` | `sudo apt install ./atlas_*_amd64.deb` |
+| Fedora, RHEL, openSUSE | `atlas-<version>-1.x86_64.rpm` | `sudo dnf install ./atlas-*.x86_64.rpm` (openSUSE: `sudo zypper install`) |
+| Any distribution | `Atlas-<version>-x86_64-unknown-linux-gnu.AppImage` | `chmod +x Atlas-*.AppImage && ./Atlas-*.AppImage` |
+
+Arch users can also build the package themselves: the release attaches the `PKGBUILD` it was built from (`makepkg -si` next to it); it repackages the release's `.deb`.
+
+A package manager owns what it installed: `atlas update` does not touch `/usr/bin/atlas` and tells you to update with your package manager instead, and `atlas desktop` opens the packaged app instead of downloading an AppImage. Pick one install method per machine (packages, or `install.sh` + `atlas desktop`); with both, the `atlas` that comes first on your `PATH` wins.
+
+AppImages need FUSE 2 to start (`fuse2` on Arch, `libfuse2` on Debian/Ubuntu). Without it, run `./Atlas-*.AppImage --appimage-extract-and-run`.
+
+On Linux, Atlas Desktop draws terminals with xterm.js (WebGL) instead of the macOS GPU terminal, and the capture/recording tools (`atlas desktop capture`, `record`) and the agent test instances (`desktop:agent`) are macOS only.
 
 ## Update
 
@@ -90,7 +114,15 @@ You need:
 
 - the Rust toolchain pinned in [`rust-toolchain.toml`](https://github.com/codeatlasdev/atlas/blob/main/rust-toolchain.toml) (`rustup` installs it automatically on the first `cargo` command);
 - [`bun`](https://bun.sh), for the Atlas Desktop frontend and the repo scripts;
-- for the desktop app, Xcode command line tools (`xcode-select --install`).
+- for the desktop app, Xcode command line tools on macOS (`xcode-select --install`), or WebKitGTK 4.1 and its build dependencies on Linux:
+
+  ```bash
+  sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool   # Arch
+  sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev   # Debian/Ubuntu
+  sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file libappindicator-gtk3-devel librsvg2-devel libxdo-devel   # Fedora
+  ```
+
+  The CLI alone needs none of them (`cargo build --release -p atlas-cli`).
 
 ```bash
 git clone https://github.com/codeatlasdev/atlas.git
@@ -111,9 +143,12 @@ Build `atlas-cli`, not `atlas-tui` alone: `atlas-tui` is a library, and `atlas-c
 ### Atlas Desktop
 
 ```bash
-bun run desktop:build            # release bundle + dmg in target/release/bundle/
-atlas desktop --from target/release/bundle/macos/Atlas.app
+bun run desktop:build            # macOS: .app + .dmg; Linux: .deb, .rpm and .AppImage, all in target/release/bundle/
+atlas desktop --from target/release/bundle/macos/Atlas.app                 # macOS
+atlas desktop --from target/release/bundle/appimage/Atlas_*.AppImage       # Linux
 ```
+
+On Linux, build the CLI first (`cargo build --release -p atlas-cli`): the `.deb` and `.rpm` include `target/release/atlas`.
 
 For day-to-day work on the app use the hot-reload loop instead: `bun run desktop:dev`. More in [Contributing](contributing.md#develop-the-desktop-app).
 
@@ -136,4 +171,4 @@ atlas setup omp --uninstall --apply   # and claude-code / codex, if you set them
 atlas uninstall                       # removes ~/.atlas and the PATH lines it added (asks first; -y skips)
 ```
 
-`atlas uninstall` deletes the whole `~/.atlas/` directory: the binary, desktop settings and projects, worktrees under `~/.atlas/worktrees`, terminal scrollback and the omp plugin. It lists what it will remove and asks before doing anything. Delete `/Applications/Atlas.app` yourself to remove the desktop app. Skills copied to `~/.agents/skills/` and `~/.claude/skills/` are left in place; remove them with your agent's tooling if you want them gone.
+`atlas uninstall` deletes the whole `~/.atlas/` directory: the binary, desktop settings and projects, worktrees under `~/.atlas/worktrees`, terminal scrollback and the omp plugin. It lists what it will remove and asks before doing anything. Delete `/Applications/Atlas.app` yourself to remove the desktop app (Linux: `~/.local/bin/atlas-desktop`, `~/.local/share/applications/dev.codeatlas.atlas.desktop` and the icon under `~/.local/share/icons/hicolor/128x128/apps/`; a distro package: remove it with your package manager, e.g. `sudo pacman -R codeatlas-atlas-bin`, `sudo apt remove atlas`). Skills copied to `~/.agents/skills/` and `~/.claude/skills/` are left in place; remove them with your agent's tooling if you want them gone.

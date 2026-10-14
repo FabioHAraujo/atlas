@@ -29,7 +29,11 @@
 <GhosttyBanner />
 
 <Group title="Color theme">
-	<Row id="theme-mode" label="Theme" description="Follow your Mac's appearance, or always use light or dark.">
+	<Row
+		id="theme-mode"
+		label="Theme"
+		description="Follow your system's appearance, or always use light or dark."
+	>
 		<SegmentedControl
 			aria-label="Theme"
 			size="sm"

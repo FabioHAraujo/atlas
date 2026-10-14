@@ -55,18 +55,66 @@ pub fn is_executable(p: &Path) -> bool {
         .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
-/// `/Applications/Atlas.app`, then `~/Applications/Atlas.app` (symlinks count).
+/// The Atlas Desktop that `atlas desktop`/`atlas update` manage, when installed (symlinks count).
+/// macOS: `/Applications/Atlas.app`, then `~/Applications/Atlas.app`. Linux: the AppImage at
+/// [`linux_app`]. A distro package's app is not one of these: see [`packaged_app`].
 pub fn installed_app() -> Option<PathBuf> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-    [PathBuf::from("/Applications"), home.join("Applications")]
+    app_candidates(&home)
         .into_iter()
-        .map(|d| d.join("Atlas.app"))
         .find(|p| p.symlink_metadata().is_ok())
+}
+
+fn app_candidates(home: &Path) -> Vec<PathBuf> {
+    if cfg!(target_os = "macos") {
+        [PathBuf::from("/Applications"), home.join("Applications")]
+            .into_iter()
+            .map(|d| d.join("Atlas.app"))
+            .collect()
+    } else {
+        vec![linux_app(home)]
+    }
+}
+
+/// Linux: where `atlas desktop` puts the AppImage, `~/.local/bin/atlas-desktop` (on `PATH` for most
+/// desktops, and the same command name the .deb/.rpm/Arch packages install in `/usr/bin`).
+pub fn linux_app(home: &Path) -> PathBuf {
+    home.join(".local/bin").join(LINUX_APP_BIN)
+}
+
+/// Binary name of Atlas Desktop on Linux (AppImage and distro packages alike).
+pub const LINUX_APP_BIN: &str = "atlas-desktop";
+
+/// Linux: Atlas Desktop installed by a distro package (.deb, .rpm, Arch). Its package manager
+/// owns it: atlas opens it but never replaces it.
+pub fn packaged_app() -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        return None;
+    }
+    Some(Path::new("/usr/bin").join(LINUX_APP_BIN)).filter(|p| is_executable(p))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_app_is_looked_for_where_atlas_desktop_installs_it() {
+        let home = Path::new("/home/u");
+        let found = app_candidates(home);
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                found,
+                [
+                    PathBuf::from("/Applications/Atlas.app"),
+                    home.join("Applications/Atlas.app")
+                ]
+            );
+        } else {
+            // Never `/usr/bin/atlas-desktop`: `atlas update` must not overwrite a distro package's file.
+            assert_eq!(found, [PathBuf::from("/home/u/.local/bin/atlas-desktop")]);
+        }
+    }
 
     #[test]
     fn the_debug_socket_defaults_to_the_homes_and_an_absolute_override_wins() {

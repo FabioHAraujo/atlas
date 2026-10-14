@@ -4,6 +4,16 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 > **Atlas is in alpha.** Expect bugs and breaking changes between releases. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new). Releases come in [Stable, Beta and Alpha channels](docs/versioning.md); every one of them is alpha-quality until Atlas meets the general availability criteria there.
 
+## [Unreleased]
+
+### Added
+
+- **Atlas on Linux.** Releases now ship Linux x86_64 builds of the CLI and Atlas Desktop: `install.sh` and `atlas update` work on Linux, `atlas desktop` installs the AppImage to `~/.local/bin/atlas-desktop` with a menu entry, and every release has an Arch package (`sudo pacman -U codeatlas-atlas-bin-*.pkg.tar.zst`, plus its `PKGBUILD`), a `.deb`, an `.rpm` and an AppImage, each with both `atlas` and `atlas-desktop`. On Linux terminals use xterm.js (the GPU terminal is macOS only), and an `atlas` installed by a package is updated by the package manager, not `atlas update`.
+
+### Fixed
+
+- Settings → Shell no longer offers `rbash`, `tmux` or `screen` from `/etc/shells` (they cannot report an environment), and the shell fallback is `/bin/sh` where zsh is not installed.
+
 ## [1.5.0-alpha.5] — 2026-10-14
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

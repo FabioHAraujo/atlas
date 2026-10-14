@@ -15,7 +15,7 @@
 
 	const space = useSpace();
 	let p = $derived(space.project);
-	// "Not now" hides the omp prompt on this Mac until the integration is enabled from Settings.
+	// "Not now" hides the omp prompt on this computer until the integration is enabled from Settings.
 	const OMP_DISMISSED = "atlas.ompPromptDismissed";
 	let ompDismissed = $state(localStorage.getItem(OMP_DISMISSED) === "1");
 	function dismissOmp() {

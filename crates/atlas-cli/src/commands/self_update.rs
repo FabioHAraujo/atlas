@@ -172,13 +172,18 @@ pub(crate) fn save_cache(cache: &UpdateCache) {
 pub enum InstallMethod {
     Homebrew,
     ShellInstaller,
+    /// A Linux distro package (.deb, .rpm, Arch) put it in `/usr/bin`: its package manager updates it.
+    SystemPackage,
     Manual,
 }
 
 impl InstallMethod {
     pub fn detect() -> Self {
         let exe = env::current_exe().unwrap_or_default();
-        let path = exe.to_string_lossy();
+        Self::of_path(&exe.to_string_lossy())
+    }
+
+    fn of_path(path: &str) -> Self {
         if path.contains("/opt/homebrew")
             || path.contains("/usr/local/Cellar")
             || path.contains("/home/linuxbrew")
@@ -186,6 +191,10 @@ impl InstallMethod {
             Self::Homebrew
         } else if path.contains(".atlas/bin") {
             Self::ShellInstaller
+        } else if cfg!(target_os = "linux")
+            && (path.starts_with("/usr/bin/") || path.starts_with("/bin/"))
+        {
+            Self::SystemPackage
         } else {
             Self::Manual
         }
@@ -482,6 +491,23 @@ pub(crate) async fn run_update(req: Request) -> Result<UpdateOutcome> {
         println!("  brew upgrade atlas");
         return Ok(UpdateOutcome::Unchanged);
     }
+    if method == InstallMethod::SystemPackage {
+        if req.json {
+            bail!(
+                "--json needs an Atlas installed by the shell installer; a system package manages this one"
+            );
+        }
+        println!(
+            "\x1b[1;34m◆\x1b[0m Installed by a system package — update it with your package manager:"
+        );
+        println!(
+            "  sudo pacman -U codeatlas-atlas-bin-*.pkg.tar.zst   # Arch (or your AUR helper)"
+        );
+        println!("  sudo apt install ./atlas_*_amd64.deb                # Debian, Ubuntu");
+        println!("  sudo dnf install ./atlas-*.x86_64.rpm               # Fedora, openSUSE");
+        println!("  (packages: https://github.com/{REPO}/releases/latest)");
+        return Ok(UpdateOutcome::Unchanged);
+    }
 
     // `atlas link` made ~/.atlas/bin/atlas a symlink to target/debug/atlas: replacing
     // "the binary" would overwrite the dev build, not install a release.
@@ -748,8 +774,35 @@ mod tests {
         let m = InstallMethod::detect();
         assert!(matches!(
             m,
-            InstallMethod::Manual | InstallMethod::ShellInstaller | InstallMethod::Homebrew
+            InstallMethod::Manual
+                | InstallMethod::ShellInstaller
+                | InstallMethod::Homebrew
+                | InstallMethod::SystemPackage
         ));
+    }
+
+    /// `atlas update` must never try to overwrite a file pacman/apt/dnf own (it would fail without root,
+    /// or worse, succeed under sudo and leave the package database lying).
+    #[test]
+    fn a_binary_in_usr_bin_is_a_system_package_on_linux_only() {
+        let pkg = if cfg!(target_os = "linux") {
+            InstallMethod::SystemPackage
+        } else {
+            InstallMethod::Manual
+        };
+        assert_eq!(InstallMethod::of_path("/usr/bin/atlas"), pkg);
+        assert_eq!(
+            InstallMethod::of_path("/home/u/.atlas/bin/atlas"),
+            InstallMethod::ShellInstaller
+        );
+        assert_eq!(
+            InstallMethod::of_path("/usr/local/bin/atlas"),
+            InstallMethod::Manual
+        );
+        assert_eq!(
+            InstallMethod::of_path("/opt/homebrew/bin/atlas"),
+            InstallMethod::Homebrew
+        );
     }
 
     #[test]

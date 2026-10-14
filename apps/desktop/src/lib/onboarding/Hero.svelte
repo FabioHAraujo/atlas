@@ -139,7 +139,7 @@
 
 {#snippet welcome()}
 	<h1>Everything you run,<br />in one place.</h1>
-	<p class="lead">Atlas finds the projects already on this Mac and starts them together.</p>
+	<p class="lead">Atlas finds the projects already on this computer and starts them together.</p>
 	<div class="actions">
 		<Button size="lg" data-testid={ACTIONS.scan} onclick={() => void w.scan()}>
 			{#snippet leading()}<Sparkles size={15} />{/snippet}

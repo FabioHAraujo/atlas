@@ -33,6 +33,14 @@ impl Vt {
         search::url_at(&t, p).map(|h| h.url)
     }
 
+    /// The token under a viewport cell (a path such as `src/a.ts:12:3`), for ⌘-click when no
+    /// URL is there; the app decides whether it names a file.
+    pub fn path_at(&self, col: usize, row: i32) -> Option<String> {
+        let t = self.term.lock();
+        let p = Self::point_in_grid(&t, col, row)?;
+        search::token_at(&t, p)
+    }
+
     /// Underline the plain URL under a viewport cell (⌘ held); `None` clears it.
     /// Returns whether the hover changed (the caller redraws).
     pub fn set_hover(&self, at: Option<(usize, i32)>) -> bool {

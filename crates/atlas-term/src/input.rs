@@ -220,6 +220,72 @@ pub fn paste(text: &str, mode: TermMode) -> Vec<u8> {
     }
 }
 
+/// What the macOS pasteboard holds, as far as a terminal paste cares (read natively: the
+/// webview's paste event only exposes text, so an image or a Finder file copy arrives as
+/// nothing or as a bare file name).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Clipboard {
+    Empty,
+    Text(String),
+    /// Absolute paths of copied files (`public.file-url`), Finder ⌘C.
+    Files(Vec<String>),
+    /// Image data and no text (screenshot tools, "Copy Image").
+    Image,
+}
+
+impl Clipboard {
+    /// Pick the paste kind from what the pasteboard offers. Precedence (Ghostty, and omp
+    /// #8769): copied files first (Finder also adds the file's name as text and an icon
+    /// bitmap), then text, then a bitmap with no text.
+    pub fn classify(files: Vec<String>, text: Option<String>, has_image: bool) -> Self {
+        if !files.is_empty() {
+            return Self::Files(files);
+        }
+        match text {
+            Some(t) if !t.is_empty() => Self::Text(t),
+            _ if has_image => Self::Image,
+            _ => Self::Empty,
+        }
+    }
+}
+
+/// Bytes for ⌘V of `clip`, or `None` when there is nothing to send.
+/// - text: a normal paste;
+/// - files: their shell-quoted paths, space separated (Ghostty);
+/// - image only: no terminal can carry the bitmap, so the agent is asked to read the
+///   clipboard itself, the way the one that accepts it expects: an empty bracketed paste
+///   (iTerm2 / Terminal.app; omp's `onPasteImage`) or, without bracketed paste, Ctrl+V
+///   (omp `app.clipboard.pasteImage`, Claude Code `chat:imagePaste`, Codex `paste_image`).
+pub fn paste_clipboard(clip: &Clipboard, mode: TermMode) -> Option<Vec<u8>> {
+    match clip {
+        Clipboard::Text(t) if !t.is_empty() => Some(paste(t, mode)),
+        Clipboard::Files(f) if !f.is_empty() => {
+            let paths: Vec<String> = f.iter().map(|p| shell_quote(p)).collect();
+            Some(paste(&paths.join(" "), mode))
+        }
+        Clipboard::Image if mode.contains(TermMode::BRACKETED_PASTE) => Some(paste("", mode)),
+        Clipboard::Image => key(
+            "v",
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+            mode,
+        ),
+        _ => None,
+    }
+}
+
+/// `shlex.quote`: safe paths stay bare, anything else is single-quoted.
+pub fn shell_quote(s: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c);
+    if !s.is_empty() && s.chars().all(safe) {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
 /// Wheel on the alternate screen (xterm "alternate scroll", DECSET 1007, on by default;
 /// Ghostty `mouse-scroll` on the alt screen): `lines` > 0 scrolls up, sent as that many
 /// Up arrows (Down for negative). `None` when the program has the real scrollback (primary
@@ -367,6 +433,113 @@ mod tests {
             paste("x\x1b[201~rm", TermMode::BRACKETED_PASTE),
             b"\x1b[200~xrm\x1b[201~"
         );
+    }
+
+    const B: TermMode = TermMode::BRACKETED_PASTE;
+
+    /// Incident: ⌘V of a screenshot did nothing in omp / Claude Code / Codex inside Atlas,
+    /// because the webview paste event carries no text for an image-only clipboard and the
+    /// paste was dropped. omp treats an empty bracketed paste as "read the clipboard image
+    /// yourself" (its `onPasteImage`); that is what iTerm2 / Terminal.app send.
+    #[test]
+    fn image_only_clipboard_sends_an_empty_bracketed_paste() {
+        assert_eq!(
+            paste_clipboard(&Clipboard::Image, B).unwrap(),
+            b"\x1b[200~\x1b[201~"
+        );
+    }
+
+    /// Without bracketed paste there is no empty-paste signal: forward Ctrl+V, the key every
+    /// agent binds to "paste image" (omp `app.clipboard.pasteImage`, Claude Code
+    /// `chat:imagePaste`, Codex `paste_image`).
+    #[test]
+    fn image_only_clipboard_without_bracketed_paste_sends_ctrl_v() {
+        assert_eq!(
+            paste_clipboard(&Clipboard::Image, TermMode::empty()).unwrap(),
+            [0x16]
+        );
+        // A program that turned on the Kitty keyboard protocol wants the chord as CSI u.
+        assert_eq!(
+            paste_clipboard(&Clipboard::Image, TermMode::DISAMBIGUATE_ESC_CODES).unwrap(),
+            b"\x1b[118;5u"
+        );
+    }
+
+    #[test]
+    fn text_clipboard_is_the_text_paste() {
+        assert_eq!(
+            paste_clipboard(&Clipboard::Text("a\nb".into()), B).unwrap(),
+            b"\x1b[200~a\rb\x1b[201~"
+        );
+        assert_eq!(
+            paste_clipboard(&Clipboard::Text("a".into()), TermMode::empty()).unwrap(),
+            b"a"
+        );
+    }
+
+    /// Finder ⌘C of files: Ghostty pastes their paths, shell-quoted, space separated.
+    #[test]
+    fn file_clipboard_pastes_quoted_paths() {
+        let files = Clipboard::Files(vec![
+            "/tmp/shot.png".into(),
+            "/tmp/My Shots/it's.png".into(),
+        ]);
+        assert_eq!(
+            paste_clipboard(&files, B).unwrap(),
+            b"\x1b[200~/tmp/shot.png '/tmp/My Shots/it'\\''s.png'\x1b[201~"
+        );
+        assert_eq!(
+            paste_clipboard(&files, TermMode::empty()).unwrap(),
+            b"/tmp/shot.png '/tmp/My Shots/it'\\''s.png'"
+        );
+    }
+
+    /// A path can carry the bracket end marker or a newline: it must not escape the bracket
+    /// nor split the command line.
+    #[test]
+    fn file_paths_cannot_escape_the_bracket() {
+        let files = Clipboard::Files(vec!["/tmp/a\x1b[201~b\nc".into()]);
+        let out = paste_clipboard(&files, B).unwrap();
+        assert_eq!(out, b"\x1b[200~'/tmp/ab\rc'\x1b[201~");
+    }
+
+    #[test]
+    fn empty_clipboards_send_nothing() {
+        assert_eq!(paste_clipboard(&Clipboard::Empty, B), None);
+        assert_eq!(paste_clipboard(&Clipboard::Text(String::new()), B), None);
+        assert_eq!(paste_clipboard(&Clipboard::Files(vec![]), B), None);
+    }
+
+    #[test]
+    fn shell_quote_leaves_safe_paths_and_quotes_the_rest() {
+        assert_eq!(shell_quote("/a/b-c_d.png"), "/a/b-c_d.png");
+        assert_eq!(shell_quote("/a b/$x"), "'/a b/$x'");
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    }
+
+    /// Finder ⌘C of a PNG puts its file URL, its name as text and a generated icon bitmap on
+    /// the pasteboard (omp #8769 hit exactly this): the files win over the image, and over
+    /// the bare file name.
+    #[test]
+    fn classify_prefers_files_over_icon_bitmap_and_name_text() {
+        let c = Clipboard::classify(vec!["/tmp/shot.png".into()], Some("shot.png".into()), true);
+        assert_eq!(c, Clipboard::Files(vec!["/tmp/shot.png".into()]));
+    }
+
+    /// A browser "Copy Image" carries the bitmap plus text: text keeps working for those,
+    /// while a screenshot tool (bitmap only) is the image case.
+    #[test]
+    fn classify_image_only_is_image_and_text_beats_a_bitmap() {
+        assert_eq!(Clipboard::classify(vec![], None, true), Clipboard::Image);
+        assert_eq!(
+            Clipboard::classify(vec![], Some(String::new()), true),
+            Clipboard::Image
+        );
+        assert_eq!(
+            Clipboard::classify(vec![], Some("hello".into()), true),
+            Clipboard::Text("hello".into())
+        );
+        assert_eq!(Clipboard::classify(vec![], None, false), Clipboard::Empty);
     }
 
     /// The macOS line-editing map (Terminal.app / iTerm2 / Ghostty defaults), legacy encoding.

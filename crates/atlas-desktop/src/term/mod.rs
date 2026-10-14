@@ -8,12 +8,14 @@
 //!
 //! This file is the registry of open terminals plus the pty/clipboard/main-thread helpers.
 //! The `#[tauri::command]`s live by concern: `lifecycle` (open/bounds/close), `keys`
-//! (input, scrolling, prompts), `select` (selection, links, search), `settings` (theme,
-//! prefs, font, focus, stats); `render_loop`, `mac` and `shared` are the machinery.
+//! (input, scrolling, prompts), `mouse` (pointer reports to programs), `select` (selection,
+//! links, search), `settings` (theme, prefs, font, focus, stats); `render_loop`, `mac` and
+//! `shared` are the machinery.
 
 mod keys;
 mod lifecycle;
 mod mac;
+mod mouse;
 mod render_loop;
 mod select;
 mod settings;
@@ -33,6 +35,7 @@ use shared::Shared;
 
 pub use keys::*;
 pub use lifecycle::*;
+pub use mouse::*;
 pub use select::*;
 pub use settings::*;
 
@@ -116,6 +119,39 @@ fn targets(tab: Option<&str>) -> Result<Vec<Arc<Shared>>, String> {
             .map(|t| vec![t.shared.clone()])
             .ok_or_else(|| format!("no terminal for tab {t}")),
         None => Ok(terms.values().map(|t| t.shared.clone()).collect()),
+    }
+}
+
+/// The general pasteboard as a paste decision (⌘V). Read natively because the webview's paste
+/// event only exposes text: a screenshot or a Finder file copy arrives as nothing.
+fn read_clipboard() -> atlas_term::input::Clipboard {
+    use objc2_app_kit::{
+        NSPasteboard, NSPasteboardTypeFileURL, NSPasteboardTypePNG, NSPasteboardTypeString,
+        NSPasteboardTypeTIFF,
+    };
+    use objc2_foundation::NSURL;
+    // SAFETY: the general pasteboard is safe to read off the main thread; the type constants
+    // are static NSStrings.
+    unsafe {
+        let pb = NSPasteboard::generalPasteboard();
+        let mut files = Vec::new();
+        for item in pb.pasteboardItems().iter().flatten() {
+            let Some(s) = item.stringForType(NSPasteboardTypeFileURL) else {
+                continue;
+            };
+            if let Some(p) = NSURL::URLWithString(&s).and_then(|u| u.path()) {
+                files.push(p.to_string());
+            }
+        }
+        let text = pb
+            .stringForType(NSPasteboardTypeString)
+            .map(|s| s.to_string());
+        let has_image = pb.types().is_some_and(|t| {
+            t.iter().any(|t| {
+                t.isEqualToString(NSPasteboardTypePNG) || t.isEqualToString(NSPasteboardTypeTIFF)
+            })
+        });
+        atlas_term::input::Clipboard::classify(files, text, has_image)
     }
 }
 

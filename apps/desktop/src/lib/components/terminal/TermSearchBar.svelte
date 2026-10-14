@@ -32,6 +32,11 @@
 		input?.select();
 	}
 
+	/** ⌘G / ⇧⌘G: step to the next / previous match without leaving the terminal. */
+	export function next(forward: boolean) {
+		void find(forward);
+	}
+
 	async function find(forward: boolean) {
 		if (!query) {
 			stat = null;

@@ -59,6 +59,17 @@ pub fn term_paste(app: AppHandle, tab: String, text: String) -> Result<(), Strin
     Ok(())
 }
 
+/// ⌘V: paste whatever the pasteboard holds (text, copied files, or an image the program
+/// reads itself), decided by `input::paste_clipboard`.
+#[tauri::command]
+pub fn term_paste_clipboard(app: AppHandle, tab: String) -> Result<(), String> {
+    let (pty, sh) = with_term(&tab)?;
+    if let Some(bytes) = input::paste_clipboard(&super::read_clipboard(), sh.vt.mode()) {
+        write_pty(&app, &pty, &bytes);
+    }
+    Ok(())
+}
+
 /// Scroll the viewport; positive `delta` goes up into history. On the alternate screen
 /// (less, vim, htop) there is no scrollback: the wheel becomes arrow keys (Ghostty's
 /// mouse-scroll on the alt screen, xterm mode 1007).
@@ -104,6 +115,19 @@ pub fn term_select_all(tab: String) -> Result<(), String> {
     sh.vt.select_all();
     sh.redraw();
     Ok(())
+}
+
+/// ⇧⌘Y: select the output of the last finished command (OSC 133 C..D); again = the one
+/// before. The text also goes to the clipboard. `false` = no marked output to select.
+#[tauri::command]
+pub fn term_select_output(tab: String) -> Result<bool, String> {
+    let sh = with_term(&tab)?.1;
+    let found = sh.vt.select_last_output();
+    if found && let Some(text) = sh.vt.end_selection() {
+        super::write_clipboard(&text);
+    }
+    sh.redraw();
+    Ok(found)
 }
 
 /// ⌘K (Ghostty `clear_screen`): erase screen and scrollback, then `^L` so the shell redraws

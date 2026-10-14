@@ -105,9 +105,9 @@ pub struct UrlHit {
     pub end: Point,
 }
 
-/// The URL under grid point `p`, following soft-wrapped lines (a URL longer than
-/// the width wraps).
-pub fn url_at<T>(t: &Term<T>, p: Point) -> Option<UrlHit> {
+/// The soft-wrapped paragraph holding grid point `p` flattened to one char per cell (a wide
+/// char's spacer cell is `'\0'`), plus the first line, so a flat index maps back to a cell.
+fn paragraph<T>(t: &Term<T>, p: Point) -> (Vec<char>, Line) {
     let cols = t.columns();
     let grid = t.grid();
     let wraps = |l: Line| grid[l][Column(cols - 1)].flags.contains(Flags::WRAPLINE);
@@ -120,7 +120,6 @@ pub fn url_at<T>(t: &Term<T>, p: Point) -> Option<UrlHit> {
     while last < t.bottommost_line() && wraps(last) {
         last += 1;
     }
-    // One char per cell, so a flat index maps back to (line, column).
     let mut chars: Vec<char> = Vec::new();
     let mut line = first;
     while line <= last {
@@ -134,6 +133,14 @@ pub fn url_at<T>(t: &Term<T>, p: Point) -> Option<UrlHit> {
         }
         line += 1;
     }
+    (chars, first)
+}
+
+/// The URL under grid point `p`, following soft-wrapped lines (a URL longer than
+/// the width wraps).
+pub fn url_at<T>(t: &Term<T>, p: Point) -> Option<UrlHit> {
+    let cols = t.columns();
+    let (chars, first) = paragraph(t, p);
     let at = (p.line.0 - first.0) as usize * cols + p.column.0;
     let (s, e) = url_span(&chars, at)?;
     let cell = |i: usize| Point::new(first + i / cols, Column(i % cols));
@@ -142,6 +149,41 @@ pub fn url_at<T>(t: &Term<T>, p: Point) -> Option<UrlHit> {
         start: cell(s),
         end: cell(e - 1),
     })
+}
+
+/// The whitespace-delimited token covering char index `at`, minus the brackets, quotes and
+/// sentence punctuation around it (`(./b.rs:7).` → `./b.rs:7`), as `(start, end_exclusive)`.
+/// A file reference (`src/a.ts:12:3`) is such a token; whether it names a real file is for the
+/// caller to decide.
+pub fn token_span(line: &[char], at: usize) -> Option<(usize, usize)> {
+    // A wide char's spacer cell (`'\0'`) is part of the word its char is in.
+    let word = |c: char| !c.is_whitespace();
+    if at >= line.len() || !word(line[at]) {
+        return None;
+    }
+    let mut s = at;
+    while s > 0 && word(line[s - 1]) {
+        s -= 1;
+    }
+    let mut e = at + 1;
+    while e < line.len() && word(line[e]) {
+        e += 1;
+    }
+    while s < e && "([{<\"'`".contains(line[s]) {
+        s += 1;
+    }
+    let text: String = line[s..e].iter().collect();
+    let kept = trim_url(text.trim_end_matches(['"', '\'', '`', '>', '}']));
+    let to = s + kept.chars().count();
+    (s < to && (s..to).contains(&at)).then_some((s, to))
+}
+
+/// The token under grid point `p`, following soft-wrapped lines.
+pub fn token_at<T>(t: &Term<T>, p: Point) -> Option<String> {
+    let (chars, first) = paragraph(t, p);
+    let at = (p.line.0 - first.0) as usize * t.columns() + p.column.0;
+    let (s, e) = token_span(&chars, at)?;
+    Some(chars[s..e].iter().filter(|&&c| c != '\0').collect())
 }
 
 #[cfg(test)]

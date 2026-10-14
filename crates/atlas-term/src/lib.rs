@@ -5,6 +5,7 @@ pub mod colors;
 mod font;
 mod graphics;
 pub mod input;
+pub mod mouse;
 mod render;
 mod search;
 pub mod vt;

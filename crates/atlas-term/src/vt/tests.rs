@@ -194,6 +194,72 @@ fn osc_133_and_7_split_across_chunks() {
     assert_eq!(vt.text(), "$ ls");
 }
 
+// Select command output: OSC 133 C/D bound a command's output exactly, so an agent's last
+// answer can be copied without dragging over the prompt, the command or the next prompt.
+fn prompt_cycle(vt: &Vt, cmd: &str, out: &str, code: i32) {
+    vt.feed(
+        format!("\x1b]133;A\x07$ \x1b]133;B\x07{cmd}\r\n\x1b]133;C\x07{out}\x1b]133;D;{code}\x07")
+            .as_bytes(),
+    );
+}
+
+#[test]
+fn selects_the_output_of_the_last_finished_command() {
+    let (vt, _) = events(20, 4);
+    prompt_cycle(&vt, "ls", "a.txt\r\nb.txt\r\n", 0);
+    prompt_cycle(&vt, "cat x", "line1\r\nline2\r\nline3\r\n", 0);
+    vt.feed(b"\x1b]133;A\x07$ ");
+    assert!(vt.select_last_output());
+    assert_eq!(
+        vt.end_selection().unwrap().trim_end(),
+        "line1\nline2\nline3"
+    );
+    // Asking again from the next prompt walks to the one before.
+    assert!(vt.select_last_output());
+    assert_eq!(vt.end_selection().unwrap().trim_end(), "a.txt\nb.txt");
+}
+
+#[test]
+fn select_output_has_nothing_to_select_without_marks_or_output() {
+    let (vt, _) = events(20, 4);
+    vt.feed(b"plain text\r\n");
+    assert!(!vt.select_last_output(), "no OSC 133: nothing is bounded");
+    // A command with no output (`true`) selects nothing and keeps looking for older output.
+    prompt_cycle(&vt, "ls", "a.txt\r\n", 0);
+    prompt_cycle(&vt, "true", "", 0);
+    vt.feed(b"\x1b]133;A\x07$ ");
+    assert!(vt.select_last_output());
+    assert_eq!(vt.end_selection().unwrap().trim_end(), "a.txt");
+}
+
+#[test]
+fn select_output_skips_a_running_command_and_survives_scrollback() {
+    let (vt, _) = events(20, 3);
+    prompt_cycle(&vt, "seq 5", "1\r\n2\r\n3\r\n4\r\n5\r\n", 0);
+    // A command that has started (C) but not ended (no D) has no complete output yet.
+    vt.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07sleep 9\r\n\x1b]133;C\x07partial\r\n");
+    assert!(vt.select_last_output());
+    assert_eq!(vt.end_selection().unwrap().trim_end(), "1\n2\n3\n4\n5");
+    // Not on the alternate screen: a full-screen program owns it.
+    vt.feed(b"\x1b[?1049h");
+    assert!(!vt.select_last_output());
+}
+
+// ⌘K erases the scrollback the marks point into; the walk must not carry over to new output
+// (a stale "already selected" position would hide every later command's output).
+#[test]
+fn select_output_after_clear_screen_starts_over() {
+    let (vt, _) = events(20, 4);
+    prompt_cycle(&vt, "seq 3", "1\r\n2\r\n3\r\n", 0);
+    vt.feed(b"\x1b]133;A\x07$ ");
+    assert!(vt.select_last_output());
+    assert!(vt.clear_screen());
+    prompt_cycle(&vt, "echo hi", "hi\r\n", 0);
+    vt.feed(b"\x1b]133;A\x07$ ");
+    assert!(vt.select_last_output());
+    assert_eq!(vt.end_selection().unwrap().trim_end(), "hi");
+}
+
 #[test]
 fn jumps_between_prompts_in_scrollback() {
     let (vt, _) = events(10, 2);
@@ -313,6 +379,58 @@ fn osc_inside_dcs_is_not_a_prompt_mark() {
     vt.feed(b"\x1bPq\x1b]133;A\x07\x1b\\");
     vt.feed(b"\r\n\r\n\r\n");
     assert!(!vt.jump_to_prompt(true));
+}
+
+/// `(title, body)` of each `VtEvent::Notify` seen.
+type NoticeLog = Arc<Mutex<Vec<(Option<String>, String)>>>;
+
+fn notifications(vt_cols: u16, rows: u16) -> (Vt, NoticeLog) {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let l = log.clone();
+    let vt = Vt::new(vt_cols, rows, move |e| {
+        if let VtEvent::Notify { title, body } = e {
+            l.lock().push((title, body));
+        }
+    });
+    (vt, log)
+}
+
+// Desktop notifications (Ghostty: OSC 9 and OSC 777;notify). An agent that rings these when it
+// finishes must reach the app, split across reads and with either terminator.
+#[test]
+fn osc_9_and_777_raise_notifications_without_touching_the_text() {
+    let (vt, log) = notifications(20, 2);
+    vt.feed(b"a\x1b]9;build done\x07b");
+    vt.feed(b"\x1b]777;notify;Claude;needs you\x1b");
+    vt.feed(b"\\c\x1b]777;notify;;body only\x07");
+    assert_eq!(
+        *log.lock(),
+        [
+            (None, "build done".to_string()),
+            (Some("Claude".to_string()), "needs you".to_string()),
+            (None, "body only".to_string()),
+        ]
+    );
+    assert_eq!(vt.text(), "abc");
+}
+
+// Edge cases of the same contract: ConEmu progress (`9;4;…`) and other 777 verbs are not
+// notifications; a body with `;` keeps its tail; control bytes never reach the OS banner.
+#[test]
+fn notifications_ignore_progress_and_unknown_verbs_and_keep_semicolons() {
+    let (vt, log) = notifications(20, 2);
+    vt.feed(b"\x1b]9;4;1;50\x07");
+    vt.feed(b"\x1b]777;preexec\x07");
+    vt.feed(b"\x1b]9;\x07");
+    vt.feed(b"\x1b]777;notify;T;a;b;c\x07");
+    vt.feed(b"\x1b]9;hi\x08\x7fthere\x07");
+    assert_eq!(
+        *log.lock(),
+        [
+            (Some("T".to_string()), "a;b;c".to_string()),
+            (None, "hithere".to_string()),
+        ]
+    );
 }
 
 #[test]
@@ -484,6 +602,42 @@ fn urls_follow_soft_wrapped_lines() {
             "row {row}"
         );
     }
+}
+
+// ⌘-click on `src/a.ts:12:3` in compiler or agent output: the terminal hands the token under
+// the pointer to the app, which decides whether it is a file of the worktree.
+#[test]
+fn path_token_under_the_pointer_keeps_line_and_column() {
+    let vt = Vt::new(60, 3, |_| {});
+    vt.feed(b"error: src/lib/a.ts:12:3 - bad (see ./b.rs:7). also \"c d/e.go\"\r\n");
+    assert_eq!(vt.path_at(10, 0).as_deref(), Some("src/lib/a.ts:12:3"));
+    assert_eq!(vt.path_at(23, 0).as_deref(), Some("src/lib/a.ts:12:3"));
+    // Brackets and the sentence's period around a token are not part of it.
+    assert_eq!(vt.path_at(40, 0).as_deref(), Some("./b.rs:7"));
+    // Blank cells and rows with no text are nothing.
+    assert_eq!(vt.path_at(24, 0), None);
+    assert_eq!(vt.path_at(0, 2), None);
+    // The closing quote of `"c d/e.go"` is not part of the token.
+    assert_eq!(vt.path_at(58, 0).as_deref(), Some("d/e.go"));
+}
+
+#[test]
+fn path_token_follows_soft_wrapped_lines_and_wide_cells() {
+    let vt = Vt::new(10, 4, |_| {});
+    vt.feed(b"x packages/core/src/main.rs:99\r\n");
+    // The path wraps over rows 0..=2 (cols 10): every row of it resolves to the whole token.
+    for row in 0..3 {
+        assert_eq!(
+            vt.path_at(4, row).as_deref(),
+            Some("packages/core/src/main.rs:99"),
+            "row {row}"
+        );
+    }
+    // A wide char before it must not shift the columns.
+    let vt = Vt::new(30, 2, |_| {});
+    vt.feed("日本 src/x.ts:1".as_bytes());
+    assert_eq!(vt.path_at(6, 0).as_deref(), Some("src/x.ts:1"));
+    assert_eq!(vt.path_at(1, 0).as_deref(), Some("日本"));
 }
 
 #[test]

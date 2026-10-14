@@ -164,6 +164,12 @@ pub async fn term_open(
                 VtEvent::CommandFinished(exit) => {
                     let _ = a.emit("term://command", json!({"tab": t, "exit": exit}));
                 }
+                VtEvent::Notify { title, body } => {
+                    let _ = a.emit(
+                        "term://notify",
+                        json!({"tab": t, "title": title, "body": body}),
+                    );
+                }
                 // OSC 0/2 titles come from hostd (`pty_title`).
                 VtEvent::Title(_) => {}
             }),

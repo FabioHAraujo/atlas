@@ -42,6 +42,12 @@ test("⌘ chords map to the Ghostty actions", () => {
 		["Backspace", cmd, { kind: "key", name: "Backspace", meta: true }],
 		["ArrowLeft", cmd, { kind: "key", name: "ArrowLeft", meta: true }],
 		["ArrowRight", cmd, { kind: "key", name: "ArrowRight", meta: true }],
+		// Ghostty `navigate_search`: next / previous match of the open find bar (⌘G / ⇧⌘G).
+		["g", cmd, { kind: "searchNext", forward: true }],
+		["g", cmdShift, { kind: "searchNext", forward: false }],
+		["G", cmdShift, { kind: "searchNext", forward: false }],
+		// Select the last command's output (OSC 133): no Ghostty default, ⇧⌘Y is free in the app keymap.
+		["y", cmdShift, { kind: "selectOutput" }],
 	];
 	for (const [key, mods, want] of table) {
 		expect(termAction(ev(key, mods)), `${key} ${JSON.stringify(mods)}`).toEqual(want);
@@ -126,4 +132,54 @@ test("keyToSend turns ⌥ into Alt on the physical key when option_as_alt allows
 	// ⌥ composes a macOS character: text goes through `input`.
 	expect(keyToSend(alt(), "left", "right")).toBeNull();
 	expect(keyToSend(alt(), "none", "left")).toBeNull();
+});
+
+// Incident guard: a chord the terminal claims but the app keymap also binds would be taken by the
+// app's capture handler before the terminal sees it (⇧⌘D was Changes). Every claimed chord must be
+// unbound in the default keymap, or be on `terminalKeeps`' list.
+test("terminal chords never collide with the default app keymap unless the terminal keeps them", async () => {
+	const { DEFAULT_KEYMAP } = await import("./keys.ts");
+	const { terminalKeeps } = await import("./termKeys.ts");
+	const claimed: [string, boolean][] = [
+		["f", false],
+		["g", false],
+		["g", true],
+		["c", false],
+		["a", false],
+		["k", false],
+		["=", false],
+		["-", false],
+		["0", false],
+		["d", false],
+		["d", true],
+		["y", true],
+		["ArrowUp", false],
+		["ArrowDown", false],
+		["Home", false],
+		["End", false],
+		["PageUp", false],
+		["PageDown", false],
+		["Backspace", false],
+		["ArrowLeft", false],
+		["ArrowRight", false],
+	];
+	const bound = new Set(Object.keys(DEFAULT_KEYMAP));
+	for (const [key, shift] of claimed) {
+		const stroke = `cmd-${shift ? "shift-" : ""}${key.length === 1 ? key : key.replace(/^Arrow/, "").toLowerCase()}`;
+		const e = { key, metaKey: true, altKey: false, ctrlKey: false, shiftKey: shift };
+		if (bound.has(stroke)) expect(terminalKeeps(e), stroke).toBe(true);
+	}
+});
+
+// Incident guard: ⌘K was documented as Ghostty's clear_screen in a focused terminal, but the window's
+// capture handler dispatched it to the app keymap (`atlas::Jump`) before the terminal saw it. Every chord
+// the terminal claims AND the default keymap binds must be kept by the terminal.
+test("⌘K and ⇧⌘D are kept by a focused terminal; app-only chords are not", async () => {
+	const { terminalKeeps } = await import("./termKeys.ts");
+	const e = (key, shiftKey = false) => ({ key, metaKey: true, altKey: false, ctrlKey: false, shiftKey });
+	expect(terminalKeeps(e("k"))).toBe(true);
+	expect(terminalKeeps(e("K"))).toBe(true);
+	expect(terminalKeeps(e("d", true))).toBe(true);
+	for (const k of ["t", "w", "n", ",", "l"]) expect(terminalKeeps(e(k)), k).toBe(false);
+	expect(terminalKeeps(e("p", true))).toBe(false);
 });

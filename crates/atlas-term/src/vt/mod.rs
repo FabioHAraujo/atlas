@@ -50,6 +50,11 @@ pub enum VtEvent {
     Cwd(String),
     /// OSC 133;D: the command after the last prompt finished (`None` = no code given).
     CommandFinished(Option<i32>),
+    /// OSC 9 / OSC 777;notify: a desktop notification the program asks for.
+    Notify {
+        title: Option<String>,
+        body: String,
+    },
 }
 
 type OnEvent = Arc<dyn Fn(VtEvent) + Send + Sync>;

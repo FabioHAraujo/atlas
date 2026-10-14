@@ -1,10 +1,11 @@
 //! Streaming finder for the string sequences alacritty ignores: OSC 133/7 (prompt marks,
-//! cwd), APC `G` (Kitty graphics) and DCS sixel. Split-safe across `feed` chunks.
+//! cwd), OSC 9/777 (desktop notifications), APC `G` (Kitty graphics) and DCS sixel.
+//! Split-safe across `feed` chunks.
 
 /// A string sequence alacritty ignores, picked out of the stream.
 #[derive(Debug, PartialEq)]
 pub(super) enum Seq {
-    /// OSC 133 / 7 payload.
+    /// OSC 133 / 7 / 9 / 777 payload.
     Osc(Vec<u8>),
     /// APC `G…` (Kitty graphics), without the `G`.
     Kitty(Vec<u8>),
@@ -96,7 +97,11 @@ impl SeqScan {
         let buf = std::mem::take(&mut self.buf);
         match self.kind {
             Kind::Osc => {
-                (buf.starts_with(b"133;") || buf.starts_with(b"7;")).then_some(Seq::Osc(buf))
+                const WANTED: [&[u8]; 4] = [b"133;", b"7;", b"9;", b"777;"];
+                WANTED
+                    .iter()
+                    .any(|p| buf.starts_with(p))
+                    .then_some(Seq::Osc(buf))
             }
             Kind::Apc => buf.strip_prefix(b"G").map(|b| Seq::Kitty(b.to_vec())),
             // Sixel: numeric params, then `q` (no intermediates: `$q` is DECRQSS).

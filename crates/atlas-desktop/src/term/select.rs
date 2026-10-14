@@ -82,6 +82,13 @@ pub fn term_hyperlink_at(tab: String, col: u16, row: u16) -> Result<Option<Strin
     Ok(with_term(&tab)?.1.vt.url_at(col as usize, row as i32))
 }
 
+/// The text token under viewport cell (`col`, `row`) for ⌘-click when no URL is there: the app
+/// decides whether it is a file of the worktree (`termPath.ts`).
+#[tauri::command]
+pub fn term_path_at(tab: String, col: u16, row: u16) -> Result<Option<String>, String> {
+    Ok(with_term(&tab)?.1.vt.path_at(col as usize, row as i32))
+}
+
 /// Underline the URL under the pointer (⌘ held); `col`/`row` omitted clears it.
 #[tauri::command]
 pub fn term_hover(tab: String, col: Option<u16>, row: Option<u16>) -> Result<(), String> {

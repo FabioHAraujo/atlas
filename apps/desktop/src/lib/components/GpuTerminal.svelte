@@ -29,6 +29,7 @@
 		focused = false,
 		readonly = false,
 		onLink,
+		onFile,
 	}: {
 		tab: string;
 		pty: string;
@@ -37,6 +38,8 @@
 		/** Ended terminal: no keys, paste or drops reach the pty. */
 		readonly?: boolean;
 		onLink?: (url: string, external: boolean) => void;
+		/** ⌘-click on a plain token: `true` when it named a file and was opened. */
+		onFile?: (token: string) => boolean;
 	} = $props();
 
 	let area: HTMLDivElement | undefined = $state();
@@ -64,6 +67,7 @@
 			if (onLink) onLink(url, external);
 			else void api.openUrl(url).catch((err) => toast.error(errText(err)));
 		},
+		onFile: (token) => onFile?.(token) ?? false,
 	});
 
 	$effect(() => {
@@ -118,6 +122,10 @@
 		switch (a.kind) {
 			case "search":
 				return openSearch();
+			case "searchNext":
+				return searchOpen ? searchBar?.next(a.forward) : openSearch();
+			case "selectOutput":
+				return void invoke("term_select_output", { tab }).catch(quiet);
 			case "copy":
 				return void invoke("term_copy", { tab }).catch(quiet);
 			case "selectAll":
@@ -187,11 +195,14 @@
 		void invoke("term_copy", { tab }).catch(quiet);
 	}
 
-	/** Edit ▸ Paste: one `paste` event per ⌘V (the keydown is consumed by the menu). */
+	/**
+	 * Edit ▸ Paste: one `paste` event per ⌘V (the keydown is consumed by the menu). The event's
+	 * clipboardData only has text, so a screenshot or a Finder file copy would arrive empty:
+	 * the host reads the pasteboard itself (text, quoted file paths, or the image hand-off).
+	 */
 	function onpaste(e: ClipboardEvent) {
 		e.preventDefault();
-		const text = e.clipboardData?.getData("text/plain");
-		if (text && !readonly) void invoke("term_paste", { tab, text }).catch(quiet);
+		if (!readonly) void invoke("term_paste_clipboard", { tab }).catch(quiet);
 	}
 
 	function ondragover(e: DragEvent) {

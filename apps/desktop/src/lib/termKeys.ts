@@ -18,6 +18,8 @@ interface KeyLike {
 
 export type TermAction =
 	| { kind: "search" }
+	| { kind: "searchNext"; forward: boolean }
+	| { kind: "selectOutput" }
 	| { kind: "copy" }
 	| { kind: "selectAll" }
 	| { kind: "clear" }
@@ -31,6 +33,7 @@ export type TermAction =
 /** ⌘ chords with no shift/alt/ctrl: key → action. */
 const CMD: Record<string, TermAction> = {
 	f: { kind: "search" },
+	g: { kind: "searchNext", forward: true },
 	c: { kind: "copy" },
 	a: { kind: "selectAll" },
 	k: { kind: "clear" },
@@ -58,6 +61,8 @@ const CMD_SHIFT: Record<string, TermAction> = {
 	ArrowDown: { kind: "jumpPrompt", up: false },
 	// Ghostty `+`: ⇧⌘= arrives as "+".
 	"+": { kind: "font", change: "increase" },
+	g: { kind: "searchNext", forward: false },
+	y: { kind: "selectOutput" },
 };
 
 /** The terminal action for a ⌘ chord, or `null` (the key keeps its normal path). */
@@ -70,11 +75,10 @@ export function termAction(e: KeyLike): TermAction | null {
 
 /**
  * Chords a focused GPU terminal keeps instead of the app keymap: the ones whose app binding would
- * otherwise win in the window's capture handler. ⇧⌘D (Changes) is Ghostty's split-down; ⌘D, ⌘A
- * and ⌘K never collide here except through the native menu (see `menu.ts`). Everything else
- * (⌘T, ⌘W, ⇧⌘P …) stays with the app.
+ * otherwise win in the window's capture handler. ⌘K (Jump) is Ghostty's clear_screen and ⇧⌘D
+ * (Changes) its split-down. Everything else (⌘T, ⌘W, ⇧⌘P …) stays with the app.
  */
-const KEPT: Record<string, true> = { "shift+d": true };
+const KEPT: Record<string, true> = { k: true, "shift+d": true };
 
 export function terminalKeeps(e: KeyLike): boolean {
 	return (

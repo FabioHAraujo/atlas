@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
 	 * Import every theme found in a `.zip`, `.vsix` or folder. The archive is unpacked to a temporary
-	 * folder on this computer by the Rust side, scanned there, and the folder is always removed afterwards.
+	 * folder on this Mac by the Rust side, scanned there, and the folder is always removed afterwards.
 	 */
 	import { Button, Checkbox, toast } from "@codeatlasdev/ui";
 	import { Archive, ChevronDown, ChevronRight, FolderOpen, TriangleAlert } from "@lucide/svelte";
@@ -155,8 +155,8 @@
 	</Button>
 </div>
 <p class="hint">
-	Archives are unpacked to a temporary folder on this computer and nothing is uploaded. Themes are saved only
-	for you, in <code>~/.atlas/themes</code>. Bring your own licensed copy: Atlas does not include paid themes.
+	Archives are unpacked to a temporary folder on this Mac and nothing is uploaded. Themes are saved only for
+	you, in <code>~/.atlas/themes</code>. Bring your own licensed copy: Atlas does not include paid themes.
 </p>
 
 {#if importedOne}

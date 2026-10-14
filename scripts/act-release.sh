@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run .github/workflows/release.yml locally via act (no GitHub-hosted minutes).
-# macOS jobs run natively on this host (-self-hosted); ubuntu jobs (Linux build, Arch package, publish) in Docker.
+# macOS jobs run natively on this host (-self-hosted); ubuntu jobs in Docker.
 #
 # Usage: bun run release:act [vX.Y.Z[-pre.N]] [--publish]
 #   default tag: version from crates/atlas-cli/Cargo.toml
@@ -41,8 +41,7 @@ extra_env=()
 
 rm -rf .act/artifacts
 echo "▶ act: release.yml @ $tag$([[ $publish == 1 ]] && echo ' [publish]')"
-# linux/amd64: the Linux release assets are x86_64 (Docker runs them under Rosetta/QEMU on Apple silicon).
-act workflow_dispatch -W .github/workflows/release.yml -e "$event" --container-architecture linux/amd64 \
+act workflow_dispatch -W .github/workflows/release.yml -e "$event" \
   --env GITHUB_REF="refs/tags/$tag" --env GITHUB_REF_NAME="$tag" \
   ${extra_env[@]+"${extra_env[@]}"} \
   ${secrets[@]+"${secrets[@]}"}

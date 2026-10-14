@@ -34,7 +34,7 @@
 	{#each agents.list as a (a.id)}
 		<Row
 			label={a.label}
-			description={a.installed ? (a.version ?? a.path ?? "Installed") : "Not installed on this computer"}
+			description={a.installed ? (a.version ?? a.path ?? "Installed") : "Not installed on this Mac"}
 		/>
 	{/each}
 	<Row

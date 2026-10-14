@@ -51,26 +51,6 @@ def run_cli(version, root, env=None):
 
 
 class Manifest(unittest.TestCase):
-    def test_linux_lists_the_appimage_as_the_desktop_and_every_package(self):
-        # The names release.yml uploads; `desktop` must be what `atlas desktop` downloads on Linux.
-        version = "1.6.0-beta.2"
-        root = tempfile.mkdtemp()
-        plat = os.path.join(root, "atlas-x86_64-unknown-linux-gnu")
-        os.makedirs(plat)
-        cli = write_asset(plat, f"atlas-{version}-x86_64-unknown-linux-gnu.tar.gz", b"cli")
-        img = write_asset(plat, f"Atlas-{version}-x86_64-unknown-linux-gnu.AppImage", b"img")
-        deb = write_asset(plat, f"atlas_{version}_amd64.deb", b"deb")
-        rpm = write_asset(plat, f"atlas-{version}-1.x86_64.rpm", b"rpm")
-        pkg = write_asset(plat, "codeatlas-atlas-bin-1.6.0beta.2-1-x86_64.pkg.tar.zst", b"zst")
-        a = run_cli(version, root)["assets"]["x86_64-unknown-linux-gnu"]
-        self.assertEqual(a["cli"]["sha256"], cli)
-        self.assertEqual(a["desktop"]["sha256"], img)
-        self.assertTrue(a["desktop"]["url"].endswith(f"/v{version}/Atlas-{version}-x86_64-unknown-linux-gnu.AppImage"))
-        self.assertEqual(a["desktop_deb"]["sha256"], deb)
-        self.assertEqual(a["desktop_rpm"]["sha256"], rpm)
-        self.assertEqual(a["desktop_arch"]["sha256"], pkg)
-        self.assertNotIn("desktop_dmg", a)
-
     def test_stable_keeps_the_backwards_compatible_keys(self):
         root, cli, app, dmg = make_artifacts("1.4.0")
         m = run_cli("1.4.0", root, {"GITHUB_SHA": "abc123"})

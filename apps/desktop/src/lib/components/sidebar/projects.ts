@@ -39,7 +39,7 @@ export async function refreshProjects() {
 	if (!now.length && !back) toast.info("All projects are where Atlas expects them");
 	else if (back && !fresh) toast.success(`${back} project${back > 1 ? "s" : ""} found again`);
 	else if (now.length)
-		toast.warning(`${now.length} project${now.length > 1 ? "s" : ""} not found on this computer`);
+		toast.warning(`${now.length} project${now.length > 1 ? "s" : ""} not found on this Mac`);
 }
 
 /** Pick the new folder of a missing project. */

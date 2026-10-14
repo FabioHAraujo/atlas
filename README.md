@@ -15,7 +15,7 @@
 <p align="center">
   <a href="#contributing-security-license"><img alt="license" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>
   <img alt="built with rust" src="https://img.shields.io/badge/built%20with-rust-orange?style=flat-square">
-  <img alt="platform" src="https://img.shields.io/badge/macOS%20%7C%20Linux-Apple%20silicon%20%7C%20x86__64-lightgrey?style=flat-square">
+  <img alt="platform" src="https://img.shields.io/badge/macOS-Apple%20silicon-lightgrey?style=flat-square">
   <img alt="mcp" src="https://img.shields.io/badge/MCP-2025--11--25-black?style=flat-square">
 </p>
 
@@ -39,7 +39,7 @@
 Atlas is a **developer platform** that doesn't need a platform team. The thing big companies build with a dozen tools and a quarter of work (a paved road from `git clone` to a running, observable stack) is one file in your repo and one binary on your machine.
 
 - **Stack orchestration.** `atlas.yaml` describes infra, services, dependency order, health checks, restarts and actions. `atlas dev` boots it and keeps it honest.
-- **A desktop workspace.** Atlas Desktop is a native app (macOS and Linux today, Windows coming soon): a project per space, a git worktree per task, a GPU terminal, diff review, PRs and an embedded browser.
+- **A desktop workspace.** Atlas Desktop is a native app (macOS today, Windows and Linux coming soon): a project per space, a git worktree per task, a GPU terminal, diff review, PRs and an embedded browser.
 - **Agents in the loop.** omp, Claude Code and Codex run in parallel worktrees, with live "working / needs you / done" status.
 - **MCP for your agents.** `atlas mcp` lets an agent read status and logs, restart a service and wait until it is healthy while you keep coding.
 
@@ -61,10 +61,10 @@ Downloads the newest release of the default update channel (the newest alpha whi
 
 ```bash
 atlas update    # checks every 6h; `atlas dev` offers to update before starting (Y/n)
-atlas desktop   # installs and opens Atlas Desktop (macOS on Apple silicon, Linux x86_64)
+atlas desktop   # installs and opens Atlas Desktop (macOS, Apple silicon)
 ```
 
-Atlas is for everyone; it ships platform by platform. Available now: macOS on Apple silicon and Linux x86_64, with [.deb, .rpm, Arch (`pacman -U`) and AppImage packages](docs/installation.md#linux-packages) on every release. Coming soon: Intel Macs, Linux on ARM and Windows (see the [download page](https://atlas.codeatlas.com.br/download/)). Details in the [FAQ](docs/faq.md).
+Atlas is for everyone; it ships platform by platform. Available now: macOS on Apple silicon. Coming soon: Intel Macs, Windows and Linux (see the [download page](https://atlas.codeatlas.com.br/download/)). The CLI, TUI, runner and MCP server already build and pass their tests on Linux in CI (no prebuilt Linux binaries yet); Atlas Desktop is macOS only for now; Windows is not supported (yet). Details in the [FAQ](docs/faq.md).
 
 ## 60-second quickstart
 
@@ -207,7 +207,7 @@ Honest table. ✅ = built in · 🟡 = partial / via something else · ❌ = no.
 | Managed SSH tunnel | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Actions with confirm + pause services | ✅ | ❌ | ❌ | ❌ | 🟡 buttons | ❌ |
 | Detach + reattach later | ✅ `--detach` | ✅ | ✅ dekit | ✅ tmux | ✅ | ❌ |
-| Native desktop app | ✅ macOS, Linux | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Native desktop app | ✅ macOS | ❌ | ❌ | ❌ | ❌ | ❌ |
 | File-watch restart | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ `watch` |
 | Replica scaling | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
 | Windows | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |

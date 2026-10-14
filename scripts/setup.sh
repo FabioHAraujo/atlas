@@ -27,15 +27,6 @@ for tool in rustup cargo bun; do
   command -v "$tool" >/dev/null || die "$tool not found ($(hint "$tool"))"
 done
 
-# Linux: Atlas Desktop (Tauri) links WebKitGTK; say which packages provide it instead of failing deep in cargo.
-if [[ "$(uname -s)" == Linux ]] && ! pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
-  die "WebKitGTK 4.1 development files not found (needed by Atlas Desktop). Install them:
-  Arch:          sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
-  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-  Fedora:        sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file libappindicator-gtk3-devel librsvg2-devel libxdo-devel
-  (the CLI alone builds without them: cargo build --release -p atlas-cli)"
-fi
-
 front=apps/desktop
 if [[ ! -d $front/node_modules || $front/bun.lock -nt $front/node_modules ]]; then
   say "▶ bun install ($front)"

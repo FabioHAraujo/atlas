@@ -46,8 +46,6 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
-  # The job name is a required check (ruleset): it keeps its old wording although it now covers the
-  # whole workspace, Atlas Desktop included (Linux build: WebKitGTK, xterm.js terminals).
   rust-linux:
     name: Rust (Linux, without the macOS-only crates)
     runs-on: ubuntu-latest
@@ -57,11 +55,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: System libraries (Tauri/WebKitGTK)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
-
       - name: Install Rust
         run: rustup show active-toolchain || rustup toolchain install
 
@@ -69,14 +62,15 @@ jobs:
         if: ${{ !env.ACT }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
+      # No --workspace: `default-members` in Cargo.toml leaves out atlas-desktop and atlas-term (macOS only).
       - name: Format
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Test
-        run: cargo test --workspace --locked
+        run: cargo test --locked
 
   frontend:
     name: Desktop frontend + skills

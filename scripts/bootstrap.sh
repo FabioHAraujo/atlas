@@ -173,8 +173,7 @@ fi
 
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) TARGET="aarch64-apple-darwin" ;;
-  Linux-x86_64 | Linux-amd64) TARGET="x86_64-unknown-linux-gnu" ;;
-  *) die "unsupported platform $(uname -s)/$(uname -m) (published: macOS Apple Silicon, Linux x86_64; build from source otherwise)" ;;
+  *) die "unsupported platform $(uname -s)/$(uname -m) (published: macOS Apple Silicon; build from source otherwise)" ;;
 esac
 ok "curl, tar, sha256 · $TARGET"
 

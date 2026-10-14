@@ -4,8 +4,7 @@ Rust workspace (`crates/*`: `atlas-cli` = the `atlas` binary, `atlas-tui` = runt
 
 ## Gate and workflow
 
-- `scripts/setup.sh` — the one preflight (rustup, bun, gh, frontend deps, `cargo-tauri`, `cargo-deny`; on Linux it also checks for WebKitGTK and names the packages). Idempotent.
-- Linux: the whole workspace builds (Atlas Desktop on WebKitGTK; the native GPU terminal, page stage, capture and agent instances are macOS only, stubbed in `term_stub.rs` / `page_layers_stub.rs`, and terminals use xterm.js). Packaging: `tauri.linux.conf.json` (AppImage, .deb, .rpm, each with the CLI) and `packaging/arch/` (pacman package from the .deb).
+- `scripts/setup.sh` — the one preflight (rustup, bun, gh, frontend deps, `cargo-tauri`, `cargo-deny`). Idempotent.
 - `bun run check` — the only gate: fmt, `clippy --workspace -D warnings`, workspace tests, `cargo deny check`, `scripts/check-skills.sh`, `desktop:check` (svelte-check + prettier + bun test). Run it on its own and read the exit code; never chain `git push`/`release` after it with `;`.
 - CI (`.github/workflows/ci.yml`) runs on pull requests and pushes to `main` and `release/**`; its six jobs are required on those branches by a GitHub ruleset (admins bypass, which is how `bun run release` pushes), and `v*` tags are immutable. Releases are maintainer-run: `release.yml` is `workflow_dispatch` only and `bun run release <alpha|beta|rc|stable|patch>` builds and publishes it through `act` (see `docs/release.md`). `bun run ci:act` runs the macOS CI job locally through `act`.
 - **Before any commit, push, CI fix or release, read `.agents/skills/atlas-workflow/SKILL.md`** (branches, gate, staging, how to read CI, which release channel).

@@ -15,7 +15,7 @@
 
 	const SOURCE = {
 		settings: "picked in Settings",
-		account: "your account's login shell",
+		account: "your Mac account's login shell",
 		$SHELL: "taken from $SHELL",
 		default: "built-in fallback",
 	} as const;

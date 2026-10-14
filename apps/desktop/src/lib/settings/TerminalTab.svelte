@@ -48,25 +48,22 @@
 </script>
 
 <Group title="Renderer">
-	{#if gpu.supported}
-		<Row
-			id="gpu"
-			label="Fast terminal (GPU)"
-			description="Draws local terminals on the graphics chip for smoother scrolling and faster output. Applies to terminals you open afterwards. SSH terminals always use the classic renderer."
-		>
-			<Switch aria-label="Fast terminal (GPU)" checked={gpu.terminal} onchange={(v) => setGpuTerminal(v)} />
-			{#snippet below()}
-				{#if gpu.terminal && gpu.hostTooOld}
-					<div class="notice">
-						<span
-							>The running terminal host is from an older Atlas, so terminals use the classic renderer.</span
-						>
-						<Button size="sm" variant="outlined" onclick={restart}>Restart terminal host</Button>
-					</div>
-				{/if}
-			{/snippet}
-		</Row>
-	{/if}
+	<Row
+		id="gpu"
+		label="Fast terminal (GPU)"
+		description="Draws local terminals on the graphics chip for smoother scrolling and faster output. Applies to terminals you open afterwards. SSH terminals always use the classic renderer."
+	>
+		<Switch aria-label="Fast terminal (GPU)" checked={gpu.terminal} onchange={(v) => setGpuTerminal(v)} />
+		{#snippet below()}
+			{#if gpu.terminal && gpu.hostTooOld}
+				<div class="notice">
+					<span>The running terminal host is from an older Atlas, so terminals use the classic renderer.</span
+					>
+					<Button size="sm" variant="outlined" onclick={restart}>Restart terminal host</Button>
+				</div>
+			{/if}
+		{/snippet}
+	</Row>
 	<Row
 		id="host-restart"
 		label="Terminal host"

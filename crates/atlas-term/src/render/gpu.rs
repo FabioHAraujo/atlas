@@ -15,11 +15,6 @@ pub(super) struct Gpu {
 
 /// One device for every terminal in the process.
 static GPU: LazyLock<Result<Gpu, String>> = LazyLock::new(|| {
-    // Only the Metal backend is compiled in: elsewhere (Linux CI, `cargo test --workspace`)
-    // `Instance::new` would panic instead of reporting that there is no adapter.
-    if wgpu::Instance::enabled_backend_features().is_empty() {
-        return Err("no wgpu backend for this platform (the GPU terminal is macOS only)".into());
-    }
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         ..wgpu::InstanceDescriptor::new_without_display_handle()

@@ -3,6 +3,7 @@
  * it is showing because something is already broken, so a failing or hung backend call is skipped,
  * never thrown, and never waited on for long.
  */
+import { parseDiagnostics } from "./diagnostics.ts";
 import type { Breadcrumb, ErrorContext } from "./report.ts";
 
 export interface ContextSources {
@@ -27,7 +28,9 @@ export async function gatherContext(s: ContextSources): Promise<ErrorContext> {
 	const ms = s.timeoutMs ?? 800;
 	const host = (await within(s.invoke("host_status"), ms)) as
 		{ version?: string; caps?: string[] } | null | undefined;
+	const diag = await within(s.invoke("host_diagnostics"), ms);
 	return {
+		diagnostics: diag ? parseDiagnostics(diag) : undefined,
 		os: osLabel(s.nav.userAgent),
 		locale: s.nav.language || undefined,
 		route: s.route,

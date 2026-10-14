@@ -150,10 +150,15 @@ pub async fn ensure_local(atlas: &Path, client: &str) -> Result<HostClient> {
 }
 
 /// [`ensure_local`] for the hostd at `dir`.
+///
+/// A daemon that holds the singleton lock but cannot be talked to (its token file was replaced,
+/// it is wedged) would make every spawn below die with "another atlas hostd is running", so
+/// the caller never connected (1.5.0-alpha.5). [`retire_unusable`] ends exactly that daemon first.
 pub async fn ensure_in(dir: &Path, atlas: &Path, client: &str) -> Result<HostClient> {
     if let Ok(c) = HostClient::connect_dir(dir, client).await {
         return Ok(c);
     }
+    retire_unusable(dir).await;
     std::fs::create_dir_all(dir)?;
     let log = paths::open_log(dir)?;
     let mut cmd = std::process::Command::new(atlas);
@@ -178,6 +183,56 @@ pub async fn ensure_in(dir: &Path, atlas: &Path, client: &str) -> Result<HostCli
     }
     Err(last.unwrap_or_else(|| anyhow!("hostd did not start")))
         .with_context(|| format!("see {}", paths::log(dir).display()))
+}
+
+/// The pid in `hostd.pid` when that process is an `atlas ... hostd` (never any other process:
+/// a stale file can name a recycled pid). `None` when there is no file or it is not a hostd.
+pub fn live_hostd_pid(dir: &Path) -> Option<u32> {
+    let pid: u32 = std::fs::read_to_string(paths::pid(dir))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    let out = std::process::Command::new("ps")
+        .args(["-o", "command=", "-p"])
+        .arg(pid.to_string())
+        .output()
+        .ok()?;
+    let cmd = String::from_utf8_lossy(&out.stdout);
+    let mut words = cmd.split_whitespace();
+    let exe_is_atlas = words
+        .next()
+        .and_then(|w| Path::new(w).file_name())
+        .is_some_and(|n| n == "atlas");
+    (exe_is_atlas && words.next() == Some("hostd")).then_some(pid)
+}
+
+/// The pid of a live atlas hostd in `dir` that this client cannot use (it holds the lock but
+/// `connect_dir` fails): what `ensure_in` is about to retire. `None` when nothing runs or it answers.
+pub async fn unusable_hostd_pid(dir: &Path) -> Option<u32> {
+    let pid = live_hostd_pid(dir)?;
+    HostClient::connect_dir(dir, "probe")
+        .await
+        .err()
+        .map(|_| pid)
+}
+
+/// The daemon of `dir` is alive but `connect_dir` fails: ask it to stop with `SIGTERM` (its
+/// handler ends its terminals cleanly) and wait for its pid lock to free. Exact pid only, and
+/// only after [`live_hostd_pid`] confirmed it is an atlas hostd; never a port, never a name.
+async fn retire_unusable(dir: &Path) {
+    let Some(pid) = live_hostd_pid(dir) else {
+        return;
+    };
+    // SAFETY: `pid` was just verified to be this dir's atlas hostd.
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+    for _ in 0..50 {
+        // SAFETY: signal 0 only checks existence.
+        if unsafe { libc::kill(pid as libc::pid_t, 0) } != 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// A `pty_attach_raw` connection: `read` yields the pty's raw output (replay first);

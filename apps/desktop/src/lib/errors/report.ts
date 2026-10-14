@@ -29,7 +29,34 @@ export interface Breadcrumb {
 	text: string;
 }
 
+/** What `host_diagnostics` returns (`crates/atlas-desktop/src/diag.rs`, camelCase; see `diagnostics.ts`). */
+export interface Diagnostics {
+	versions: {
+		app: string;
+		cli: string | null;
+		hostd: string | null;
+		hostdPid: number | null;
+		hostdCaps: string[];
+	};
+	os: string;
+	install: {
+		runningBundle: string | null;
+		installedApp: string | null;
+		cli: string | null;
+		cliLinkedTo: string | null;
+		quarantined: boolean;
+		translocated: boolean;
+		channel: string;
+	};
+	hostdLog: string;
+	appLog: string;
+	lastCrash: string | null;
+	incidents: { at: number; kind: string; detail: string }[];
+}
+
 export interface ErrorContext {
+	/** Versions, OS and log tails of the app, CLI and terminal host; set for host failures and on demand. */
+	diagnostics?: Diagnostics;
 	os?: string;
 	arch?: string;
 	locale?: string;
@@ -117,6 +144,23 @@ export function scrub(text: string): string {
 		.replace(/([?&](?:token|key|secret|password|auth)[^=&\s]*=)[^&\s]*/gi, "$1…");
 }
 
+const NAMED_SECRET =
+	/\b([\w-]*(?:token|secret|passw(?:or)?d|api[_-]?key|access[_-]?key|private[_-]?key|authorization|cookie|credential)[\w-]*)(["']?\s*[=:]\s*)(?:Bearer |Basic )?("[^"]*"|'[^']*'|[^\s,&"']+)/gi;
+const TOKEN_SHAPE =
+	/\b(?:gh[pousr]_|github_pat_|sk-|xox[bp]-|AKIA|glpat-|npm_|pk_live_|sk_live_)[A-Za-z0-9_-]{8,}|\b(?=[A-Za-z0-9+/_=-]*\d)(?=[A-Za-z0-9+/_=-]*[A-Za-z])[A-Za-z0-9+/_=-]{32,}/g;
+
+/**
+ * The same rules as `diag::redact` in Rust, applied again on the way out so a report cannot leak even
+ * when a log field arrives unredacted: named secrets, token shapes, URL credentials, other users' homes.
+ */
+export function redactText(text: string): string {
+	return scrub(text)
+		.replace(/\/(?:Users|home)\/[^/\s"']+/g, "~")
+		.replace(/(\w+:\/\/)[^\s/@]+@/g, "$1[redacted]@")
+		.replace(NAMED_SECRET, (_m, name, sep) => `${name}${sep}[redacted]`)
+		.replace(TOKEN_SHAPE, "[redacted]");
+}
+
 export function report(e: unknown, ctx: Pick<ErrorReport, "where"> & Partial<ErrorReport>): ErrorReport {
 	return {
 		...ctx,
@@ -132,7 +176,22 @@ export function detailsText(r: ErrorReport): string {
 		`Where: ${r.where}${r.kind ? ` (${r.kind})` : ""}`,
 		r.file ? `File: ${r.file}` : "",
 	].filter(Boolean);
-	return [...head, "", r.message, r.stack ? `\n${r.stack}` : ""].join("\n").trimEnd();
+	const d = r.context?.diagnostics;
+	const diag = d
+		? [
+				`Terminal host: ${d.versions.hostd ?? "not running"}`,
+				`CLI: ${d.versions.cli ?? "unknown"}`,
+				`OS: ${d.os || "unknown"}`,
+				`Running bundle: ${d.install.runningBundle ?? "(not a bundle)"}`,
+				`Installed app: ${d.install.installedApp ?? "none found"}`,
+				...findings(d).map((f) => `Finding: ${f}`),
+				...(d.lastCrash ? [`Last crash: ${redactText(d.lastCrash)}`] : []),
+				...(d.hostdLog ? ["", "hostd.log (tail):", redactText(d.hostdLog)] : []),
+			]
+		: [];
+	return [...head, "", r.message, r.stack ? `\n${r.stack}` : "", ...(diag.length ? ["", ...diag] : [])]
+		.join("\n")
+		.trimEnd();
 }
 
 const MAX_BREADCRUMBS = 20;
@@ -200,10 +259,76 @@ const ctxLines = (r: ErrorReport): string[] => {
 		c?.os ? `- OS: ${c.os}${c.arch ? ` (${c.arch})` : ""}` : "",
 		c?.locale ? `- Locale: ${c.locale}` : "",
 		c?.route ? `- Route: ${c.route}` : "",
-		c?.hostVersion
-			? `- Terminal host: ${c.hostVersion}${c.hostCaps ? ` [${c.hostCaps.join(", ")}]` : ""}`
+		c?.hostVersion || c?.diagnostics?.versions.hostd
+			? `- Terminal host: ${c.hostVersion ?? c.diagnostics?.versions.hostd}${c.hostCaps ? ` [${c.hostCaps.join(", ")}]` : ""}`
 			: "",
+		c?.diagnostics?.versions.cli ? `- CLI: ${c.diagnostics.versions.cli}` : "",
+		!c?.os && c?.diagnostics?.os ? `- OS: ${c.diagnostics.os}` : "",
 	].filter(Boolean);
+};
+
+/**
+ * What differs on this machine from a healthy install, one sentence each. Only facts the payload proves; no guesses.
+ * These lead the report, so a maintainer sees the likely cause before the logs.
+ */
+export function findings(d: Diagnostics): string[] {
+	const { app, cli, hostd } = d.versions;
+	const out: string[] = [];
+	if (hostd && app && hostd !== app) out.push(`Terminal host ${hostd} is older than Atlas ${app}.`);
+	if (cli && app && cli !== app)
+		out.push(
+			`CLI ${cli} differs from the app ${app} (an update did not finish, or the app is linked to a dev build).`,
+		);
+	if (d.install.translocated)
+		out.push(
+			"The app runs from a macOS translocated copy (App Translocation): move Atlas.app to /Applications and reopen it.",
+		);
+	if (d.install.cliLinkedTo) out.push(`The CLI is linked to a dev build (${d.install.cliLinkedTo}).`);
+	if (
+		d.install.runningBundle &&
+		d.install.installedApp &&
+		d.install.runningBundle !== d.install.installedApp &&
+		!d.install.translocated
+	)
+		out.push(
+			`The running app (${d.install.runningBundle}) is not the installed one (${d.install.installedApp}).`,
+		);
+	return out;
+}
+
+const diagLines = (r: ErrorReport): string[] => {
+	const d = r.context?.diagnostics;
+	if (!d) return [];
+	const v = d.versions;
+	return [
+		"",
+		"## Versions",
+		`- App: ${v.app || "unknown"}`,
+		`- CLI: ${v.cli ?? "unknown"}`,
+		`- Terminal host: ${v.hostd ?? "not running"}${v.hostdPid ? ` (pid ${v.hostdPid})` : ""}`,
+		`- OS: ${d.os || "unknown"}`,
+		`- Channel: ${d.install.channel || "unknown"}`,
+		"",
+		"## Install",
+		`- Running bundle: ${d.install.runningBundle ?? "(not a bundle)"}`,
+		`- Installed app: ${d.install.installedApp ?? "none found"}`,
+		`- CLI: ${d.install.cli ?? "not found"}${d.install.cliLinkedTo ? ` -> ${d.install.cliLinkedTo}` : ""}`,
+		`- Quarantined: ${d.install.quarantined ? "yes" : "no"}; translocated: ${d.install.translocated ? "yes" : "no"}`,
+		...(findings(d).length ? ["", "## Findings", ...findings(d).map((f) => `- ${f}`)] : []),
+		"",
+		...(d.lastCrash ? [`- Last crash: ${redactText(d.lastCrash)}`] : []),
+		...(d.incidents.length
+			? [
+					"",
+					"## Host incidents",
+					...d.incidents
+						.slice(-8)
+						.map((i) => `- ${new Date(i.at * 1000).toISOString().slice(11, 19)} ${i.kind}: ${i.detail}`),
+				]
+			: []),
+		...(d.hostdLog ? ["", "## hostd.log (tail)", ...fence(redactText(d.hostdLog))] : []),
+		...(d.appLog ? ["", "## app.log (tail)", ...fence(redactText(d.appLog))] : []),
+	];
 };
 
 const crumbLines = (r: ErrorReport): string[] =>
@@ -225,6 +350,7 @@ export function markdownReport(r: ErrorReport, limit = MAX_BODY): string {
 		...ctxLines(r),
 		...(hint ? ["", "## Likely cause", `**${hint.title}.** ${hint.detail}`] : []),
 		...(crumbs.length ? ["", "## Last things the app did", ...crumbs] : []),
+		...diagLines(r),
 		"",
 		"## Stack (file names only)",
 		...fence(r.stack || "(none)"),
@@ -233,18 +359,35 @@ export function markdownReport(r: ErrorReport, limit = MAX_BODY): string {
 		.slice(0, limit);
 }
 
-/** Prefilled "new issue" URL. Opens in the system browser through `api.openUrl`. */
+/** Longest `logs` field in the URL: GitHub rejects URLs past ~8 KB. */
+const MAX_LOGS = 2500;
+
+/**
+ * Prefilled "new issue" URL for `.github/ISSUE_TEMPLATE/bug_report.yml`: its field ids (`what`, `surface`,
+ * `version`, `os`, `logs`...) are query parameters, so the form opens filled. Everything is redacted first.
+ * Opens in the system browser through `api.openUrl`.
+ */
 export function issueUrl(r: ErrorReport): string {
-	const title = `[desktop] ${r.message.split("\n")[0]}`.slice(0, MAX_TITLE);
-	const body = [
-		"**What happened**",
-		"<!-- Describe what you were doing when this appeared. -->",
-		"",
-		markdownReport(r, MAX_BODY - 200),
-	]
-		.join("\n")
-		.slice(0, MAX_BODY);
-	const q = new URLSearchParams({ title, body, labels: "bug" });
+	const title = redactText(`[desktop] ${r.message.split("\n")[0]}`).slice(0, MAX_TITLE);
+	const d = r.context?.diagnostics;
+	const version = r.version ?? d?.versions.app;
+	const q = new URLSearchParams({
+		template: "bug_report.yml",
+		title,
+		labels: "type: bug",
+		what: redactText(`${r.message}\n\n(What were you doing when this appeared?)`).slice(0, 800),
+		surface: "Atlas Desktop",
+		...(version ? { version: `atlas ${version}` } : {}),
+		...(d?.os || r.context?.os ? { os: d?.os ?? r.context?.os ?? "" } : {}),
+		logs: redactText(
+			[
+				markdownReport({ ...r, context: r.context && { ...r.context, diagnostics: undefined } }, 1200),
+				d?.hostdLog ?? "",
+			]
+				.filter(Boolean)
+				.join("\n\n"),
+		).slice(-MAX_LOGS),
+	});
 	return `${REPO_URL}/issues/new?${q}`;
 }
 

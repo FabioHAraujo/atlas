@@ -187,7 +187,7 @@ impl Release {
 }
 
 /// First line of `atlas version` is `atlas X.Y.Z`.
-async fn cli_version(bin: &Path) -> Option<String> {
+pub(crate) async fn cli_version(bin: &Path) -> Option<String> {
     let out = tokio::process::Command::new(bin)
         .arg("version")
         .output()

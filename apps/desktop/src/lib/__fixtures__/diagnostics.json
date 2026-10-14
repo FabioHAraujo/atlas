@@ -1,0 +1,29 @@
+{
+	"appLog": "1791943000 unreachable: socket in use",
+	"hostdLog": "atlas hostd 1.5.0-alpha.4 listening on ~/.atlas/hostd.sock (pid 8664, took over 2 pty(s))\nspawn failed: GITHUB_TOKEN=[redacted]",
+	"incidents": [
+		{
+			"at": 1791943000,
+			"detail": "socket in use",
+			"kind": "unreachable"
+		}
+	],
+	"install": {
+		"channel": "alpha",
+		"cli": "~/.atlas/bin/atlas",
+		"cliLinkedTo": null,
+		"installedApp": "/Applications/Atlas.app",
+		"quarantined": true,
+		"runningBundle": "/Applications/Atlas.app",
+		"translocated": false
+	},
+	"lastCrash": "atlas 1.5.0-alpha.4: index out of bounds (crates/atlas-host/src/server.rs:9:1)",
+	"os": "macOS 15.1 (aarch64)",
+	"versions": {
+		"app": "1.5.0-alpha.5",
+		"cli": "1.5.0-alpha.5",
+		"hostd": "1.5.0-alpha.4",
+		"hostdCaps": ["pty_attach_raw", "upgrade", "lsp"],
+		"hostdPid": 8664
+	}
+}

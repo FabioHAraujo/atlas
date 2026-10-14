@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "@codeatlasdev/ui";
 import { errText } from "#lib/api.ts";
+import { errors } from "#lib/errors/errors.svelte.ts";
+import { classify } from "#lib/errors/diagnostics.ts";
 import { host, type PtySummary } from "#lib/host.ts";
 import {
 	closable,
@@ -43,6 +45,8 @@ class Workspace {
 	titles = $state<Record<string, string>>({});
 	exited = $state<Record<string, number | null>>({});
 	hostError = $state<string | null>(null);
+	/** The terminal host did not answer the last `syncPtys`: `ptys` is what we knew, not what is true. */
+	hostDown = $state(false);
 	/** Main area: the selected worktree, or a global agents view. */
 	view = $state<"worktree" | "agents" | "dashboard">("worktree");
 	#persist = new WorkspacePersist(this);
@@ -84,8 +88,13 @@ class Workspace {
 				if (p.exited) this.exited[p.pty] = p.exited.code;
 			}
 			this.hostError = null;
+			this.hostDown = false;
 		} catch (e) {
+			// Keep `ptys`: an unreachable host says nothing about its terminals, and replacing the map
+			// would show every tab as "Terminal is gone" (1.5.0-alpha.5). Report the outage once.
 			this.hostError = errText(e);
+			this.hostDown = true;
+			void errors.captureHost(this.hostError);
 		}
 	}
 
@@ -435,14 +444,26 @@ class Workspace {
 				opts.groupId,
 			);
 		} catch (e) {
-			toast.error(errText(e));
+			this.fail(e);
 		}
+	}
+
+	/** A host failure folds into the one outage toast; anything else is an ordinary error toast. */
+	fail(e: unknown) {
+		const m = errText(e);
+		if (classify(m) === "host") void errors.captureHost(m);
+		else toast.error(m);
 	}
 
 	/** Recreate the pty of an ended terminal tab with its original argv/cwd. */
 	async restart(tabId: string) {
 		const t = this.tab(tabId);
 		if (!t || t.kind !== "terminal") return;
+		// A Restart on a host that is down can only fail the same way: say so once, change nothing.
+		if (this.hostDown) {
+			void errors.captureHost(this.hostError ?? "Terminal host not reachable.");
+			return;
+		}
 		try {
 			if (t.pty) await host.ptyKill(t.pty).catch(() => {});
 			const { pty } = await host.ptyCreate(
@@ -451,7 +472,7 @@ class Workspace {
 			await this.syncPtys();
 			t.pty = pty;
 		} catch (e) {
-			toast.error(errText(e));
+			this.fail(e);
 		}
 	}
 

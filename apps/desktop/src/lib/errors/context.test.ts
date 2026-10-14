@@ -37,3 +37,32 @@ test("a hung backend does not hang the error screen", async () => {
 	expect(Date.now() - t0).toBeLessThan(500);
 	expect(ctx.hostVersion).toBeUndefined();
 });
+
+test("the report core's diagnostics ride along when the backend answers, and are skipped when it does not", async () => {
+	const diag = {
+		versions: {
+			app: "1.5.0-alpha.5",
+			cli: "1.5.0-alpha.5",
+			hostd: "1.5.0-alpha.4",
+			hostdPid: 7,
+			hostdCaps: [],
+		},
+	};
+	const ok = await gatherContext({
+		invoke: async (cmd) => (cmd === "host_diagnostics" ? diag : null),
+		nav: { userAgent: "", language: "en" },
+		route: "/",
+		crumbs: [],
+	});
+	expect(ok.diagnostics?.versions.hostd).toBe("1.5.0-alpha.4");
+	expect(ok.diagnostics?.incidents).toEqual([]);
+	const down = await gatherContext({
+		invoke: async () => {
+			throw new Error("no backend");
+		},
+		nav: { userAgent: "", language: "en" },
+		route: "/",
+		crumbs: [],
+	});
+	expect(down.diagnostics).toBeUndefined();
+});

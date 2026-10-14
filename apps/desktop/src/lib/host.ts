@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { crumbs } from "#lib/errors/breadcrumbs.ts";
+import { classify } from "#lib/errors/diagnostics.ts";
+import { errors } from "#lib/errors/errors.svelte.ts";
+import { messageOf } from "#lib/errors/report.ts";
 
 /** Raw passthrough to `atlas hostd` (see crates/atlas-host/src/protocol.rs). */
 export const hostCall = <T = unknown>(cmd: string, args: Record<string, unknown> = {}) => {
@@ -7,6 +10,10 @@ export const hostCall = <T = unknown>(cmd: string, args: Record<string, unknown>
 	if (!/^(fs_read|pty_write)/.test(cmd)) crumbs.add(`host ${cmd}`);
 	return invoke<T>("host_call", { cmd, args }).catch((e) => {
 		crumbs.add(`host ${cmd} failed`);
+		// An outage joins the one shared toast (with its Restart / Report actions); the caller still gets
+		// the rejection. Ordinary errors (a missing file) stay the caller's.
+		const m = messageOf(e);
+		if (classify(m) === "host") errors.captureHost(m);
 		throw e;
 	});
 };

@@ -66,10 +66,13 @@ describe("report + issueUrl", () => {
 	test("issue URL targets the repo and carries version, message and trimmed stack", () => {
 		const u = new URL(issueUrl(r));
 		expect(u.origin + u.pathname).toBe("https://github.com/codeatlasdev/atlas/issues/new");
-		const body = u.searchParams.get("body") ?? "";
-		expect(body).toContain("Atlas: 0.5.14");
-		expect(body).toContain("Editor.svelte:10:2");
-		expect(body).not.toContain("/Users");
+		// The repo's bug_report.yml is a form: its field ids are the parameters (`body` is ignored by forms).
+		expect(u.searchParams.get("template")).toBe("bug_report.yml");
+		expect(u.searchParams.get("version")).toBe("atlas 0.5.14");
+		const logs = u.searchParams.get("logs") ?? "";
+		expect(logs).toContain("Atlas: 0.5.14");
+		expect(logs).toContain("Editor.svelte:10:2");
+		expect(logs).not.toContain("/Users");
 		expect(u.searchParams.get("title")?.startsWith("[desktop] Cannot read")).toBe(true);
 	});
 	test("details text is plain and complete", () => {
@@ -209,7 +212,7 @@ describe("AI prompts", () => {
 test("the issue URL carries the richer report (context + hint) yet stays under budget", () => {
 	const r = withContext(base, CTX);
 	const u = new URL(issueUrl(r));
-	const body = u.searchParams.get("body") ?? "";
+	const body = u.searchParams.get("logs") ?? "";
 	expect(body).toContain("macOS 26.0");
 	expect(body).toContain("opened Settings > Languages");
 	expect(issueUrl(r).length).toBeLessThan(9000);

@@ -13,6 +13,7 @@ mod ctl;
 mod debug;
 #[cfg(debug_assertions)]
 mod debug_req;
+mod diag;
 #[cfg(target_os = "macos")]
 mod display_mac;
 mod git;
@@ -155,6 +156,8 @@ macro_rules! handlers {
             host::host_restart,
             host::host_postpone,
             host::host_restart_when_idle,
+            host::host_restart_force,
+            host::host_diagnostics,
             workspace::workspace_load,
             workspace::workspace_save,
             worktree::worktree_create,
@@ -209,6 +212,7 @@ macro_rules! handlers {
             page_layers::pager_state,
             term::term_key,
             term::term_paste,
+            term::term_paste_clipboard,
             term::term_text,
             term::term_scroll,
             term::term_copy,
@@ -217,6 +221,10 @@ macro_rules! handlers {
             term::term_select_end,
             term::term_clear_selection,
             term::term_hyperlink_at,
+            term::term_path_at,
+            term::term_select_output,
+            term::term_mouse,
+            term::term_mouse_captured,
             term::term_hover,
             term::term_search,
             term::term_search_clear,
@@ -312,6 +320,7 @@ fn create_main_window(app: &tauri::App) -> tauri::Result<()> {
 }
 
 fn main() {
+    diag::install_panic_hook();
     boot::start();
     boot::mark("main");
     shell_env::start();

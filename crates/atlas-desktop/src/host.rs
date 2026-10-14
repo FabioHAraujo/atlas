@@ -80,9 +80,13 @@ struct HostCtl {
     /// A prompt was raised and no webview has taken it yet: the daemon is usually reconciled
     /// before the webview listens, so the event alone would be lost (`host_take_prompt`).
     prompt_pending: bool,
-    /// `(pid, version)` a live upgrade / restart was already attempted on: an installed CLI
-    /// older than the app would otherwise loop forever.
-    attempted: Option<(u64, String)>,
+    /// A live upgrade / restart of the local daemon was already tried this session: the
+    /// installed CLI is the only thing that can produce a new daemon, so when it is older than
+    /// the app a second try would loop forever (see `plan`).
+    attempted: bool,
+    /// Why the last attempt to connect to or start the local daemon failed (redacted); cleared
+    /// on connect. Part of the "not reachable" message and of the diagnostics.
+    last_error: Option<String>,
 }
 
 impl Default for HostCtl {
@@ -92,7 +96,8 @@ impl Default for HostCtl {
             choice: Choice::Ask,
             prompted_pid: None,
             prompt_pending: false,
-            attempted: None,
+            attempted: false,
+            last_error: None,
         }
     }
 }
@@ -111,6 +116,22 @@ pub struct HostHub {
     /// Debug only: `ATLAS_DEBUG_FAKE_HOST` is on and restarts only clear the fake state.
     #[cfg(debug_assertions)]
     fake: Mutex<Option<Fake>>,
+}
+
+/// Prefix of every "the local terminal host cannot be reached" error: the frontend matches it to
+/// collapse them into one toast with a "Restart terminal host" action instead of one per caller.
+pub const UNREACHABLE: &str = "Terminal host not reachable";
+
+/// What the person reads: what happened and what to do. `why` is the connect loop's last error
+/// (already redacted); the log path stays out of it, "Report" carries the log tail instead.
+fn unreachable_message(why: Option<&str>) -> String {
+    let mut m = format!(
+        "{UNREACHABLE}. Terminals cannot start or reconnect until it is back. Use Restart terminal host, or Report if it keeps happening."
+    );
+    if let Some(w) = why.filter(|w| !w.is_empty()) {
+        m.push_str(&format!(" ({w})"));
+    }
+    m
 }
 
 /// Host of the registry entry whose root contains `path` (longest match).
@@ -142,7 +163,8 @@ impl HostHub {
                 return Ok(c);
             }
             if tokio::time::timeout_at(deadline, woken).await.is_err() {
-                return Err("atlas hostd is not reachable (see ~/.atlas/hostd.log)".into());
+                let why = self.ctl.lock().last_error.clone();
+                return Err(unreachable_message(why.as_deref()));
             }
         }
     }
@@ -413,14 +435,15 @@ fn state_for(info: &Value, ptys: Vec<HostPty>, decision: Decision, choice: Choic
     }
 }
 
-/// The decision for a daemon, with the loop guard applied: a live upgrade or restart is tried
-/// at most once per `(pid, version)`. When that same daemon is still there afterwards (the
-/// installed CLI is itself older than the app) it is only reported, never retried.
-fn plan(info: &Value, live: usize, choice: Choice, attempted: Option<&(u64, String)>) -> Decision {
-    let pid = info["pid"].as_u64().unwrap_or(0);
-    let version = info["version"].as_str().unwrap_or("");
-    let seen = attempted.is_some_and(|(p, v)| *p == pid && v == version);
-    if !seen {
+/// The decision for a daemon, with the loop guard applied. A live upgrade or restart can only
+/// ever produce the *installed CLI's* version, so once one was tried (`attempted` is cleared
+/// only when a daemon reaches this app's version, or by the user's own restart) trying again
+/// cannot converge: whatever is in front of us is the product of that attempt (new pid, the
+/// CLI's version) or the same daemon, and it is only reported. Keyed on the old daemon's
+/// `(pid, version)` this looped forever, since every handoff mints a new pid (1.5.0-alpha.5
+/// incident, see `an_app_older_than_the_installed_cli_does_not_hand_over_forever`).
+fn plan(info: &Value, live: usize, choice: Choice, attempted: bool) -> Decision {
+    if !attempted {
         return decide(info, live, APP_VERSION, choice);
     }
     match decide(&without_upgrade(info), live, APP_VERSION, choice) {
@@ -458,15 +481,14 @@ async fn reconcile(app: &AppHandle, hub: &HostHub, c: &HostClient, bin: &Path) -
     };
     let ptys = live_list(&list);
     let pid = info["pid"].as_u64().unwrap_or(0);
-    let version = info["version"].as_str().unwrap_or("").to_string();
     let (choice, attempted) = {
         let g = hub.ctl.lock();
-        (g.choice, g.attempted.clone())
+        (g.choice, g.attempted)
     };
-    let mut decision = plan(&info, ptys.len(), choice, attempted.as_ref());
+    let mut decision = plan(&info, ptys.len(), choice, attempted);
 
     if decision == Decision::Upgrade {
-        hub.ctl.lock().attempted = Some((pid, version.clone()));
+        hub.ctl.lock().attempted = true;
         hub.publish(app, state_for(&info, ptys.clone(), decision, choice));
         match c
             .call("upgrade", json!({"exe": bin.to_string_lossy()}))
@@ -474,18 +496,19 @@ async fn reconcile(app: &AppHandle, hub: &HostHub, c: &HostClient, bin: &Path) -
         {
             Ok(_) => return Outcome::Reconnect,
             Err(e) => {
+                crate::diag::incident("upgrade-failed", &format!("{e:#}"));
                 let _ = app.emit(
                     "host://error",
-                    format!("terminal host upgrade failed: {e:#}"),
+                    format!("Terminal host upgrade failed ({e:#}). Terminals keep running on the old host."),
                 );
                 // The old host keeps running: decide again as for one that cannot hand over.
-                decision = plan(&info, ptys.len(), choice, hub.ctl.lock().attempted.as_ref());
+                decision = plan(&info, ptys.len(), choice, hub.ctl.lock().attempted);
             }
         }
     }
 
     if decision == Decision::RestartNow {
-        hub.ctl.lock().attempted = Some((pid, version));
+        hub.ctl.lock().attempted = true;
         hub.publish(app, state_for(&info, ptys, decision, choice));
         #[cfg(debug_assertions)]
         if hub.fake.lock().is_some() {
@@ -531,13 +554,13 @@ async fn probe(hub: &HostHub, c: &HostClient) -> Option<(Value, Value)> {
 /// After a reconnect that followed an `upgrade`: the new daemon is this app's version.
 fn verify_upgrade(app: &AppHandle, hub: &HostHub) {
     let g = hub.ctl.lock();
-    let done = g.attempted.is_some()
+    let done = g.attempted
         && g.state
             .as_ref()
             .is_some_and(|s| s.status == "current" && s.version.as_deref() == Some(APP_VERSION));
     drop(g);
     if done {
-        hub.ctl.lock().attempted = None;
+        hub.ctl.lock().attempted = false;
         let _ = app.emit(
             "host://toast",
             json!({"kind": "success", "text": "Terminal host updated"}),
@@ -566,7 +589,7 @@ async fn live_now(hub: &HostHub) -> Option<usize> {
 async fn restart_local(app: &AppHandle, hub: &HostHub) {
     {
         let mut g = hub.ctl.lock();
-        g.attempted = None;
+        g.attempted = false;
         g.choice = Choice::Ask;
         g.prompt_pending = false;
     }
@@ -643,14 +666,28 @@ pub fn start(app: &AppHandle) {
             let bin = match atlas_host::client::atlas_bin() {
                 Ok(b) => b,
                 Err(e) => {
+                    crate::diag::incident("start-failed", &e.to_string());
                     let _ = app.emit("host://error", e.to_string());
                     tokio::time::sleep(Duration::from_secs(10)).await;
                     continue;
                 }
             };
+            // A daemon that holds the lock but refuses this app is about to be replaced by
+            // `ensure_local`: say so (its terminals end), so the report explains the loss.
+            if let Some(pid) =
+                atlas_host::client::unusable_hostd_pid(&atlas_host::paths::base()).await
+            {
+                crate::diag::incident(
+                    "restarted",
+                    &format!(
+                        "terminal host pid {pid} did not accept this app; replaced it (its terminals ended)"
+                    ),
+                );
+            }
             match atlas_host::client::ensure_local(&bin, "desktop").await {
                 Ok(c) => {
                     backoff = Duration::from_secs(1);
+                    hub.ctl.lock().last_error = None;
                     // Every (re)connect is reconciled; the loop guard in `plan` keeps an
                     // installed CLI older than the app from looping.
                     if let Outcome::Reconnect = reconcile(&app, &hub, &c, &bin).await {
@@ -664,7 +701,13 @@ pub fn start(app: &AppHandle) {
                     serve_client(&app, LOCAL, c).await;
                 }
                 Err(e) => {
-                    let _ = app.emit("host://error", format!("{e:#}"));
+                    let why = crate::diag::redact(&format!("{e:#}"));
+                    let first = hub.ctl.lock().last_error.replace(why.clone()).is_none();
+                    // One incident per outage, not one per retry.
+                    if first {
+                        crate::diag::incident("unreachable", &why);
+                    }
+                    let _ = app.emit("host://error", unreachable_message(Some(&why)));
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(Duration::from_secs(10));
                 }
@@ -743,29 +786,67 @@ impl HostState {
     }
 }
 
+/// Merge the `pty_list` replies of every host (`host` added to each item). `None` = the host
+/// is not connected. The local host must answer: an empty list from a host that could not be
+/// asked would read as "every terminal is gone" (1.5.0-alpha.5), so that is an error and the
+/// frontend keeps what it knew. A remote that fails is skipped; its tabs stay as they were.
+fn merge_pty_lists(
+    replies: Vec<(String, Option<Result<Value, String>>)>,
+) -> Result<Vec<Value>, String> {
+    let mut out = Vec::new();
+    let mut local_answered = false;
+    for (h, reply) in replies {
+        match reply {
+            Some(Ok(v)) => {
+                local_answered |= h == LOCAL;
+                for mut p in v["ptys"].as_array().cloned().unwrap_or_default() {
+                    p["host"] = json!(h);
+                    out.push(p);
+                }
+            }
+            Some(Err(e)) if h == LOCAL => return Err(e),
+            _ => {}
+        }
+    }
+    if local_answered {
+        Ok(out)
+    } else {
+        Err(unreachable_message(None))
+    }
+}
+
 /// `pty_list` of every connected host, merged (`host` added to each item).
 #[tauri::command]
 pub async fn host_pty_list(hub: tauri::State<'_, Arc<HostHub>>) -> Result<Vec<Value>, String> {
-    let hosts: Vec<(String, HostClient)> = hub
+    let mut hosts: Vec<(String, Option<HostClient>)> = hub
         .clients
         .read()
         .await
         .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .map(|(k, v)| (k.clone(), Some(v.clone())))
         .collect();
-    let mut out = Vec::new();
+    if !hosts.iter().any(|(h, _)| h == LOCAL) {
+        hosts.push((LOCAL.into(), None));
+    }
+    let mut replies = Vec::new();
     for (h, c) in hosts {
-        if let Ok(v) = c.call("pty_list", json!({})).await {
-            for mut p in v["ptys"].as_array().cloned().unwrap_or_default() {
-                if let Some(id) = p["pty"].as_str() {
-                    hub.pty_host.lock().insert(id.to_string(), h.clone());
-                }
-                p["host"] = json!(h);
-                out.push(p);
-            }
+        let reply = match c {
+            Some(c) => Some(
+                c.call("pty_list", json!({}))
+                    .await
+                    .map_err(|e| format!("{e:#}")),
+            ),
+            None => None,
+        };
+        replies.push((h, reply));
+    }
+    let list = merge_pty_lists(replies)?;
+    for p in &list {
+        if let (Some(id), Some(h)) = (p["pty"].as_str(), p["host"].as_str()) {
+            hub.pty_host.lock().insert(id.to_string(), h.to_string());
         }
     }
-    Ok(out)
+    Ok(list)
 }
 
 /// The reconciled state of the local terminal host, `null` before the first reconcile.
@@ -790,6 +871,53 @@ pub async fn host_restart(
 ) -> Result<(), String> {
     restart_local(&app, &hub).await;
     Ok(())
+}
+
+/// "Restart terminal host" from an error: works when the daemon answers (graceful shutdown) and
+/// when it does not (a wedged or unauthenticable one): the connect loop's `ensure_in` retires
+/// that daemon by its exact pid. Ends the terminals it hosts; the frontend asked first.
+#[tauri::command]
+pub async fn host_restart_force(
+    app: AppHandle,
+    hub: tauri::State<'_, Arc<HostHub>>,
+) -> Result<(), String> {
+    crate::diag::incident("restarted", "restart requested from the error toast");
+    restart_local(&app, &hub).await;
+    // Drop the dead client so the next call waits for the new daemon instead of failing on it.
+    hub.set(LOCAL, None).await;
+    Ok(())
+}
+
+/// Everything a bug report needs: versions of the app, the installed CLI and the running
+/// terminal host, the OS and the redacted tails of the logs (`diag.rs`).
+#[tauri::command]
+pub async fn host_diagnostics(
+    hub: tauri::State<'_, Arc<HostHub>>,
+) -> Result<crate::diag::Diagnostics, String> {
+    let info = match hub.clients.read().await.get(LOCAL).cloned() {
+        Some(c) => tokio::time::timeout(Duration::from_secs(2), c.call("info", json!({})))
+            .await
+            .ok()
+            .and_then(Result::ok),
+        None => None,
+    };
+    let cli = match atlas_host::client::atlas_bin() {
+        Ok(bin) => crate::updates::cli_version(&bin).await,
+        Err(_) => None,
+    };
+    let versions = crate::diag::Versions {
+        app: APP_VERSION.to_string(),
+        cli,
+        hostd: info
+            .as_ref()
+            .and_then(|i| i["version"].as_str().map(str::to_string)),
+        hostd_pid: info.as_ref().and_then(|i| i["pid"].as_u64()),
+        hostd_caps: info
+            .as_ref()
+            .map(|i| caps_of(i).into_iter().map(str::to_string).collect())
+            .unwrap_or_default(),
+    };
+    Ok(crate::diag::build(&atlas_host::paths::base(), versions))
 }
 
 /// "Later": no prompt for the rest of this session (a new launch asks again); the chip stays.
@@ -959,27 +1087,19 @@ mod tests {
     }
 
     #[test]
-    fn a_replacement_is_tried_once_per_pid_and_version() {
+    fn a_replacement_is_tried_once_per_session() {
         let upgradeable = json!({"version": "0.6.2", "pid": 7,
                                  "caps": ["pty_attach_raw", "upgrade", "lsp"]});
-        assert_eq!(plan(&upgradeable, 3, Choice::Ask, None), Decision::Upgrade);
-        let tried = (7, "0.6.2".to_string());
+        assert_eq!(plan(&upgradeable, 3, Choice::Ask, false), Decision::Upgrade);
         // Same daemon still there: the CLI cannot make it current, so it is only reported.
-        assert_eq!(
-            plan(&upgradeable, 3, Choice::Ask, Some(&tried)),
-            Decision::Passive
-        );
+        assert_eq!(plan(&upgradeable, 3, Choice::Ask, true), Decision::Passive);
         // An empty host the restart did not replace must not be restarted in a loop either.
-        assert_eq!(plan(&old(), 0, Choice::Ask, None), Decision::RestartNow);
-        assert_eq!(
-            plan(&old(), 0, Choice::Ask, Some(&tried)),
-            Decision::Passive
-        );
-        // A different pid or version is a new daemon: reconciled again.
-        assert_eq!(
-            plan(&old(), 0, Choice::Ask, Some(&(8, "0.6.2".into()))),
-            Decision::RestartNow
-        );
+        assert_eq!(plan(&old(), 0, Choice::Ask, false), Decision::RestartNow);
+        assert_eq!(plan(&old(), 0, Choice::Ask, true), Decision::Passive);
+        // The daemon a handoff produced has a NEW pid and the CLI's version: still only reported.
+        let product = json!({"version": "0.6.3", "pid": 8,
+                             "caps": ["pty_attach_raw", "upgrade", "lsp"]});
+        assert_eq!(plan(&product, 3, Choice::Ask, true), Decision::Passive);
     }
 
     #[test]
@@ -995,9 +1115,89 @@ mod tests {
 
     #[test]
     fn choices_decide_what_a_blocked_host_does() {
-        let d = |c| plan(&old(), 2, c, None);
+        let d = |c| plan(&old(), 2, c, false);
         assert_eq!(d(Choice::Ask), Decision::Prompt);
         assert_eq!(d(Choice::WhenIdle), Decision::WaitIdle);
         assert_eq!(d(Choice::Later), Decision::Deferred);
+    }
+
+    /// Incident 1.5.0-alpha.5 (maintainer's `~/.atlas/hostd.log`: 11 consecutive
+    /// `1.5.0-alpha.5 ... took over 2 pty(s)` lines within seconds of `atlas update`).
+    /// The running app was still alpha.4 while the freshly installed CLI was alpha.5: every
+    /// handoff produced a daemon at the CLI's version with a NEW pid, which `plan` (keyed on
+    /// `(pid, version)`) treated as an unseen daemon, so it handed over again, forever; each
+    /// handoff drops the connection, which is what the user saw as "hostd is not reachable"
+    /// toasts and "Terminal is gone".
+    ///
+    /// Models the loop of `start()`: connect -> `plan` -> `upgrade` (new pid, CLI version) ->
+    /// reconnect. A sane guard hands over at most once per app run for a given target version.
+    #[test]
+    fn an_app_older_than_the_installed_cli_does_not_hand_over_forever() {
+        let cli_version = "9.9.9"; // the installed CLI; this app is APP_VERSION (older)
+        assert_ne!(cli_version, APP_VERSION);
+        let mut attempted = false;
+        let mut pid = 100;
+        let mut info = json!({"version": "0.0.1", "pid": pid,
+                              "caps": ["pty_attach_raw", "upgrade", "lsp"], "live_ptys": 2});
+        let mut handoffs = 0;
+        for _ in 0..50 {
+            match plan(&info, 2, Choice::Ask, attempted) {
+                Decision::Upgrade => {
+                    handoffs += 1;
+                    attempted = true;
+                    pid += 1;
+                    info = json!({"version": cli_version, "pid": pid,
+                                  "caps": ["pty_attach_raw", "upgrade", "lsp"], "live_ptys": 2});
+                }
+                _ => break,
+            }
+        }
+        assert!(
+            handoffs <= 1,
+            "{handoffs} handoffs in a row: the daemon is replaced in a loop"
+        );
+    }
+
+    /// Incident 1.5.0-alpha.5, "Terminal is gone": `host_pty_list` returned `[]` (no error) while
+    /// the local client was absent (between a handoff's disconnect and the reconnect) or its
+    /// `pty_list` failed, so the frontend replaced its terminal map with `{}` and showed every
+    /// tab as gone, with a Restart that then called the same absent host.
+    #[test]
+    fn an_unreachable_local_host_is_an_error_not_an_empty_list() {
+        let ok = |ptys: Value| Some(Ok(json!({"ptys": ptys})));
+        // Local answered with nothing: a true empty list.
+        assert_eq!(
+            merge_pty_lists(vec![(LOCAL.into(), ok(json!([])))])
+                .unwrap()
+                .len(),
+            0
+        );
+        // Local not connected at all.
+        let e = merge_pty_lists(vec![]).unwrap_err();
+        assert!(e.contains("not reachable"), "{e}");
+        // Local connected but the call failed.
+        let failed: Option<Result<Value, String>> = Some(Err("hostd disconnected".into()));
+        let e = merge_pty_lists(vec![(LOCAL.into(), failed)]).unwrap_err();
+        assert!(e.contains("hostd disconnected"), "{e}");
+    }
+
+    #[test]
+    fn a_remote_that_fails_does_not_hide_the_local_terminals() {
+        let local = Some(Ok(json!({"ptys": [{"pty": "a"}]})));
+        let remote: Option<Result<Value, String>> = Some(Err("timeout".into()));
+        let out = merge_pty_lists(vec![(LOCAL.into(), local), ("ssh:box".into(), remote)]).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["host"], LOCAL);
+        assert_eq!(out[0]["pty"], "a");
+    }
+
+    /// The text of the toast: what happened and what to do, never a path to a log.
+    #[test]
+    fn the_unreachable_message_says_what_to_do_and_names_no_log_path() {
+        let m = unreachable_message(None);
+        assert!(m.contains("Restart terminal host"), "{m}");
+        assert!(!m.contains("hostd.log") && !m.contains('~'), "{m}");
+        let m = unreachable_message(Some("socket in use"));
+        assert!(m.contains("socket in use"), "{m}");
     }
 }

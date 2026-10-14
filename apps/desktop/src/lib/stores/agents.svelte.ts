@@ -7,6 +7,7 @@ import { agentSound } from "#lib/sound/triggers.ts";
 import { api, errText } from "#lib/api.ts";
 import { host } from "#lib/host.ts";
 import { titleState } from "#lib/title.ts";
+import { noticeText, shouldNotify, type TermNotice } from "#lib/termNotice.ts";
 import { uid, ws, type Tab } from "#lib/stores/workspace.svelte.ts";
 
 interface AgentInfo {
@@ -82,6 +83,7 @@ class Agents {
 			await listen<{ pane_key: string; status: AgentStatus }>("agent://status", (e) =>
 				this.apply(e.payload.pane_key, e.payload.status),
 			),
+			await listen<{ tab: string } & TermNotice>("term://notify", (e) => this.termNotice(e.payload)),
 			await listen<{ ev: string; pty?: string; title?: string }>("host://event", (e) => {
 				const tab = e.payload.pty ? ws.doc.tabs.find((t) => t.pty === e.payload.pty && t.agent) : undefined;
 				if (!tab) return;
@@ -126,6 +128,23 @@ class Agents {
 			},
 			true,
 		);
+	}
+
+	/** OSC 9 / 777 from a terminal: inbox entry, unread dot and (when away) a system banner, like an agent finishing. */
+	private termNotice(e: { tab: string } & TermNotice) {
+		const tab = ws.tab(e.tab);
+		if (!tab) return;
+		const w = ws.worktree(tab.worktreeId);
+		const tabVisible = ws.doc.selected === tab.worktreeId && ws.group(tab.groupId)?.activeTab === tab.id;
+		const away = !this.focused || !tabVisible;
+		if (w && away) w.unread = true;
+		const { title, body } = noticeText(e, w?.name);
+		this.inbox = [
+			{ id: uid(), ts: Date.now(), worktreeId: tab.worktreeId, tabId: tab.id, title, body, read: false },
+			...this.inbox,
+		].slice(0, INBOX_MAX);
+		if (shouldNotify(this.notify, { windowFocused: this.focused, tabVisible }))
+			void invoke("agent_notify", { title, body, sound: this.notify.sound }).catch(() => {});
 	}
 
 	private apply(pane: string, st: AgentStatus, fromTitle = false) {

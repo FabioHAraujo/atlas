@@ -3,11 +3,15 @@
 	import { Dialog } from "@codeatlasdev/ui";
 	import { OctagonAlert, X } from "@lucide/svelte";
 	import { fly } from "svelte/transition";
+	import { corner } from "#lib/shell/cornerStack.ts";
 	import ErrorPanel from "./ErrorPanel.svelte";
 	import { errors } from "./errors.svelte.ts";
 
 	/** Longer than the stock toast (4 s): there is something to read and act on. */
 	const LIFETIME_MS = 12_000;
+	/** What happened and what to do; the log tail travels with Report, not as a path here. */
+	const HOST_HELP =
+		"Terminals can't start or reconnect until the host is back. Restart it, or report it if this keeps happening.";
 
 	// Reading `repeats` re-arms the timers when the same error fires again, so a live problem stays visible.
 	$effect(() => {
@@ -18,16 +22,24 @@
 	});
 </script>
 
-<div class="stack" role="region" aria-label="Errors">
+<div use:corner class="stack" role="region" aria-label="Errors">
 	{#each errors.toasts as t (t.id)}
-		<div class="toast" role="alert" transition:fly={{ y: 10, duration: 200 }}>
+		<div class="toast" class:host={t.host} role="alert" transition:fly={{ y: 10, duration: 200 }}>
 			<span class="icon" aria-hidden="true"><OctagonAlert size={15} strokeWidth={1.9} /></span>
 			<div class="text">
-				<b>An action didn't finish</b>
-				<span class="m">{t.report.message}</span>
+				<b>{t.host ? "Terminal host not reachable" : "An action didn't finish"}</b>
+				<span class="m">{t.host ? HOST_HELP : t.report.message}</span>
+				{#if t.host}
+					<div class="actions">
+						<button class="details primary" onclick={() => errors.restartHost(t.id)}
+							>Restart terminal host</button
+						>
+						<button class="details" onclick={() => errors.showHost(t)}>Report</button>
+					</div>
+				{/if}
 			</div>
 			{#if t.repeats > 0}<span class="count" title="Happened again">×{t.repeats + 1}</span>{/if}
-			<button class="details" onclick={() => errors.show(t.report, t.id)}>Details</button>
+			{#if !t.host}<button class="details" onclick={() => errors.show(t.report, t.id)}>Details</button>{/if}
 			<button class="x" aria-label="Dismiss" onclick={() => errors.dismiss(t.id)}><X size={13} /></button>
 		</div>
 	{/each}
@@ -43,8 +55,10 @@
 		<ErrorPanel
 			report={errors.current}
 			variant="dialog"
-			title="An action didn't finish"
-			hint="Atlas is still running. Copy the details or report it if it keeps happening."
+			title={errors.current.kind === "hostd" ? "Terminal host not reachable" : "An action didn't finish"}
+			hint={errors.current.kind === "hostd"
+				? "Copy the diagnostics (versions, OS, redacted logs) or report it; secrets are removed before anything leaves your machine."
+				: "Atlas is still running. Copy the details or report it if it keeps happening."}
 			close={() => (errors.current = null)}
 			closeLabel="Close"
 		/>
@@ -53,14 +67,10 @@
 
 <style>
 	.stack {
-		position: fixed;
-		right: 16px;
-		bottom: 16px;
-		z-index: 1600;
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-		width: min(440px, calc(100vw - 32px));
+		width: 100%;
 		pointer-events: none;
 	}
 	.toast {
@@ -126,6 +136,14 @@
 	}
 	.details:hover {
 		background: var(--ca-action-selected, var(--ca-action-hover));
+	}
+	.actions {
+		display: flex;
+		gap: 6px;
+		margin-top: 6px;
+	}
+	.primary {
+		background: color-mix(in oklab, var(--ca-semantic-error) 18%, var(--ca-action-hover));
 	}
 	.x {
 		flex: none;

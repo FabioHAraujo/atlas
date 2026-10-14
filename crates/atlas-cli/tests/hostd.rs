@@ -821,3 +821,123 @@ async fn reconcile_emits_the_progress_protocol_lines() {
     assert!(out.contains("@@atlas phase terminal-host"), "{out}");
     assert!(out.contains("@@atlas host needs-restart 3"), "{out}");
 }
+
+// ---- recovery of a terminal host the app cannot use (incident 1.5.0-alpha.5) ----
+
+fn pid_of(dir: &Path) -> i32 {
+    std::fs::read_to_string(paths::pid(dir))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+fn alive(pid: i32) -> bool {
+    // SAFETY: signal 0 only checks existence.
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
+/// A daemon that holds the singleton lock but that the app cannot talk to (its token file was
+/// replaced, or it is wedged) used to be permanent: `ensure_in` spawned a second hostd, which
+/// died with "another atlas hostd is running", forever. The app showed "hostd is not reachable"
+/// and every tab "Terminal is gone", and Restart went through the same dead path.
+#[tokio::test]
+async fn ensure_in_replaces_a_live_daemon_it_cannot_authenticate_to() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let (d, c) = start(dir).await;
+    let mut d = d;
+    drop(c);
+    let old = pid_of(dir);
+    // The token on disk no longer matches the one the daemon loaded at start.
+    std::fs::write(paths::token(dir), "0123456789abcdef").unwrap();
+    assert!(HostClient::connect_dir(dir, "test").await.is_err());
+
+    // Reap the old daemon concurrently: it is this test's child, and a zombie would still look
+    // alive to `retire_unusable` (a real daemon is detached and reaped by init).
+    let reaper = std::thread::spawn(move || {
+        let _ = d.0.wait();
+    });
+    let c = atlas_host::client::ensure_in(dir, Path::new(BIN), "test")
+        .await
+        .expect("the stuck daemon is replaced, not retried forever");
+    let info = c.call("info", json!({})).await.unwrap();
+    assert_ne!(info["pid"].as_u64().unwrap() as i32, old);
+    assert!(!alive(old), "the old daemon is gone");
+    reaper.join().unwrap();
+    let _ = c.call("shutdown", json!({})).await;
+}
+
+/// Exact-PID rule (AGENTS.md): recovery signals the pid in `hostd.pid` only when that process is
+/// an `atlas ... hostd`. A recycled pid in a stale file must never be signalled.
+#[tokio::test]
+async fn recovery_never_signals_a_pid_that_is_not_an_atlas_hostd() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let mut bystander = Command::new("sleep").arg("60").spawn().unwrap();
+    std::fs::write(paths::pid(dir), bystander.id().to_string()).unwrap();
+    // Token exists, nothing listens: connect fails, the pid file names an unrelated live process.
+    paths::ensure_token(dir).unwrap();
+
+    let c = atlas_host::client::ensure_in(dir, Path::new(BIN), "test")
+        .await
+        .expect("a fresh daemon starts");
+    let info = c.call("info", json!({})).await.unwrap();
+    assert_ne!(info["pid"].as_u64().unwrap() as u32, bystander.id());
+    assert!(
+        alive(bystander.id() as i32),
+        "the unrelated process was killed"
+    );
+    let _ = bystander.kill();
+    let _ = bystander.wait();
+    let _ = c.call("shutdown", json!({})).await;
+}
+
+/// SIGKILLed daemon: stale socket and pid file, nothing alive. The next connect starts a new one.
+#[tokio::test]
+async fn ensure_in_starts_over_a_stale_socket_and_pid_after_a_crash() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    let (mut d, c) = start(dir).await;
+    drop(c);
+    let old = pid_of(dir);
+    // SAFETY: `old` is the daemon this test just started.
+    unsafe { libc::kill(old, libc::SIGKILL) };
+    let _ = d.0.wait(); // reap it: a zombie still answers `kill(pid, 0)`
+    assert!(!alive(old));
+    assert!(paths::socket(dir).exists(), "a crash leaves the socket");
+
+    let c = atlas_host::client::ensure_in(dir, Path::new(BIN), "test")
+        .await
+        .unwrap();
+    assert_ne!(
+        c.call("info", json!({})).await.unwrap()["pid"]
+            .as_u64()
+            .unwrap() as i32,
+        old
+    );
+    let _ = c.call("shutdown", json!({})).await;
+}
+
+/// The app reports what it did about a host it could not use (incident + diagnostics), so it asks
+/// `unusable_hostd_pid` first: `Some(pid)` only for a live atlas hostd that refuses this client.
+#[tokio::test]
+async fn unusable_hostd_pid_names_only_a_live_daemon_that_refuses_us() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    assert_eq!(
+        atlas_host::client::unusable_hostd_pid(dir).await,
+        None,
+        "nothing runs"
+    );
+    let (_d, c) = start(dir).await;
+    drop(c);
+    assert_eq!(
+        atlas_host::client::unusable_hostd_pid(dir).await,
+        None,
+        "a daemon that answers is usable"
+    );
+    let pid = pid_of(dir) as u32;
+    std::fs::write(paths::token(dir), "0123456789abcdef").unwrap();
+    assert_eq!(atlas_host::client::unusable_hostd_pid(dir).await, Some(pid));
+}

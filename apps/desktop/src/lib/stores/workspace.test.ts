@@ -5,9 +5,12 @@ mock.module("@tauri-apps/api/core", () => ({ invoke: async () => null }));
 mock.module("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 await (await import("../../../test/uiKit.ts")).installUiKit();
 mock.module("#lib/api.ts", () => ({ errText: String }));
+let ptyList: () => Promise<unknown[]> = async () => [];
 mock.module("#lib/host.ts", () => ({
-	host: { ptyKill: async () => {}, ptyList: async () => [], ptyCreate: async () => ({ pty: "p1" }) },
+	host: { ptyKill: async () => {}, ptyList: () => ptyList(), ptyCreate: async () => ({ pty: "p1" }) },
 }));
+// The real `errors` store (not a mock of it: a process-wide module mock would leak into
+// errors/hostErrors.test.ts): its toasts are what a user would see.
 // Stubs live only for this file: bun runs every test file in one process, so leaking the stub `document`
 // broke every DOM suite that ran after this one (see test/dom-isolation.test.ts).
 // Save descriptors, not values: once Svelte's client runtime is loaded, reading `globalThis.$state`
@@ -30,6 +33,7 @@ afterAll(() => {
 });
 
 const { ws } = await import("./workspace.svelte.ts");
+const { errors } = await import("#lib/errors/errors.svelte.ts");
 
 const W = "w1";
 ws.doc.worktrees.push({ id: W, repoId: "r", path: "/tmp/w", name: "w", isMain: true });
@@ -135,4 +139,56 @@ test("focusedTab is a pure read: a worktree without a layout yields nothing and 
 	ws.select(W);
 	const t = ws.openTab(W, { kind: "editor", label: "a", path: "a.ts" });
 	expect(ws.focusedTab(W)?.id).toBe(t.id);
+});
+
+/**
+ * Incident 1.5.0-alpha.5: while the local terminal host was unreachable, `host_pty_list` answered `[]`
+ * and every terminal tab became "Terminal is gone" with a Restart that could not work. Now the backend
+ * errors instead, and the store must keep what it knew (the terminals are very likely still alive) and
+ * report the outage once.
+ */
+test("a failing host does not make known terminals 'gone'", async () => {
+	fresh();
+	ptyList = async () => [{ pty: "p1", title: "zsh", exited: null }];
+	await ws.syncPtys();
+	const t = ws.openTab(W, { kind: "terminal", label: "zsh" });
+	t.pty = "p1";
+	expect(ws.ended(t)).toBeNull();
+
+	ptyList = async () => {
+		throw "Terminal host not reachable. Terminals cannot start or reconnect until it is back.";
+	};
+	errors.toasts = [];
+	await ws.syncPtys();
+	expect(ws.ended(t)).toBeNull();
+	expect(Object.keys(ws.ptys)).toEqual(["p1"]);
+	expect(errors.toasts).toHaveLength(1);
+	expect(ws.hostDown).toBe(true);
+
+	ptyList = async () => [{ pty: "p1", title: "zsh", exited: null }];
+	await ws.syncPtys();
+	expect(ws.hostDown).toBe(false);
+});
+
+test("a terminal the host really dropped is still 'gone' once the host answers", async () => {
+	fresh();
+	ptyList = async () => [];
+	const t = ws.openTab(W, { kind: "terminal", label: "zsh" });
+	t.pty = "old";
+	await ws.syncPtys();
+	expect(ws.ended(t)).toBe("gone");
+});
+
+test("restart on a down host does not try to create a terminal on it", async () => {
+	fresh();
+	const t = ws.openTab(W, { kind: "terminal", label: "zsh" });
+	t.pty = "p1";
+	ptyList = async () => {
+		throw "Terminal host not reachable.";
+	};
+	await ws.syncPtys();
+	errors.toasts = [];
+	await ws.restart(t.id);
+	expect(t.pty).toBe("p1");
+	expect(errors.toasts).toHaveLength(1);
 });

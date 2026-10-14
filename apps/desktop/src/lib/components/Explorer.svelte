@@ -11,6 +11,8 @@
 	import { git, errText } from "#lib/api.ts";
 	import { uid, ws } from "#lib/stores/workspace.svelte.ts";
 	import { openFile } from "#lib/stores/files.svelte.ts";
+	import { errors } from "#lib/errors/errors.svelte.ts";
+	import { foldersToReload, loadFolder } from "#lib/stores/explorerLoad.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
 	import ProjectIcon from "#lib/shell/ProjectIcon.svelte";
 	import { confirmDialog } from "#lib/stores/ask.svelte.ts";
@@ -35,18 +37,24 @@
 	let expanded = $state<Record<string, boolean>>({ "": true });
 	let status = $state<Record<string, string>>({});
 	let watchIds: Record<string, string> = {};
-	const HIDDEN: Record<string, true> = { ".git": true, ".DS_Store": true };
+	/** Folders whose listing failed because the terminal host was down: listed again on reconnect. */
+	const pending = new Set<string>();
 
 	async function load(rel: string) {
-		try {
-			const list = await host.fsList(rel ? `${root}/${rel}` : root);
-			children[rel] = list.filter((e) => !HIDDEN[e.name]);
-			if (!watchIds[rel]) {
-				watchIds[rel] = uid();
-				void host.fsWatch(rel ? `${root}/${rel}` : root, watchIds[rel]).catch(() => {});
-			}
-		} catch (e) {
-			toast.error(errText(e));
+		const r = await loadFolder(() => host.fsList(rel ? `${root}/${rel}` : root), {
+			// One shared toast for the outage (not one per folder), and the folder is retried on reconnect.
+			onHost: (m) => errors.captureHost(m),
+			onOther: (m) => toast.error(m),
+		});
+		if (!r.ok) {
+			if (r.retry) pending.add(rel);
+			return;
+		}
+		pending.delete(rel);
+		children[rel] = r.entries;
+		if (!watchIds[rel]) {
+			watchIds[rel] = uid();
+			void host.fsWatch(rel ? `${root}/${rel}` : root, watchIds[rel]).catch(() => {});
 		}
 	}
 
@@ -60,6 +68,12 @@
 		void load("");
 		void loadStatus();
 		let timer: number | undefined;
+		// The host came back (an update, a restart, a handoff): the watches died with the old connection.
+		const back = listen("host://reconnected", () => {
+			watchIds = {};
+			for (const rel of foldersToReload(expanded, pending)) void load(rel);
+			void loadStatus();
+		});
 		const off = listen<{ ev: string; id?: string }>("host://event", (e) => {
 			if (e.payload.ev !== "fs_event") return;
 			const rel = Object.keys(watchIds).find((k) => watchIds[k] === e.payload.id);
@@ -70,6 +84,7 @@
 		});
 		return () => {
 			void off.then((u) => u());
+			void back.then((u) => u());
 			for (const id of Object.values(watchIds)) void host.fsUnwatch(id).catch(() => {});
 		};
 	});

@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "@codeatlasdev/ui";
 import { errText } from "#lib/api.ts";
+import { errors } from "#lib/errors/errors.svelte.ts";
 import { emptyDoc, type Doc } from "#lib/stores/workspaceTypes.ts";
 
 const SAVE_DEBOUNCE_MS = 300;
@@ -38,7 +39,13 @@ export class WorkspacePersist {
 					if (p.ev === "pty_exit" && p.pty) ws.exited[p.pty] = p.code ?? null;
 				}),
 			),
-			track(listen<string>("host://error", (e) => (ws.hostError = e.payload))),
+			track(
+				listen<string>("host://error", (e) => {
+					ws.hostError = e.payload;
+					// The connect loop retries every few seconds: one toast with a count, not one per retry.
+					void errors.captureHost(e.payload);
+				}),
+			),
 			track(
 				listen("host://reconnected", () => {
 					ws.hostError = null;

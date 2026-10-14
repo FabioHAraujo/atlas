@@ -1,4 +1,6 @@
 # Review routing. Later matches win; see GOVERNANCE.md.
+# The owner is on everything. The sensitive paths are listed again at the end
+# so they stay owner-reviewed even if a broader rule above is ever changed.
 *                       @mvilacad
 /crates/                @mvilacad
 /apps/desktop/          @mvilacad
@@ -6,7 +8,15 @@
 /studio/                @mvilacad
 /docs/                  @mvilacad
 /skills/                @mvilacad
-/.github/               @mvilacad
-/scripts/               @mvilacad
 /LICENSE-*              @mvilacad
 /SECURITY.md            @mvilacad
+/GOVERNANCE.md          @mvilacad
+/CONTRIBUTING.md        @mvilacad
+
+# Sensitive: CI and rulesets, releases, the host daemon, agent rules.
+/.github/               @mvilacad
+/.agents/               @mvilacad
+/scripts/release*       @mvilacad
+/scripts/act-release.sh @mvilacad
+/crates/atlas-host/     @mvilacad
+/AGENTS.md              @mvilacad

@@ -21,25 +21,43 @@ scripts/setup.sh          # rustup, bun, frontend deps, cargo-tauri, cargo-deny
 bun run check             # the only gate: fmt, clippy -D warnings, tests, cargo deny, skills, desktop checks
 ```
 
-1. Branch from `main`.
+1. Branch from `main` (see [the flow](#pull-request-flow-and-who-merges)).
 2. Change the code, add or update tests, and update the docs and `CHANGELOG.md` (`## [Unreleased]`) in the same pull request. **Tests come first**: for a bug fix, write the regression test, watch it fail for the right reason, then fix it (see [AGENTS.md](AGENTS.md)). A change to `atlas.yaml`, the CLI, the MCP tools or the settings files needs a **Changed** or **Removed** changelog entry that says what to do instead, and follows the [deprecation policy](docs/deprecation.md).
 3. Run `bun run check` on its own and read its exit code.
-4. Open a pull request and fill in the template.
+4. Open a pull request (a draft until it is ready) and fill in the template.
 
 Rules of thumb:
 
 - Prefer behavior tests (boundaries, failures, state transitions) over getters.
 - Fix warnings; do not add global `allow`s. Workspace lints apply to every crate.
 - Keep duplication at or below 1.5% (`bun run dup`).
-- Commit subjects are short and imperative with a conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`).
+- Commit subjects are short and imperative with a conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), scoped when useful (`fix(desktop): ...`).
 - Do not add a dependency without saying why; `cargo deny check` must pass.
 - Respect the runtime safety rules in [AGENTS.md](AGENTS.md) (exact-PID orphan cleanup, never `docker compose down`, and so on). They come from real incidents.
 
-CI runs on every pull request (fmt, clippy `-D warnings`, tests, `cargo deny`, the desktop frontend checks, the site type-check and build, and the duplication gate) on macOS and Linux; the same gate is `bun run check` locally, plus `bun run site:check` and `bun run dup`. Releases are cut by maintainers (see [docs/release.md](docs/release.md)); what Stable, Beta and Alpha mean is in [docs/versioning.md](docs/versioning.md).
+### Pull request flow and who merges
+
+This is the one flow. [GOVERNANCE.md](GOVERNANCE.md), [AGENTS.md](AGENTS.md), `docs/contributing.md`, the pull request template and the `atlas-workflow` skill link here instead of restating it.
+
+1. **Branch.** Fork (outside contributors) or branch (people with write access) from `main`, named `type/short-desc`, where `type` is a conventional prefix: `feat/`, `fix/`, `docs/`, `chore/`, `test/`, `refactor/` (for example `fix/empty-ready-log`).
+2. **Open a pull request to `main`**, as a **draft** until it is ready for review. Every commit carries a [DCO](#developer-certificate-of-origin-dco) sign-off. Fill in the template.
+3. **CI is green.** The six CI jobs and the `Signed-off-by` check are required, and the branch must be up to date with `main`.
+4. **Two approvals** from humans other than the author. New pushes dismiss earlier approvals, and the most recent push has to be approved by someone other than whoever pushed it. Every review thread is resolved before merging.
+5. **The author does not merge their own pull request.** A maintainer merges it, **squash by default** (the pull request title becomes the commit subject, so it follows the conventional-commit form).
+6. **Releases are cut only by the owner**, from `main`, with `bun run release alpha` (see [docs/release.md](docs/release.md)). Nobody else tags or publishes.
+
+These rules are enforced by a GitHub ruleset on `main` and `release/*` (pull request required, 2 approving reviews, stale reviews dismissed, last push approved by someone else, threads resolved, the required checks above, branch up to date, no deletion, no force-push), and `v*` tags are immutable. **Only the owner bypasses it**, and only for:
+
+- **Releases**: `bun run release` pushes the version commit and the tag directly.
+- **An emergency hotfix** (a broken `main`, a security fix that cannot wait for two reviewers). Leave a note on the commit or the linked issue saying what was bypassed and why, and follow up with a regular pull request if the change needs review.
+
+Anything else goes through the flow, including changes by the owner. **Agents never push to `main`, never merge a pull request and never use the bypass**, unless the owner is the one running them and says so; an agent working for a contributor opens a branch and a pull request like that contributor would. Why the rule exists is in [GOVERNANCE.md](GOVERNANCE.md#why-merging-your-own-pull-request-is-not-allowed).
+
+CI runs on every pull request (fmt, clippy `-D warnings`, tests, `cargo deny`, the desktop frontend checks, the site type-check and build, and the duplication gate) on macOS and Linux; the same gate is `bun run check` locally, plus `bun run site:check` and `bun run dup`. What Stable, Beta and Alpha mean is in [docs/versioning.md](docs/versioning.md).
 
 ### Release branches
 
-Pull requests always target `main`. When a release is being soaked it lives on a short-lived `release/X.Y` branch (see [docs/versioning.md](docs/versioning.md#how-a-release-moves-between-channels)). Fixes land on `main` first and are then cherry-picked onto the release branch with `git cherry-pick -x <sha>`, which records the original commit in the message. Only a maintainer opens a pull request against `release/X.Y`, and it links the commit that already landed on `main`.
+Pull requests always target `main`. When a release is being soaked it lives on a short-lived `release/X.Y` branch (see [docs/versioning.md](docs/versioning.md#how-a-release-moves-between-channels)). Fixes land on `main` first and are then cherry-picked onto the release branch with `git cherry-pick -x <sha>`, which records the original commit in the message. Only a maintainer opens a pull request against `release/X.Y`, it goes through the same flow, and it links the commit that already landed on `main`.
 
 ### Commands
 
@@ -56,7 +74,7 @@ Everything is a root `package.json` script, so `bun run <name>` from the repo ro
 | `bun run studio` / `studio:check` | the film studio CLI, and its checks (`studio/` is not part of `bun run check`) |
 | `bun run icons` | regenerate the app icons from `assets/*.svg` |
 | `bun run deps:update` | update JS dependencies everywhere (see below) |
-| `bun run release <alpha\|beta\|rc\|stable\|patch>` / `release:dry` / `release:act` | maintainers: cut a release (see [docs/release.md](docs/release.md)) |
+| `bun run release <alpha\|beta\|rc\|stable\|patch>` / `release:dry` / `release:act` | owner only: cut a release (see [docs/release.md](docs/release.md)) |
 | `bun run ci:act` | run the macOS CI job locally through `act` |
 
 ### Updating JS dependencies
@@ -94,4 +112,4 @@ AI tools are fine to use; the rules protect reviewers' time and the codebase.
 - **Licensing and secrets.** Do not submit code you cannot license under the terms above (for example, output that reproduces copyleft code verbatim) and never put secrets or private data into a prompt or into the diff. The DCO sign-off still applies and is yours, never the tool's.
 - **Open an issue first** for anything non-trivial, as for any contribution.
 
-[AGENTS.md](AGENTS.md) holds the notes coding agents need for this repo: the gate, how to deploy a local build, how to debug the desktop app without the mouse, and the pitfalls. Agents working in your checkout should follow it.
+[AGENTS.md](AGENTS.md) holds the notes coding agents need for this repo: the gate, how to deploy a local build, how to debug the desktop app without the mouse, and the pitfalls. Agents working in your checkout should follow it, and they follow [the same flow](#pull-request-flow-and-who-merges) as you: a branch and a pull request, never a merge.

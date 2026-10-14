@@ -35,6 +35,33 @@ export interface NextResult {
   errors: string[];
 }
 
+/** The default channel recorded in `crates/atlas-core/data/channels.json` (atlas-core pins it to `#[default]`). Throws on anything
+ * else: a release must never guess which channel is "Latest". */
+export function readDefaultChannel(channelsJson: { default?: unknown }): Channel {
+  const d = channelsJson.default;
+  if (d === "stable" || d === "beta" || d === "alpha") return d;
+  throw new Error(`channels.json: "default" must be stable, beta or alpha (got ${JSON.stringify(d)})`);
+}
+
+/** Which channel a tag was cut for. `null` for a label Atlas does not ship. */
+function channelOfTag(tag: string): Channel | null {
+  const p = parse(tag.replace(/^v/, ""));
+  if (!p) return null;
+  return p.label === undefined ? "stable" : p.label === "alpha" ? "alpha" : "beta"; // rc is offered on beta
+}
+
+/**
+ * The GitHub Release flags for `tag`. A build of the DEFAULT channel is a normal release and "Latest", so GitHub's Latest badge
+ * and `/releases/latest` show what a user who never chose gets; a stable is always Latest. Every other prerelease label (a beta
+ * while alpha is the default, an alpha while beta is) stays a prerelease. At GA the default is stable and this is the old rule:
+ * any `-` tag is a prerelease. Clients never rely on `/releases/latest` for Stable (docs/versioning.md): they read the feed.
+ */
+export function githubFlags(tag: string, defaultChannel: Channel): { prerelease: boolean; makeLatest: boolean } {
+  const of = channelOfTag(tag);
+  const latest = of === "stable" || (of !== null && of === defaultChannel);
+  return { prerelease: !latest, makeLatest: latest };
+}
+
 /** Minimum time a beta/rc must have been out before it can become stable. */
 export const SOAK_HOURS = 48;
 
@@ -320,6 +347,17 @@ if (import.meta.main) {
     if (json) console.log(JSON.stringify({ from, offending }));
     else for (const f of offending) console.error(f);
     process.exit(offending.length ? 1 : 0);
+  } else if (cmd === "github-flags") {
+    // `release-version.ts github-flags --tag v1.5.0-alpha.4` -> prerelease=false / make_latest=true (GITHUB_OUTPUT lines).
+    const tag = arg(argv, "--tag");
+    if (!tag) {
+      console.error("usage: release-version.ts github-flags --tag <tag>");
+      process.exit(2);
+    }
+    const channels = await Bun.file(new URL("../crates/atlas-core/data/channels.json", import.meta.url)).json();
+    const flags = githubFlags(tag, readDefaultChannel(channels));
+    console.log(`prerelease=${flags.prerelease}`);
+    console.log(`make_latest=${flags.makeLatest}`);
   } else if (cmd === "last-prerelease") {
     // The newest beta/rc tag of the line being promoted, for the diff guard and ATLAS_PROMOTED_FROM.
     const state = await readState("stable", { forceSoak: false });
@@ -332,7 +370,7 @@ if (import.meta.main) {
     if (!tag) process.exit(1);
     console.log(tag);
   } else {
-    console.error("usage: release-version.ts next --request <req> [--json] [--force-soak] [--bump major] | diff-guard --from <tag> [--json] | last-prerelease");
+    console.error("usage: release-version.ts next --request <req> [--json] [--force-soak] [--bump major] | diff-guard --from <tag> [--json] | last-prerelease | github-flags --tag <tag>");
     process.exit(2);
   }
 }

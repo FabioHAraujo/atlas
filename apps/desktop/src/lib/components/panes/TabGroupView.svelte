@@ -22,13 +22,13 @@
 	import { shortcutFor } from "#lib/keymap.svelte.ts";
 	import Lazy from "#lib/components/Lazy.svelte";
 	import { fileIcon } from "#lib/icons.ts";
-	import { swipe } from "#lib/shell/swipe.ts";
 	import { tabSwipe } from "#lib/shell/gestures.ts";
 	import { pushZones } from "#lib/shell/nativeSwipe.ts";
 	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import Contain from "#lib/errors/Contain.svelte";
 	import CrashProbe from "#lib/errors/CrashProbe.svelte";
 	import NewTabMenu from "./NewTabMenu.svelte";
+	import TabStrip from "./TabStrip.svelte";
 	import PaneNotice from "./PaneNotice.svelte";
 
 	let { groupId }: { groupId: string } = $props();
@@ -130,81 +130,85 @@
 		ondragleave={() => (dropZone = null)}
 		ondrop={onDrop}
 	>
-		<div
-			class="strip"
-			data-gesture-zone
-			use:swipe={tabSwipe(
+		<TabStrip
+			activeTab={g.activeTab ?? undefined}
+			count={tabs.length}
+			swipeOptions={tabSwipe(
 				groupId,
 				() => groupEl,
 				() => g?.order ?? [],
 				() => g?.activeTab ?? undefined,
 			)}
 		>
-			{#each tabs as t (t.id)}
-				{@const Icon = ICONS[t.kind as keyof typeof ICONS] ?? SquareTerminal}
-				<div
-					class="tab"
-					class:on={t.id === g.activeTab}
-					class:pinned={pinned(t)}
-					role="tab"
-					tabindex="0"
-					aria-selected={t.id === g.activeTab}
-					aria-label={pinned(t) ? `${label(t)} (always open)` : undefined}
-					title={pinned(t) ? `${label(t)} · always open` : undefined}
-					draggable={!pinned(t)}
-					ondragstart={(e) => e.dataTransfer?.setData("atlas/tab", t.id)}
-					onclick={() => ws.activate(t.id)}
-					onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), ws.activate(t.id))}
-					onauxclick={(e) => e.button === 1 && ws.closeTab(t.id)}
-					ondblclick={() => !pinned(t) && (renaming = t.id)}
-				>
-					{#if t.agent}<AgentGlyph
-							state={agents.status[t.id]?.state ?? "idle"}
-						/>{:else if t.kind === "editor" && t.path}<span class="ico" data-contrast-decorative
-							>{@html fileIcon(t.path.split("/").pop() ?? t.label)}</span
-						>{:else}<Icon size={13} />{/if}
-					{#if renaming === t.id}
-						<!-- svelte-ignore a11y_autofocus -->
-						<input
-							class="rename"
-							autofocus
-							value={label(t)}
-							onblur={() => (renaming = null)}
-							onkeydown={(e) => {
-								if (e.key === "Enter") {
-									const v = (e.currentTarget as HTMLInputElement).value.trim();
-									if (v) {
-										t.label = v;
-										t.customLabel = true;
-									}
-									renaming = null;
-								} else if (e.key === "Escape") renaming = null;
-							}}
-						/>
-					{:else if !pinned(t)}
-						<span class="label">{label(t)}</span>
-					{/if}
-					{#if !pinned(t)}
-						<button
-							class="x"
-							aria-label="Close tab"
-							title="Close tab {shortcutFor('pane::CloseActiveItem') ?? ''}"
-							onclick={(e) => (e.stopPropagation(), ws.closeTab(t.id))}
-						>
-							<X size={12} />
-						</button>
-					{/if}
-				</div>
-			{/each}
-			<NewTabMenu {groupId} onrename={(id) => (renaming = id)} />
-			{#each quick.for(w?.repoId) as q (q.id)}
-				<button class="quick" title={q.command} onclick={() => w && quick.run(q, w.id, groupId)}>
-					{#if q.kind === "prompt"}<Bot size={12} />{:else}<Zap size={12} />{/if}
-					{q.label}
-				</button>
-			{/each}
-			<div class="fill" data-tauri-drag-region></div>
-		</div>
+			{#snippet tabList()}
+				{#each tabs as t (t.id)}
+					{@const Icon = ICONS[t.kind as keyof typeof ICONS] ?? SquareTerminal}
+					<div
+						class="tab"
+						data-tab-id={t.id}
+						class:on={t.id === g.activeTab}
+						class:pinned={pinned(t)}
+						role="tab"
+						tabindex="0"
+						aria-selected={t.id === g.activeTab}
+						aria-label={pinned(t) ? `${label(t)} (always open)` : undefined}
+						title={pinned(t) ? `${label(t)} · always open` : undefined}
+						draggable={!pinned(t)}
+						ondragstart={(e) => e.dataTransfer?.setData("atlas/tab", t.id)}
+						onclick={() => ws.activate(t.id)}
+						onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), ws.activate(t.id))}
+						onauxclick={(e) => e.button === 1 && ws.closeTab(t.id)}
+						ondblclick={() => !pinned(t) && (renaming = t.id)}
+					>
+						{#if t.agent}<AgentGlyph
+								state={agents.status[t.id]?.state ?? "idle"}
+							/>{:else if t.kind === "editor" && t.path}<span class="ico" data-contrast-decorative
+								>{@html fileIcon(t.path.split("/").pop() ?? t.label)}</span
+							>{:else}<Icon size={13} />{/if}
+						{#if renaming === t.id}
+							<!-- svelte-ignore a11y_autofocus -->
+							<input
+								class="rename"
+								autofocus
+								value={label(t)}
+								onblur={() => (renaming = null)}
+								onkeydown={(e) => {
+									if (e.key === "Enter") {
+										const v = (e.currentTarget as HTMLInputElement).value.trim();
+										if (v) {
+											t.label = v;
+											t.customLabel = true;
+										}
+										renaming = null;
+									} else if (e.key === "Escape") renaming = null;
+								}}
+							/>
+						{:else if !pinned(t)}
+							<span class="label">{label(t)}</span>
+						{/if}
+						{#if !pinned(t)}
+							<button
+								class="x"
+								aria-label="Close tab"
+								title="Close tab {shortcutFor('pane::CloseActiveItem') ?? ''}"
+								onclick={(e) => (e.stopPropagation(), ws.closeTab(t.id))}
+							>
+								<X size={12} />
+							</button>
+						{/if}
+					</div>
+				{/each}
+			{/snippet}
+			{#snippet actions()}
+				<NewTabMenu {groupId} onrename={(id) => (renaming = id)} />
+				{#each quick.for(w?.repoId) as q (q.id)}
+					<button class="quick" title={q.command} onclick={() => w && quick.run(q, w.id, groupId)}>
+						{#if q.kind === "prompt"}<Bot size={12} />{:else}<Zap size={12} />{/if}
+						{q.label}
+					</button>
+				{/each}
+			{/snippet}
+		</TabStrip>
 		<div class="body">
 			{#each tabs as t (t.id)}
 				{#if mounted.has(t.id)}
@@ -280,16 +284,6 @@
 		flex-direction: column;
 		min-width: 0;
 		min-height: 0;
-	}
-	.strip {
-		display: flex;
-		align-items: center;
-		gap: 2px;
-		height: 32px;
-		padding: 0 6px;
-		border-bottom: 0.5px solid var(--ca-outline-subtle);
-		overflow-x: auto;
-		scrollbar-width: none;
 	}
 	.ico {
 		display: inline-flex;
@@ -384,10 +378,6 @@
 	.quick:hover {
 		color: var(--ca-text-primary);
 		background: var(--ca-action-hover);
-	}
-	.fill {
-		flex: 1;
-		align-self: stretch;
 	}
 	.body {
 		position: relative;

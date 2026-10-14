@@ -7,7 +7,7 @@
 	 */
 	import { Alert, Button, Spinner } from "@codeatlasdev/ui";
 	import {
-		Check,
+		ChevronRight,
 		FlaskConical,
 		RefreshCw,
 		ShieldCheck,
@@ -34,6 +34,8 @@
 	let saving = $state(false);
 	let els = $state<Record<string, HTMLElement | undefined>>({});
 	let roving = $state<Channel | null>(null);
+	/** Channels whose cadence/audience details are open. */
+	let open = $state<Partial<Record<Channel, boolean>>>({});
 
 	let pendingCard = $derived(cards.find((c) => c.view.channel === pending && !c.following));
 	let confirm = $derived(pendingCard ? confirmCopy(pendingCard.view) : null);
@@ -137,13 +139,17 @@
 			{#each cards as c, i (c.view.channel)}
 				{@const Icon = ICON[c.view.channel]}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div role="presentation" onkeydown={(e) => move(e, i)}>
+				<div
+					class="item"
+					class:following={c.following}
+					class:pending={pending === c.view.channel}
+					role="presentation"
+					onkeydown={(e) => move(e, i)}
+				>
 					<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 					<div
 						bind:this={els[c.view.channel]}
 						class="card"
-						class:following={c.following}
-						class:pending={pending === c.view.channel}
 						class:locked
 						role="radio"
 						aria-checked={c.following}
@@ -153,17 +159,36 @@
 						onclick={() => pick(c.view.channel)}
 						onkeydown={(e) => onkey(e, c.view.channel)}
 					>
-						<div class="ico tone-{c.tone}"><Icon size={16} /></div>
+						<span class="dot" aria-hidden="true"></span>
+						<div class="ico tone-{c.tone}"><Icon size={14} /></div>
 						<div class="body" id="chan-{c.view.channel}-desc">
 							<div class="top">
 								<span class="name">{c.view.label}</span>
 								<span class="tag tone-{c.tone}">{c.view.risk_label}</span>
-								{#if c.following}<span class="tag follow"
-										><Check size={10} aria-hidden="true" /> Following</span
-									>{/if}
 								{#if c.installed}<span class="tag plain">Installed</span>{/if}
 							</div>
 							<p class="promise">{c.view.promise}</p>
+						</div>
+						<p
+							class="offer"
+							class:newer={c.view.action === "update"}
+							class:older={c.view.action === "downgrade"}
+						>
+							{#if u.channelsLoading && !c.view.offered}<Spinner size={10} />{/if}
+							{c.offer}
+						</p>
+					</div>
+					<button
+						class="more"
+						aria-expanded={!!open[c.view.channel]}
+						aria-controls="chan-{c.view.channel}-more"
+						onclick={() => (open[c.view.channel] = !open[c.view.channel])}
+					>
+						<ChevronRight size={12} aria-hidden="true" />
+						{open[c.view.channel] ? "Hide details" : "Details"}
+					</button>
+					{#if open[c.view.channel]}
+						<div class="detail" id="chan-{c.view.channel}-more">
 							<dl>
 								<div>
 									<dt>Cadence</dt>
@@ -175,16 +200,8 @@
 								</div>
 							</dl>
 							{#if c.view.alpha_era_note}<p class="era">{c.view.alpha_era_note}</p>{/if}
-							<p
-								class="offer"
-								class:newer={c.view.action === "update"}
-								class:older={c.view.action === "downgrade"}
-							>
-								{#if u.channelsLoading && !c.view.offered}<Spinner size={10} />{/if}
-								{c.offer}
-							</p>
 						</div>
-					</div>
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -221,6 +238,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
+		padding-top: 6px;
 	}
 	.head {
 		display: flex;
@@ -229,7 +247,7 @@
 	}
 	h3 {
 		margin: 0;
-		font-size: 13px;
+		font-size: 14px;
 		font-weight: 650;
 	}
 	.busy {
@@ -267,46 +285,60 @@
 	.cards {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
-	}
-	.card {
-		display: flex;
-		gap: 12px;
-		padding: 12px 14px;
 		border-radius: 12px;
 		background: var(--ca-surface-raised);
 		box-shadow: 0 0 0 0.5px var(--ca-outline-subtle);
+		overflow: hidden;
+	}
+	.item {
+		position: relative;
+		padding-bottom: 4px;
+	}
+	.item + .item {
+		border-top: 0.5px solid var(--ca-outline-subtle);
+	}
+	.item.following {
+		background: color-mix(in oklab, var(--ca-brand-main) 7%, transparent);
+	}
+	.card {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 16px 4px;
 		cursor: pointer;
 		outline: none;
-		transition:
-			background 120ms ease,
-			box-shadow 120ms ease;
+		transition: background 120ms ease;
 	}
 	.card:hover:not(.locked) {
 		background: var(--ca-action-hover);
 	}
-	.card.following {
-		box-shadow:
-			0 0 0 2px var(--atlas-focus-ring, var(--ca-brand-main)),
-			0 0 0 0.5px var(--ca-outline-subtle);
-	}
-	.card.pending:not(.following) {
-		box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--ca-brand-main) 60%, transparent);
-	}
 	.card.locked {
-		background: var(--ca-surface-sunken);
+		opacity: 0.6;
 		cursor: not-allowed;
 	}
 	:global([data-kbd]) .card:focus-visible {
-		box-shadow:
-			0 0 0 2px var(--ca-surface-raised),
-			0 0 0 4px var(--atlas-focus-ring, var(--ca-brand-main));
+		box-shadow: inset 0 0 0 2px var(--atlas-focus-ring, var(--ca-brand-main));
+	}
+	/* The radio: an empty ring, filled when this channel is followed, outlined in brand while a pick is pending. */
+	.dot {
+		flex: none;
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		box-shadow: inset 0 0 0 1.5px var(--ca-text-secondary);
+	}
+	.item.pending:not(.following) .dot {
+		box-shadow: inset 0 0 0 1.5px var(--ca-brand-main);
+	}
+	.item.following .dot {
+		background: radial-gradient(circle, var(--ca-brand-main) 0 4.5px, transparent 5px);
+		box-shadow: inset 0 0 0 1.5px var(--ca-brand-main);
 	}
 	.ico {
 		flex: none;
-		width: 32px;
-		height: 32px;
-		border-radius: 9px;
+		width: 28px;
+		height: 28px;
+		border-radius: 8px;
 		display: grid;
 		place-items: center;
 		color: var(--tone);
@@ -326,7 +358,7 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 5px;
+		gap: 2px;
 	}
 	.top {
 		display: flex;
@@ -353,47 +385,25 @@
 		color: var(--tone);
 		background: color-mix(in oklab, var(--tone) 14%, transparent);
 	}
-	.tag.follow {
-		color: var(--ca-brand-main);
-		background: color-mix(in oklab, var(--ca-brand-main) 14%, transparent);
-	}
 	.tag.plain {
 		color: var(--ca-semantic-info);
 		background: color-mix(in oklab, var(--ca-semantic-info) 14%, transparent);
 	}
+	/* Two lines at most; the full text is the radio's accessible description. */
 	.promise {
 		margin: 0;
-		font-size: 12.5px;
-		line-height: 1.45;
-	}
-	dl {
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		font-size: 11.5px;
+		font-size: 12px;
+		line-height: 1.4;
 		color: var(--ca-text-secondary);
-	}
-	dl div {
-		display: flex;
-		gap: 6px;
-	}
-	dt {
-		flex: none;
-		width: 52px;
-		font-weight: 600;
-	}
-	dd {
-		margin: 0;
-	}
-	.era {
-		margin: 0;
-		font-size: 11.5px;
-		color: var(--ca-text-secondary);
-		font-style: italic;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 	.offer {
-		margin: 2px 0 0;
+		flex: none;
+		margin: 0;
 		display: flex;
 		align-items: center;
 		gap: 6px;
@@ -406,6 +416,59 @@
 	}
 	.offer.older {
 		color: var(--ca-semantic-warning);
+	}
+	.more {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		margin: 0 0 0 72px;
+		padding: 2px 0 6px;
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: 11.5px;
+		color: var(--ca-text-secondary);
+	}
+	.more:hover {
+		color: var(--ca-text-primary);
+	}
+	.more :global(svg) {
+		transition: transform 120ms ease;
+	}
+	.more[aria-expanded="true"] :global(svg) {
+		transform: rotate(90deg);
+	}
+	.detail {
+		margin: 0 16px 8px 72px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	dl {
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		font-size: 12px;
+		color: var(--ca-text-secondary);
+	}
+	dl div {
+		display: flex;
+		gap: 8px;
+	}
+	dt {
+		flex: none;
+		width: 56px;
+		font-weight: 600;
+	}
+	dd {
+		margin: 0;
+	}
+	.era {
+		margin: 0;
+		font-size: 12px;
+		color: var(--ca-text-secondary);
+		font-style: italic;
 	}
 	.confirm {
 		display: flex;
@@ -433,7 +496,7 @@
 		gap: 8px;
 	}
 	.skeleton i {
-		height: 96px;
+		height: 52px;
 		border-radius: 12px;
 		background: var(--ca-surface-sunken);
 		animation: pulse 1.4s ease-in-out infinite;
@@ -444,7 +507,8 @@
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.card {
+		.card,
+		.more :global(svg) {
 			transition: none;
 		}
 		.skeleton i {

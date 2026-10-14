@@ -158,7 +158,7 @@
 			description="Atlas finds a server on your PATH or downloads one the first time you open a file of that language."
 		>
 			{#if loading && !data}
-				<div class="state"><Spinner size="sm" /> Loading language servers…</div>
+				<div class="state"><Spinner size={14} /> Loading language servers…</div>
 			{:else if loadError}
 				<div class="state error" role="alert">
 					<span>Could not load the language servers: {loadError}</span>

@@ -50,6 +50,8 @@ Only from a green CI on the exact commit. `scripts/release.sh` picks the version
 
 Default choice: `alpha` from `main` for new work; `beta` once a feature set should become the next stable; `stable` only after the soak (avoid `--force-soak`). Always `--dry-run` first. After publishing, verify with the commands under "Verify a release" in `docs/release.md`.
 
+**GitHub "Latest" = the default channel.** While the default channel is Alpha (`crates/atlas-core/data/channels.json`), every alpha is published as a normal release and becomes GitHub's "Latest" (and `/releases/latest`); betas stay pre-releases. Clients built from 1.5.0-alpha.4 on resolve Stable as the newest release without a prerelease label, never from `/releases/latest`; 1.4.0 binaries follow `/releases/latest`, which moves them to Alpha on purpose. At GA, set the default back to `stable` in that one file (tests flag every copy that drifts) and the badge returns to Stable releases.
+
 ## Never
 
 - Force-push, rewrite published history, delete branches or tags.

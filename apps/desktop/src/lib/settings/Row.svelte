@@ -34,46 +34,53 @@
 
 <style>
 	.row {
-		padding: 11px 14px;
+		padding: 13px 16px;
 		min-width: 0;
 	}
 	.main {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 16px;
+		gap: 24px;
 	}
 	.stack .main {
 		flex-direction: column;
 		align-items: stretch;
-		gap: 8px;
+		gap: 10px;
+	}
+	.stack .text {
+		max-width: none;
 	}
 	.text {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 3px;
 		flex: 1;
 		min-width: 0;
+		max-width: 62ch;
 	}
 	.label {
 		font-size: 13px;
-		font-weight: 500;
+		font-weight: 550;
 		color: var(--ca-text-primary);
 	}
 	.desc {
 		font-size: 12px;
-		line-height: 1.4;
+		line-height: 1.45;
 		color: var(--ca-text-secondary);
 	}
 	.control {
 		flex-shrink: 0;
 		display: flex;
 		align-items: center;
+		justify-content: flex-end;
 		gap: 8px;
 		min-width: 0;
 	}
 	.stack .control {
 		flex-shrink: 1;
+		flex-wrap: wrap;
+		justify-content: flex-start;
 	}
 	.below {
 		margin-top: 10px;

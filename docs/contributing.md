@@ -119,6 +119,29 @@ Keep these when you touch the runtime ([Architecture](architecture.md#safety-rul
 - TUI: event-stream input, dirty-flag rendering, non-blocking startup.
 - Desktop: child webviews make the main window multi-webview; use `get_window("main")` for window operations and `get_webview("main")` for the app's own webview. Never put a secret in content loaded into the embedded browser.
 
+## Brand assets
+
+The Atlas mark has **one source**: [`assets/logo.svg`](https://github.com/codeatlasdev/atlas/blob/main/assets/logo.svg) (36 hand-cut tiles and the cobalt gradient). The app icon, menu-bar icon and animated logo are designed in `assets/templates/*.svg` (plate, shadow and bevel around the tiles; `{{TILES}}` marks where the mark goes). **Everything else is generated, never edited by hand**:
+
+| Generated | Used by |
+| --- | --- |
+| `assets/app-icon.svg`, `assets/app-icon-1024.png` | README, the Tauri icon set |
+| `crates/atlas-desktop/icons/{32x32,128x128,128x128@2x,icon}.png`, `icon.icns`, `icon.ico` | the app bundle: Dock, Cmd-Tab, Finder, **notifications** |
+| `crates/atlas-desktop/icons/tray.png`, `assets/tray-template.svg` | menu bar (monochrome template; macOS tints it) |
+| `assets/logo-animated.svg` | README/docs animation |
+| `site/public/{favicon.svg,favicon.ico,apple-touch-icon.png}` | the website |
+| `studio/assets/logo/logo.svg` | studio films |
+| `apps/desktop/src/lib/onboarding/intro/mark.ts` | the welcome intro (tile paths and boxes) |
+
+```bash
+bun run icons          # regenerate all of the above (needs librsvg, ImageMagick, cargo-tauri)
+bun run icons:check    # fail when anything derived is stale; re-renders the rasters and compares decoded pixels
+```
+
+`assets/icons.lock.json` records the hash of every input (including `scripts/icons.ts`) and the pixel hash of every raster. `bun run check` runs `scripts/icons.test.ts`, which goes red when the mark, a template or the generator changed without `bun run icons`, when a copy was edited by hand, or (with the raster tools installed) when a raster no longer matches a fresh render. To change the brand: edit `assets/logo.svg` or a template, run `bun run icons`, commit the lot.
+
+A notification, the Dock and Cmd-Tab all show the **bundle's** `icon.icns` (Tauri's notification plugin posts under the bundle id `dev.codeatlas.atlas`; in `tauri dev` macOS attributes it to Terminal). There is no separate notification icon to maintain. macOS caches icons per app: an installed Atlas picks up a new icon with the next release/update, and a stale Dock or notification icon on a dev machine is the system's icon cache, not the repo. Do not clear system caches to "fix" it; update or reinstall the app.
+
 ## Making videos
 
 Every published video (the film on the website, its vertical cut, release videos) is built from code in [`studio/`](https://github.com/codeatlasdev/atlas/tree/main/studio). A film is typed data in `studio/films/<id>/film.ts`; [HyperFrames](https://github.com/heygen-com/hyperframes) (Apache-2.0) renders it and `ffmpeg` mixes the audio, so a rebuild is deterministic and works on a laptop or in CI. The engine choice, with the licensing reasoning, is in [`studio/DECISION.md`](https://github.com/codeatlasdev/atlas/blob/main/studio/DECISION.md); agent-oriented notes are in [`studio/AGENTS.md`](https://github.com/codeatlasdev/atlas/blob/main/studio/AGENTS.md).

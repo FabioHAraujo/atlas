@@ -83,7 +83,7 @@ Settings → Advanced Security (Code security): enable **Secret scanning**, **Pu
 Settings → General → Releases → **Enable release immutability**. A published release then cannot have assets added, replaced or removed, and its tag cannot move. Two consequences to decide on first:
 
 - The release flow must create the release as a **draft**, upload every asset, then publish. Today the `publish` job of `release.yml` creates it already published (`draft: false`) with its assets in one step, so it needs `draft: true`, then a publish step, before this is turned on.
-- A future moving "channels" pointer release (a design option for channel discovery that is not built) would conflict with it: an immutable release cannot be re-uploaded with `--clobber`. The channel logic in Atlas reads `releases/latest` and `releases.atom`, not a moving release, so there is no conflict today.
+- A future moving "channels" pointer release (a design option for channel discovery that is not built) would conflict with it: an immutable release cannot be re-uploaded with `--clobber`. The channel logic in Atlas reads `releases.atom` (and the `releases/latest` redirect as one more candidate), not a moving release, so there is no conflict today.
 
 ### 6. Dependabot cooldown
 

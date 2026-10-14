@@ -1,6 +1,6 @@
 /** Search over the settings catalog and the breadcrumb shown with a result. */
 import { SETTINGS_INDEX, type SettingEntry } from "./catalog.ts";
-import { APPEARANCE_TABS, SECTIONS } from "./sections.ts";
+import { SECTIONS, SECTION_TABS } from "./sections.ts";
 
 const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
 
@@ -27,9 +27,10 @@ export function searchSettings(query: string, index: SettingEntry[] = SETTINGS_I
 	return scored.sort((a, b) => b.score - a.score || a.order - b.order).map((x) => x.e);
 }
 
-/** Breadcrumb for a result: `Appearance › Terminal`. */
+/** Breadcrumb for a result: `Editor › Languages`. The section's first tab is its default page, so it is not repeated. */
 export function crumb(e: SettingEntry): string {
 	const section = SECTIONS.find((s) => s.id === e.section)!.label;
-	const tab = e.tab && APPEARANCE_TABS.find((t) => t.id === e.tab)!.label;
+	const tabs = SECTION_TABS[e.section];
+	const tab = e.tab && e.tab !== tabs?.[0]?.id ? tabs?.find((t) => t.id === e.tab)?.label : undefined;
 	return tab ? `${section} › ${tab}` : section;
 }

@@ -3,7 +3,7 @@
 #   curl -fsSL https://atlas.codeatlas.com.br/install.sh | sh
 #   curl -fsSL https://atlas.codeatlas.com.br/install.sh | ATLAS_CHANNEL=stable sh   # stable, beta or alpha
 #
-# Downloads the latest stable GitHub Release of codeatlasdev/atlas, verifies its sha256
+# Downloads the newest Stable GitHub Release (no prerelease label) of codeatlasdev/atlas, verifies its sha256
 # and runs the binary's own `atlas install`, which puts `atlas` in ~/.atlas/bin,
 # adds it to PATH for fish/zsh/bash and installs the bundled agent skills. Then the installed
 # atlas moves to the channel you follow: the default (alpha while Atlas is in alpha, so the
@@ -22,6 +22,24 @@ channel_step() {
     stable | beta | alpha) echo "$1" ;;
     *) echo invalid ;;
   esac
+}
+
+# install_stable_tag LATEST < tags
+#   The newest Stable among the feed tags on stdin and LATEST (the /releases/latest redirect, may be
+#   empty): releases only (X.Y.Z, no prerelease label), highest SemVer precedence. Pre-GA the
+#   redirect is the newest alpha (the default channel's builds are normal releases), so it is a
+#   candidate, never "the stable". Prints nothing when none exists. Pure: sourced by
+#   scripts/test-bootstrap-channel.sh, which pins it to bootstrap.sh's `stable_from`.
+install_stable_tag() {
+  { cat; printf '%s\n' "${1:-}"; } | tr -d '\r' | awk '
+    { t = $0; v = t; sub(/^v/, "", v); sub(/\+.*/, "", v) }
+    v !~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ { next }
+    { split(v, n, ".") }
+    !have || n[1] + 0 > a + 0 || (n[1] + 0 == a + 0 && (n[2] + 0 > b + 0 || (n[2] + 0 == b + 0 && n[3] + 0 > c + 0))) {
+      have = 1; a = n[1]; b = n[2]; c = n[3]; best = t
+    }
+    END { if (have) print best }
+  '
 }
 [ "${ATLAS_BOOTSTRAP_SOURCE_ONLY:-}" = 1 ] && return 0 2>/dev/null
 
@@ -52,11 +70,26 @@ case "$os-$arch" in
     ;;
 esac
 
-# Latest stable tag: the /releases/latest redirect (no API call, so no 60 requests/hour limit; GitHub
-# never points it at a prerelease).
-tag="$(curl -fsSI --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases/latest" 2>/dev/null \
-  | tr -d '\r' | sed -n 's|^[Ll]ocation:.*/releases/tag/\(.*\)$|\1|p' | head -n 1)" || tag=""
-[ -n "$tag" ] || die "could not find the latest release: https://github.com/$REPO/releases"
+# Newest Stable tag. /releases/latest (no API call, so no 60 requests/hour limit) is the newest build of
+# the default channel, an alpha pre-GA, so it is only a hint: the feed (10 newest published releases,
+# older pages with ?after=, bounded) and the redirect together give the newest tag without a prerelease label.
+atom_tags() { sed -n 's|.*href="[^"]*/releases/tag/\([^"]*\)".*|\1|p' | sed 's/%2B/+/g; s/%2b/+/g'; }
+latest="$(curl -fsSI --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases/latest" 2>/dev/null \
+  | tr -d '\r' | sed -n 's|^[Ll]ocation:.*/releases/tag/\(.*\)$|\1|p' | head -n 1)" || latest=""
+seen="$(curl -fsSL --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases.atom" 2>/dev/null | atom_tags)" || seen=""
+tag="$(printf '%s\n' "$seen" | install_stable_tag "$latest")"
+pages=0
+last="$(printf '%s\n' "$seen" | grep -c .)" || last=0
+while [ -z "$tag" ] && [ "$pages" -lt 5 ] && [ "$last" -ge 10 ]; do
+  oldest="$(printf '%s\n' "$seen" | grep . | tail -n 1)"
+  page="$(curl -fsSL --proto '=https' --tlsv1.2 "https://github.com/$REPO/releases.atom?after=$oldest" 2>/dev/null | atom_tags)" || break
+  [ -n "$page" ] || break
+  last="$(printf '%s\n' "$page" | grep -c .)"
+  seen="$(printf '%s\n%s\n' "$seen" "$page")"
+  tag="$(printf '%s\n' "$seen" | install_stable_tag "$latest")"
+  pages=$((pages + 1))
+done
+[ -n "$tag" ] || die "could not find a stable release: https://github.com/$REPO/releases"
 version="${tag#v}"
 case "$version" in
   "" | *[!0-9A-Za-z._-]*) die "unexpected release tag '$tag'" ;;

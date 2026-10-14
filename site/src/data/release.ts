@@ -2,7 +2,7 @@
 // `/releases/latest/download/<asset>` URL does not exist; the build reads the release's own manifest.json
 // (version, date, sha256 and size per asset). If GitHub is unreachable the page still builds and falls back to
 // the releases page (`resolved: false`), and the client script resolves the version again at runtime.
-import { CHANNELS, DEFAULT_CHANNEL, atomTags, resolve, type Channel } from "../../functions/_lib/channels";
+import { CHANNELS, DEFAULT_CHANNEL, atomTags, resolve, stableTag as newestStable, type Channel } from "../../functions/_lib/channels";
 import { SITE } from "./site";
 
 const REPO = "codeatlasdev/atlas";
@@ -29,11 +29,17 @@ const fallback: Release = { resolved: false, version: "", tag: "", date: "", not
 
 const timeout = () => AbortSignal.timeout(10_000);
 
-async function stableTag(): Promise<string | null> {
-	// /releases/latest redirects to the tag page: no API quota, no token.
+/** The tag `releases/latest` redirects to: the newest build of the default channel (an alpha pre-GA), no API quota, no token. */
+async function redirectTag(): Promise<string | null> {
 	const head = await fetch(`https://github.com/${REPO}/releases/latest`, { method: "HEAD", redirect: "manual", signal: timeout() });
 	const tag = head.headers.get("location")?.match(/\/releases\/tag\/([^/?#]+)$/)?.[1];
 	return tag && /^v?[0-9A-Za-z._-]+$/.test(tag) ? tag : null;
+}
+
+/** The newest tag without a prerelease label: the feed (paged back with `?after=` behind a run of alphas) and the redirect, which is
+ * only a candidate because it is an alpha pre-GA. Same rule as the edge (`stableTag` in functions/_lib/channels.ts). */
+async function stableTag(feed: string[]): Promise<string | null> {
+	return newestStable(feed, await redirectTag().catch(() => null), async (after) => atomTags(await (await fetch(`https://github.com/${REPO}/releases.atom?after=${encodeURIComponent(after)}`, { signal: timeout() })).text()));
 }
 
 /** The release behind `tag` from its own manifest.json; null when it is not published (yet). */
@@ -76,9 +82,8 @@ async function feedTags(): Promise<string[]> {
  * release when nothing newer is published. The page then hydrates from /release.json, which resolves the same way at the edge. */
 export async function latestRelease(): Promise<Release> {
 	try {
-		const stable = await stableTag();
-		const feed = DEFAULT_CHANNEL === "stable" ? [] : await feedTags().catch(() => []);
-		return (await releaseFor(DEFAULT_CHANNEL, stable, feed)) ?? fallback;
+		const feed = await feedTags().catch(() => []);
+		return (await releaseFor(DEFAULT_CHANNEL, await stableTag(feed), feed)) ?? fallback;
 	} catch {
 		return fallback;
 	}
@@ -90,8 +95,8 @@ export async function channelReleases(): Promise<Partial<Record<Channel, Release
 	const others = CHANNELS.filter((c) => c !== DEFAULT_CHANNEL);
 	const out: Partial<Record<Channel, Release | null>> = Object.fromEntries(others.map((c) => [c, null]));
 	try {
-		const stable = await stableTag();
 		const feed = await feedTags().catch(() => []);
+		const stable = await stableTag(feed);
 		for (const c of others) {
 			const rel = await releaseFor(c, stable, feed);
 			out[c] = c !== "stable" && rel?.tag === stable ? null : rel;

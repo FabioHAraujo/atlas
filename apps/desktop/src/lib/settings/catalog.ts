@@ -1,9 +1,12 @@
 /**
- * The searchable catalog of every user-facing setting: where it lives (section/tab), its
- * label and description. Data only; matching is in `search.ts`.
+ * The searchable catalog of every user-facing setting: where it lives (section, and tab for the sections that
+ * have them), its label and description. Data only; matching is in `search.ts`.
+ *
+ * Ids never change when a setting moves: search results, deep links and the flash on arrival all key on them.
+ * `placement.test.ts` keeps this list and the screens (`pages.ts`) one.
  */
 import { CATEGORIES, SPECS } from "#lib/sound/policy.ts";
-import type { AppearanceTab, SettingsSection, SettingsTarget } from "./sections.ts";
+import type { SettingsSection, SettingsTab, SettingsTarget } from "./sections.ts";
 
 export interface SettingEntry extends SettingsTarget {
 	id: string;
@@ -11,18 +14,9 @@ export interface SettingEntry extends SettingsTarget {
 	description: string;
 	/** Extra words people may type that the label does not contain. */
 	keywords?: string;
-	/** Group title inside the section, shown with search results. */
+	/** Group title inside the page, shown with search results. */
 	group: string;
 }
-
-const appearance = (
-	tab: AppearanceTab,
-	group: string,
-	id: string,
-	label: string,
-	description: string,
-	keywords = "",
-): SettingEntry => ({ section: "appearance", tab, group, id, label, description, keywords });
 
 const entry = (
 	section: SettingsSection,
@@ -31,7 +25,14 @@ const entry = (
 	label: string,
 	description: string,
 	keywords = "",
-): SettingEntry => ({ section, group, id, label, description, keywords });
+	tab?: SettingsTab,
+): SettingEntry => ({ section, ...(tab && { tab }), group, id, label, description, keywords });
+
+/** Rows of the Editor section's two tabs. */
+const editor = (group: string, id: string, label: string, description: string, keywords = "") =>
+	entry("editor", group, id, label, description, keywords, "editor");
+const languages = (group: string, id: string, label: string, description: string, keywords = "") =>
+	entry("editor", group, id, label, description, keywords, "languages");
 
 /** Every user-facing setting. Keep labels and descriptions identical to the screens. */
 export const SETTINGS_INDEX: SettingEntry[] = [
@@ -59,8 +60,52 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Services start with the PATH and variables of this shell, the same as in your terminal.",
 		"zsh bash fish path environment variables env login",
 	),
+	entry(
+		"general",
+		"Links",
+		"browser",
+		"Open links in",
+		"Where links from services, ports and terminals open.",
+		"browser system atlas",
+	),
+	entry(
+		"general",
+		"Notifications",
+		"notify",
+		"Notifications",
+		"Get told when an agent finishes or needs you.",
+		"sound alert bell focus",
+	),
+	entry(
+		"general",
+		"Sounds",
+		"sounds",
+		"Sounds",
+		"Short, quiet cues for the moments that matter. Off with one switch.",
+		"audio sound effects earcon chime notification mute silent",
+	),
+	entry(
+		"general",
+		"Sounds",
+		"sound-volume",
+		"Sound volume",
+		"How loud Atlas sounds are, on top of your system's volume.",
+		"loudness quiet audio level",
+	),
+	entry(
+		"general",
+		"Sounds",
+		"sound-reduce",
+		"Reduce sounds",
+		"Only play the ones that need your attention, and quieter.",
+		"quiet minimal less fewer",
+	),
 
-	appearance(
+	...CATEGORIES.map((c) =>
+		entry("general", "Sounds", `sound-cat-${c}`, SPECS[c].label, SPECS[c].description, "sound earcon chime"),
+	),
+
+	entry(
 		"appearance",
 		"Color theme",
 		"theme-mode",
@@ -68,7 +113,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Follow the system, or always use light or dark.",
 		"dark light mode system",
 	),
-	appearance(
+	entry(
 		"appearance",
 		"Color theme",
 		"theme-light",
@@ -76,7 +121,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Colors used when Atlas is in light mode.",
 		"alucard zed json",
 	),
-	appearance(
+	entry(
 		"appearance",
 		"Color theme",
 		"theme-dark",
@@ -84,7 +129,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Colors used when Atlas is in dark mode.",
 		"dracula zed json",
 	),
-	appearance(
+	entry(
 		"appearance",
 		"Color theme",
 		"theme-terminal",
@@ -92,7 +137,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Use the app theme in terminals, or pick another one.",
 		"dracula alucard colors ansi palette",
 	),
-	appearance(
+	entry(
 		"appearance",
 		"Color theme",
 		"theme-import",
@@ -100,7 +145,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Bring a theme from Ghostty, iTerm, VS Code, Alacritty or Base16, or a zip or folder of themes.",
 		"ghostty iterm itermcolors vscode vsix base16 alacritty yaml toml zip package folder dracula pro zeno alucard import zed",
 	),
-	appearance(
+	entry(
 		"appearance",
 		"Color theme",
 		"theme-export",
@@ -108,7 +153,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Copy a theme as JSON or a Ghostty config, or save it to a file.",
 		"ghostty iterm vscode base16 dracula alucard export share copy save reveal folder",
 	),
-	appearance(
+	entry(
 		"appearance",
 		"Color theme",
 		"accent",
@@ -116,285 +161,64 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Highlights buttons, selections and focus.",
 		"brand color swatch",
 	),
-
-	appearance(
-		"editor",
-		"Code font",
-		"buffer-font",
-		"Code font",
-		"Font for the editor and diffs.",
-		"buffer_font_family monospace typeface",
-	),
-	appearance(
-		"editor",
-		"Code font",
-		"buffer-size",
-		"Code font size",
-		"Text size in the editor and diffs, in pixels.",
-		"buffer_font_size",
-	),
-	appearance(
-		"editor",
-		"Code font",
-		"buffer-line-height",
-		"Line spacing",
-		"Space between lines of code, as a multiple of the font size.",
-		"buffer_line_height leading",
-	),
-	appearance(
-		"editor",
-		"Language servers",
-		"lsp-enable",
-		"Language servers",
-		"Completion, diagnostics, hover and go to definition from the language's server (downloaded on first use).",
-		"lsp enable_language_servers rust-analyzer gopls typescript intellisense autocomplete",
-	),
-	appearance(
-		"editor",
-		"Language servers",
-		"lsp-format-on-save",
-		"Format on save",
-		"Format the file with its language server every time it is saved.",
-		"format_on_save formatter prettier rustfmt",
-	),
-	appearance(
-		"editor",
-		"Language servers",
-		"lsp-inlay-hints",
-		"Inlay hints",
-		"Show inferred types and parameter names inline, dimmed.",
-		"inlay_hints types parameters",
-	),
-	appearance(
-		"editor",
-		"Language servers",
-		"lsp-manage",
-		"Manage language servers",
-		"Install, update or replace the server of each language.",
-		"languages custom command lsp gopls rust-analyzer typescript server install uninstall",
-	),
-
-	appearance(
-		"editor",
-		"Editing",
-		"editor-tab-size",
-		"Tab size",
-		"Columns a tab or one level of indentation spans.",
-		"tab_size indent indentation width",
-	),
-	appearance(
-		"editor",
-		"Editing",
-		"editor-insert-spaces",
-		"Indent with spaces",
-		"Pressing Tab inserts spaces. Turn off to insert tab characters.",
-		"insert_spaces tabs spaces indentation",
-	),
-	appearance(
-		"editor",
-		"Editing",
-		"editor-trim-whitespace",
-		"Trim trailing whitespace on save",
-		"Remove spaces and tabs at the end of lines when you save.",
-		"trim_trailing_whitespace_on_save strip",
-	),
-	appearance(
-		"editor",
-		"Editing",
-		"editor-final-newline",
-		"Add a final newline on save",
-		"End every file with exactly one newline when you save.",
-		"insert_final_newline_on_save eof end of file",
-	),
-	appearance(
-		"editor",
-		"Editing",
-		"editor-auto-reload",
-		"Reload files changed on disk",
-		"Update an open file when another program changes it, as long as you have no unsaved edits in it.",
-		"auto_reload external changes refresh watch",
-	),
-	appearance(
-		"editor",
-		"Editing",
-		"editor-large-file",
-		"Large file limit",
-		"Files bigger than this open in a light mode without language features, so the editor stays fast. 0.1 to 100 MB.",
-		"large_file_threshold_bytes performance slow big huge",
-	),
-
-	appearance(
-		"editor",
-		"Display",
-		"editor-word-wrap",
-		"Word wrap",
-		"Wrap long lines at the edge of the editor.",
-		"word_wrap soft wrap long lines",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-line-numbers",
-		"Line numbers",
-		"Show line numbers in the gutter.",
-		"line_numbers gutter",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-highlight-line",
-		"Highlight the current line",
-		"Tint the line the cursor is on.",
-		"highlight_active_line cursor line",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-whitespace",
-		"Show whitespace",
-		"Draw dots for spaces and arrows for tabs.",
-		"render_whitespace invisible characters",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-indent-guides",
-		"Indent guides",
-		"Draw a faint vertical line at each level of indentation.",
-		"indent_guides",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-bracket-colors",
-		"Color matching brackets",
-		"Give each level of nested brackets its own color.",
-		"bracket_pair_colorization rainbow brackets",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-sticky-scroll",
-		"Sticky scroll",
-		"Keep the enclosing function or class pinned at the top while you scroll its body.",
-		"sticky_scroll scope header",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-minimap",
-		"Minimap",
-		"Show a small overview of the file on the right.",
-		"overview",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-rulers",
-		"Rulers",
-		"Columns where a vertical line is drawn, such as 80 or 100. Separate several with commas.",
-		"column guide line length 80 100 120",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-scroll-past-end",
-		"Scroll past the last line",
-		"Let the last line scroll up to the top of the editor.",
-		"scroll_past_end",
-	),
-	appearance(
-		"editor",
-		"Display",
-		"editor-smooth-scroll",
-		"Smooth scrolling",
-		"Animate scrolling when you jump to a line or use the keyboard.",
-		"smooth_scrolling animation",
-	),
-
-	appearance(
-		"languages",
-		"Language servers",
-		"lsp-servers",
-		"Language servers",
-		"See which language servers are installed, install or update them, and open their logs.",
-		"language server typescript gopls rust-analyzer pyright clangd install uninstall update restart log path managed",
-	),
-	appearance(
-		"languages",
-		"Language servers",
-		"lsp-custom",
-		"Custom language server",
-		"Run your own server for a language: its command, arguments, initialization options and settings.",
-		"custom command args arguments initialization options json override replace binary lsp typescript gopls rust-analyzer",
-	),
-	appearance(
-		"languages",
-		"Language servers",
-		"lsp-project",
-		"Per-project language servers",
-		"Override servers for one project with a file inside it; it wins over your own settings.",
-		"project override .atlas workspace lsp",
-	),
-
-	appearance(
-		"interface",
+	entry(
+		"appearance",
 		"Interface font",
 		"ui-font",
 		"Interface font",
 		"Font for menus, sidebars and buttons.",
 		"ui_font_family typeface",
 	),
-	appearance(
-		"interface",
+	entry(
+		"appearance",
 		"Interface font",
 		"ui-size",
 		"Interface font size",
 		"Text size across the app, in pixels.",
 		"ui_font_size",
 	),
-	appearance(
-		"interface",
+	entry(
+		"appearance",
 		"File panel",
 		"panel-dock",
 		"File panel side",
 		"Show the file tree on the left or the right.",
 		"project_panel dock explorer",
 	),
-	appearance(
-		"interface",
+	entry(
+		"appearance",
 		"File panel",
 		"panel-indent",
 		"Folder indent",
 		"How far each folder level is pushed in, in pixels.",
 		"indent_size tree",
 	),
-	appearance(
-		"interface",
+	entry(
+		"appearance",
 		"File panel",
 		"panel-file-icons",
 		"File icons",
 		"Show an icon next to each file.",
 		"file_icons",
 	),
-	appearance(
-		"interface",
+	entry(
+		"appearance",
 		"File panel",
 		"panel-folder-icons",
 		"Folder icons",
 		"Show an icon next to each folder.",
 		"folder_icons",
 	),
-	appearance(
-		"interface",
+	entry(
+		"appearance",
 		"Split panes",
 		"pane-border",
 		"Active pane border",
 		"Outline the pane you are working in, in pixels. 0 hides it.",
 		"active_pane_modifiers border_size focus",
 	),
-	appearance(
-		"interface",
+	entry(
+		"appearance",
 		"Split panes",
 		"pane-opacity",
 		"Dim inactive panes",
@@ -402,7 +226,197 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"inactive_opacity fade",
 	),
 
-	appearance(
+	editor(
+		"Code font",
+		"buffer-font",
+		"Code font",
+		"Font for the editor and diffs.",
+		"buffer_font_family monospace typeface",
+	),
+	editor(
+		"Code font",
+		"buffer-size",
+		"Code font size",
+		"Text size in the editor and diffs, in pixels.",
+		"buffer_font_size",
+	),
+	editor(
+		"Code font",
+		"buffer-line-height",
+		"Line spacing",
+		"Space between lines of code, as a multiple of the font size.",
+		"buffer_line_height leading",
+	),
+	editor(
+		"Language servers",
+		"lsp-enable",
+		"Language servers",
+		"Completion, diagnostics, hover and go to definition from the language's server (downloaded on first use).",
+		"lsp enable_language_servers rust-analyzer gopls typescript intellisense autocomplete",
+	),
+	editor(
+		"Language servers",
+		"lsp-format-on-save",
+		"Format on save",
+		"Format the file with its language server every time it is saved.",
+		"format_on_save formatter prettier rustfmt",
+	),
+	editor(
+		"Language servers",
+		"lsp-inlay-hints",
+		"Inlay hints",
+		"Show inferred types and parameter names inline, dimmed.",
+		"inlay_hints types parameters",
+	),
+	editor(
+		"Language servers",
+		"lsp-manage",
+		"Manage language servers",
+		"Install, update or replace the server of each language.",
+		"languages custom command lsp gopls rust-analyzer typescript server install uninstall",
+	),
+	editor(
+		"Editing",
+		"editor-tab-size",
+		"Tab size",
+		"Columns a tab or one level of indentation spans.",
+		"tab_size indent indentation width",
+	),
+	editor(
+		"Editing",
+		"editor-insert-spaces",
+		"Indent with spaces",
+		"Pressing Tab inserts spaces. Turn off to insert tab characters.",
+		"insert_spaces tabs spaces indentation",
+	),
+	editor(
+		"Editing",
+		"editor-trim-whitespace",
+		"Trim trailing whitespace on save",
+		"Remove spaces and tabs at the end of lines when you save.",
+		"trim_trailing_whitespace_on_save strip",
+	),
+	editor(
+		"Editing",
+		"editor-final-newline",
+		"Add a final newline on save",
+		"End every file with exactly one newline when you save.",
+		"insert_final_newline_on_save eof end of file",
+	),
+	editor(
+		"Editing",
+		"editor-auto-reload",
+		"Reload files changed on disk",
+		"Update an open file when another program changes it, as long as you have no unsaved edits in it.",
+		"auto_reload external changes refresh watch",
+	),
+	editor(
+		"Editing",
+		"editor-large-file",
+		"Large file limit",
+		"Files bigger than this open in a light mode without language features, so the editor stays fast. 0.1 to 100 MB.",
+		"large_file_threshold_bytes performance slow big huge",
+	),
+	editor(
+		"Display",
+		"editor-word-wrap",
+		"Word wrap",
+		"Wrap long lines at the edge of the editor.",
+		"word_wrap soft wrap long lines",
+	),
+	editor(
+		"Display",
+		"editor-line-numbers",
+		"Line numbers",
+		"Show line numbers in the gutter.",
+		"line_numbers gutter",
+	),
+	editor(
+		"Display",
+		"editor-highlight-line",
+		"Highlight the current line",
+		"Tint the line the cursor is on.",
+		"highlight_active_line cursor line",
+	),
+	editor(
+		"Display",
+		"editor-whitespace",
+		"Show whitespace",
+		"Draw dots for spaces and arrows for tabs.",
+		"render_whitespace invisible characters",
+	),
+	editor(
+		"Display",
+		"editor-indent-guides",
+		"Indent guides",
+		"Draw a faint vertical line at each level of indentation.",
+		"indent_guides",
+	),
+	editor(
+		"Display",
+		"editor-bracket-colors",
+		"Color matching brackets",
+		"Give each level of nested brackets its own color.",
+		"bracket_pair_colorization rainbow brackets",
+	),
+	editor(
+		"Display",
+		"editor-sticky-scroll",
+		"Sticky scroll",
+		"Keep the enclosing function or class pinned at the top while you scroll its body.",
+		"sticky_scroll scope header",
+	),
+	editor(
+		"Display",
+		"editor-minimap",
+		"Minimap",
+		"Show a small overview of the file on the right.",
+		"overview",
+	),
+	editor(
+		"Display",
+		"editor-rulers",
+		"Rulers",
+		"Columns where a vertical line is drawn, such as 80 or 100. Separate several with commas.",
+		"column guide line length 80 100 120",
+	),
+	editor(
+		"Display",
+		"editor-scroll-past-end",
+		"Scroll past the last line",
+		"Let the last line scroll up to the top of the editor.",
+		"scroll_past_end",
+	),
+	editor(
+		"Display",
+		"editor-smooth-scroll",
+		"Smooth scrolling",
+		"Animate scrolling when you jump to a line or use the keyboard.",
+		"smooth_scrolling animation",
+	),
+	languages(
+		"Language servers",
+		"lsp-servers",
+		"Language servers",
+		"See which language servers are installed, install or update them, and open their logs.",
+		"language server typescript gopls rust-analyzer pyright clangd install uninstall update restart log path managed",
+	),
+	languages(
+		"Language servers",
+		"lsp-custom",
+		"Custom language server",
+		"Run your own server for a language: its command, arguments, initialization options and settings.",
+		"custom command args arguments initialization options json override replace binary lsp typescript gopls rust-analyzer",
+	),
+	languages(
+		"Language servers",
+		"lsp-project",
+		"Per-project language servers",
+		"Override servers for one project with a file inside it; it wins over your own settings.",
+		"project override .atlas workspace lsp",
+	),
+
+	entry(
 		"terminal",
 		"Renderer",
 		"gpu",
@@ -410,7 +424,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Draws local terminals on the graphics chip: smoother scrolling and faster output.",
 		"gpu renderer native xterm metal",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Renderer",
 		"host-restart",
@@ -418,7 +432,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Restart the background process that keeps terminals alive, to pick up a new Atlas version.",
 		"hostd old upgrade",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Text",
 		"term-font",
@@ -426,7 +440,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Font families in order; the first one installed wins, else JetBrains Mono. Variable fonts work. Both terminals use it.",
 		"font_family typeface font-family xterm ghostty nerd variable",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Text",
 		"term-size",
@@ -434,7 +448,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Text size in terminals, in pixels.",
 		"font_size",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Text",
 		"font-thicken",
@@ -442,7 +456,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Draw terminal text slightly heavier, like Ghostty's font-thicken. Helps thin fonts on dark backgrounds.",
 		"font_thicken bold weight ghostty",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Text",
 		"ligatures",
@@ -450,7 +464,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Join characters like -> and != into single symbols (fast terminal only).",
 		"ligatures fira",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Text",
 		"contrast",
@@ -458,7 +472,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Brighten or darken text that is hard to read against its background (fast terminal only). 1 turns it off, 4.5 meets accessibility guidance.",
 		"wcag accessibility minimum_contrast readable",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Cursor",
 		"cursor-shape",
@@ -466,15 +480,8 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"How the cursor looks in terminals.",
 		"block bar underline hollow caret",
 	),
-	appearance(
-		"terminal",
-		"Cursor",
-		"cursor-blink",
-		"Blinking cursor",
-		"Make the terminal cursor blink.",
-		"caret",
-	),
-	appearance(
+	entry("terminal", "Cursor", "cursor-blink", "Blinking cursor", "Make the terminal cursor blink.", "caret"),
+	entry(
 		"terminal",
 		"Padding",
 		"term-padding-x",
@@ -482,7 +489,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Space left and right of the terminal text, in points. The margin uses the terminal background.",
 		"padding_x margin inset window-padding-x ghostty",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Padding",
 		"term-padding-y",
@@ -490,7 +497,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Space above and below the terminal text, in points. The margin uses the terminal background.",
 		"padding_y margin inset window-padding-y ghostty",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Behavior",
 		"scrollback",
@@ -498,7 +505,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Lines of output each terminal remembers. More lines use more memory.",
 		"max_scroll_history_lines history buffer",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Behavior",
 		"clipboard",
@@ -506,7 +513,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Lets commands such as tmux or ssh sessions put text on your clipboard.",
 		"osc52 osc 52 copy paste ask allow deny",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Behavior",
 		"copy-on-select",
@@ -514,7 +521,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Copy selected text to the clipboard when you release the mouse (fast terminal only).",
 		"copy_on_select clipboard selection ghostty",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Behavior",
 		"click-to-move",
@@ -522,7 +529,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Click the prompt line to move the cursor there. Needs shell integration (fast terminal only).",
 		"click_to_move cursor prompt osc 133 ghostty",
 	),
-	appearance(
+	entry(
 		"terminal",
 		"Behavior",
 		"option-as-alt",
@@ -598,22 +605,6 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 	),
 	entry(
 		"agents",
-		"Links",
-		"browser",
-		"Open links in",
-		"Where links from services, ports and terminals open.",
-		"browser system atlas",
-	),
-	entry(
-		"agents",
-		"Notifications",
-		"notify",
-		"Notifications",
-		"Get told when an agent finishes or needs you.",
-		"sound alert bell focus",
-	),
-	entry(
-		"agents",
 		"Quick commands",
 		"quick",
 		"Quick commands",
@@ -663,32 +654,5 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"Getting started checklist",
 		"Bring back the first steps card, or start over.",
 		"onboarding progress",
-	),
-	entry(
-		"general",
-		"Sounds",
-		"sounds",
-		"Sounds",
-		"Short, quiet cues for the moments that matter. Off with one switch.",
-		"audio sound effects earcon chime notification mute silent",
-	),
-	entry(
-		"general",
-		"Sounds",
-		"sound-volume",
-		"Sound volume",
-		"How loud Atlas sounds are, on top of your system's volume.",
-		"loudness quiet audio level",
-	),
-	entry(
-		"general",
-		"Sounds",
-		"sound-reduce",
-		"Reduce sounds",
-		"Only play the ones that need your attention, and quieter.",
-		"quiet minimal less fewer",
-	),
-	...CATEGORIES.map((c) =>
-		entry("general", "Sounds", `sound-cat-${c}`, SPECS[c].label, SPECS[c].description, "sound earcon chime"),
 	),
 ];

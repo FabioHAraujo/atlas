@@ -14,7 +14,15 @@
 	import { store } from "#lib/stores/projects.svelte.ts";
 	import ProjectIcon from "#lib/shell/ProjectIcon.svelte";
 	import { confirmDialog } from "#lib/stores/ask.svelte.ts";
-	import { visibleRows, ancestorsOf, join, parentOf, statusMap, navMove } from "#lib/stores/tree.ts";
+	import {
+		visibleRows,
+		ancestorsOf,
+		join,
+		parentOf,
+		statusMap,
+		statusOf,
+		navMove,
+	} from "#lib/stores/tree.ts";
 
 	let { worktreeId }: { worktreeId: string } = $props();
 
@@ -216,8 +224,9 @@
 	{#each children[dir] ?? [] as e (e.name)}
 		{@const rel = join(dir, e.name)}
 		{@const isDir = e.kind === "dir"}
+		{@const st = statusOf(status, rel)}
 		<div
-			class="row {status[rel] ?? ''}"
+			class="row {st ?? ''}"
 			class:active={!isDir && rel === activePath}
 			class:cur={cursor === rel}
 			style:padding-left="{8 + depth * prefs.value.project_panel.indent_size}px"
@@ -273,9 +282,9 @@
 					<DropdownMenuItem onclick={() => host.exec(root, ["open", "-R", `${root}/${rel}`])}
 						>Reveal in Finder</DropdownMenuItem
 					>
-					{#if status[rel] && !isDir}
+					{#if st && st !== "ignored" && !isDir}
 						<DropdownMenuItem onclick={() => gitDo(["add", "--", rel])}>Stage</DropdownMenuItem>
-						{#if status[rel] !== "untracked"}
+						{#if st !== "untracked"}
 							<DropdownMenuItem
 								variant="destructive"
 								onclick={async () =>
@@ -479,6 +488,15 @@
 	.deleted .name {
 		color: var(--atlas-vcs-deleted, var(--ca-semantic-error));
 		text-decoration: line-through;
+	}
+	/* Gitignored (VS Code / Zed): its own dimmed token (quieter than text, AA on every surface: theme/derive.ts) plus
+	   italic so it is not only a shade; never a vcs hue, so it cannot be mistaken for untracked or modified. */
+	.ignored .name {
+		color: var(--atlas-vcs-ignored, var(--ca-text-secondary));
+		font-style: italic;
+	}
+	.ignored .ico {
+		opacity: 0.55;
 	}
 	.more {
 		opacity: 0;

@@ -6,8 +6,8 @@ import { MARK, MARK_VIEW } from "./mark.ts";
 
 const svg = readFileSync(join(import.meta.dir, "../../../../../../assets/logo.svg"), "utf8");
 
-// Incident-in-waiting: mark.ts is generated from the logo. If the logo is redrawn and the generator is not re-run, the
-// intro would animate the OLD mark. This pins the generated data to the real file.
+// Incident-in-waiting: mark.ts is generated from the logo by `bun run icons` (scripts/icons.ts). If the logo is redrawn
+// and the generator is not re-run, the intro would animate the OLD mark. This pins the generated data to the real file.
 test("the generated tiles are exactly the paths of assets/logo.svg, in order, with its viewBox", () => {
 	const paths = [...svg.matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
 	expect(MARK.length).toBe(paths.length);

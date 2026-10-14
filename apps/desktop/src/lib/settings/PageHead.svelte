@@ -2,22 +2,27 @@
 	let { title, description }: { title: string; description?: string } = $props();
 </script>
 
-<div class="phead">
+<header class="phead">
 	<h2>{title}</h2>
 	{#if description}<p>{description}</p>{/if}
-</div>
+</header>
 
 <style>
+	.phead {
+		padding-bottom: 4px;
+	}
 	.phead h2 {
 		margin: 0;
-		font-size: 16px;
+		font-size: 20px;
 		font-weight: 650;
-		letter-spacing: -0.01em;
+		letter-spacing: -0.015em;
+		color: var(--ca-text-primary);
 	}
 	.phead p {
-		margin: 3px 0 0;
-		font-size: 12.5px;
-		line-height: 1.45;
+		margin: 4px 0 0;
+		max-width: 72ch;
+		font-size: 13px;
+		line-height: 1.5;
 		color: var(--ca-text-secondary);
 	}
 </style>

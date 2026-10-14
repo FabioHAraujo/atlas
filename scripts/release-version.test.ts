@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffAllowed, nextVersion, type NextInput } from "./release-version.ts";
+import { diffAllowed, githubFlags, nextVersion, readDefaultChannel, type Channel, type NextInput } from "./release-version.ts";
 
 const NOW = new Date("2026-10-12T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3600_000).toISOString();
@@ -338,5 +338,60 @@ describe("diffAllowed", () => {
 
   test("empty diff is fine", () => {
     expect(diffAllowed([])).toEqual([]);
+  });
+});
+
+// Incident guard: GitHub's "Latest" showed v1.4.0 while every user (and every new release) was on the default
+// channel, alpha. A release of the DEFAULT channel is published as a normal, "Latest" release; any other
+// prerelease stays a prerelease. The default is data/channels.json, the same file atlas-core and the site read.
+describe("githubFlags", () => {
+  test("pre-GA (default alpha): an alpha is NOT a prerelease and IS Latest", () => {
+    expect(githubFlags("v1.5.0-alpha.4", "alpha")).toEqual({ prerelease: false, makeLatest: true });
+  });
+  test("pre-GA: a beta or rc stays a prerelease and never Latest", () => {
+    expect(githubFlags("v1.5.0-beta.1", "alpha")).toEqual({ prerelease: true, makeLatest: false });
+    expect(githubFlags("v1.5.0-rc.1", "alpha")).toEqual({ prerelease: true, makeLatest: false });
+  });
+  test("pre-GA: a stable is Latest too (it is the newest of the default channel's accepted builds)", () => {
+    expect(githubFlags("v1.5.0", "alpha")).toEqual({ prerelease: false, makeLatest: true });
+  });
+  test("a beta default: beta and rc are Latest, alpha is a prerelease", () => {
+    expect(githubFlags("v1.5.0-beta.1", "beta")).toEqual({ prerelease: false, makeLatest: true });
+    expect(githubFlags("v1.5.0-rc.2", "beta")).toEqual({ prerelease: false, makeLatest: true });
+    expect(githubFlags("v1.5.0-alpha.4", "beta")).toEqual({ prerelease: true, makeLatest: false });
+  });
+  test("GA (default stable): the old behaviour, any '-' tag is a prerelease and never Latest", () => {
+    expect(githubFlags("v1.5.0-alpha.4", "stable")).toEqual({ prerelease: true, makeLatest: false });
+    expect(githubFlags("v1.5.0-beta.1", "stable")).toEqual({ prerelease: true, makeLatest: false });
+    expect(githubFlags("v1.5.0", "stable")).toEqual({ prerelease: false, makeLatest: true });
+  });
+  test("a label Atlas does not ship is always a prerelease", () => {
+    for (const d of ["stable", "beta", "alpha"] as const) {
+      expect(githubFlags("v1.5.0-nightly.1", d)).toEqual({ prerelease: true, makeLatest: false });
+    }
+  });
+  test("the tag may come without the leading v", () => {
+    expect(githubFlags("1.5.0-alpha.4", "alpha")).toEqual({ prerelease: false, makeLatest: true });
+  });
+});
+
+describe("the default channel copies", () => {
+  const root = new URL("../", import.meta.url);
+  const text = (p: string) => Bun.file(new URL(p, root)).text();
+  test("data/channels.json `default` is what #[default] says on atlas_core::channel::Channel", async () => {
+    const json = JSON.parse(await text("crates/atlas-core/data/channels.json"));
+    const rust = (await text("crates/atlas-core/src/channel.rs")).match(/#\[default\]\s*(\w+)/)?.[1]?.toLowerCase();
+    expect(json.default).toBe(rust);
+    expect(readDefaultChannel(json)).toBe(rust as Channel);
+  });
+  test("readDefaultChannel rejects a missing or unknown default instead of guessing", () => {
+    expect(() => readDefaultChannel({})).toThrow();
+    expect(() => readDefaultChannel({ default: "nightly" })).toThrow();
+  });
+  test("release.yml takes prerelease/make_latest from release-version.ts, not from a contains('-') guess", async () => {
+    const yml = await text(".github/workflows/release.yml");
+    expect(yml).not.toMatch(/prerelease:\s*\$\{\{\s*contains\(/);
+    expect(yml).not.toMatch(/make_latest:\s*\$\{\{\s*!contains\(/);
+    expect(yml).toContain("scripts/release-version.ts github-flags");
   });
 });

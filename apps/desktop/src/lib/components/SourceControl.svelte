@@ -10,6 +10,7 @@
 	import { openFile, openDiff } from "#lib/stores/files.svelte.ts";
 	import { pr } from "#lib/stores/pr.svelte.ts";
 	import { confirmDialog } from "#lib/stores/ask.svelte.ts";
+	import { statusGroups } from "#lib/stores/tree.ts";
 
 	/** Porcelain status letter → `.code` class (anything else reads as modified). */
 	const CODE_KIND: Record<string, string> = {
@@ -28,10 +29,11 @@
 	let busy = $state<string | null>(null);
 	let failure = $state<string | null>(null);
 
-	let staged = $derived(st?.entries.filter((e) => e.x !== "." && e.x !== "?" && !e.conflict) ?? []);
-	let changes = $derived(st?.entries.filter((e) => e.y !== "." && e.y !== "?" && !e.conflict) ?? []);
-	let untracked = $derived(st?.entries.filter((e) => e.x === "?") ?? []);
-	let conflicts = $derived(st?.entries.filter((e) => e.conflict) ?? []);
+	let groups = $derived(statusGroups(st?.entries ?? []));
+	let staged = $derived(groups.staged);
+	let changes = $derived(groups.changes);
+	let untracked = $derived(groups.untracked);
+	let conflicts = $derived(groups.conflicts);
 	let ahead = $derived(st?.ab ? Number(st.ab.split(" ")[0].slice(1)) : 0);
 	let behind = $derived(st?.ab ? Number(st.ab.split(" ")[1].slice(1)) : 0);
 	let w = $derived(ws.worktree(worktreeId));

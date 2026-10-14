@@ -1,0 +1,38 @@
+{
+	"ab": null,
+	"branch": "main",
+	"entries": [
+		{
+			"conflict": false,
+			"path": "src/m.ts",
+			"x": ".",
+			"y": "M"
+		},
+		{
+			"path": "new.txt",
+			"x": "?",
+			"y": "?"
+		},
+		{
+			"path": "src/n.ts",
+			"x": "?",
+			"y": "?"
+		},
+		{
+			"path": ".env",
+			"x": "!",
+			"y": "!"
+		},
+		{
+			"path": "node_modules/",
+			"x": "!",
+			"y": "!"
+		},
+		{
+			"path": "target/",
+			"x": "!",
+			"y": "!"
+		}
+	],
+	"upstream": null
+}

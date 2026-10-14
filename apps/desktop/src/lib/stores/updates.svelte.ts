@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "@codeatlasdev/ui";
 import { api, errText } from "#lib/api.ts";
-import { resolveSection, type AppearanceTab, type SettingsSection } from "#lib/settings/index.ts";
+import { resolveSection, type SettingsSection, type SettingsTab } from "#lib/settings/index.ts";
 import { sound } from "#lib/sound/sound.svelte.ts";
 import { agents } from "#lib/stores/agents.svelte.ts";
 import {
@@ -55,7 +55,7 @@ export interface Release {
 	app_ahead: boolean;
 }
 
-export type { SettingsSection, AppearanceTab } from "#lib/settings/index.ts";
+export type { SettingsSection, SettingsTab } from "#lib/settings/index.ts";
 
 type Run = "update" | "reinstall" | "unlink";
 
@@ -77,8 +77,8 @@ class Updates {
 	relaunchNeeded = $state(false);
 	open = $state(false);
 	section = $state<SettingsSection>("general");
-	/** Tab inside Appearance. */
-	tab = $state<AppearanceTab>("appearance");
+	/** Tab inside the Editor section. */
+	tab = $state<SettingsTab>("editor");
 	/** Search box text; lives here so it survives reopening and so `show` can clear it. */
 	query = $state("");
 	checkedAt = $state<number | null>(null);

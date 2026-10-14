@@ -256,11 +256,9 @@ async fn default_base(hub: &HostHub, dir: &Path) -> String {
     "HEAD".into()
 }
 
-/// Porcelain v2 status: branch, upstream, ahead/behind vs base, entries.
-#[tauri::command]
-pub async fn git_status(hub: State<'_, Arc<HostHub>>, id: String) -> Result<Value, String> {
-    let dir = root(&id)?;
-    let out = git(&hub, &dir, &["status", "--porcelain=v2", "-z", "--branch"]).await?;
+/// Entries of `git status --porcelain=v2 -z --branch [--ignored]`: (branch, upstream, ab, entries).
+/// Ignored paths (`! path`, a collapsed directory keeps its trailing `/`) are `{x:"!", y:"!"}`.
+fn parse_status(out: &str) -> (Option<String>, Option<String>, Option<String>, Vec<Value>) {
     let (mut branch, mut upstream, mut ab) = (None, None, None);
     let mut entries = Vec::new();
     let recs: Vec<&str> = out.split('\0').filter(|s| !s.is_empty()).collect();
@@ -274,6 +272,8 @@ pub async fn git_status(hub: State<'_, Arc<HostHub>>, id: String) -> Result<Valu
             ab = Some(x.to_string());
         } else if let Some(p) = rec.strip_prefix("? ") {
             entries.push(json!({"path": p, "x": "?", "y": "?"}));
+        } else if let Some(p) = rec.strip_prefix("! ") {
+            entries.push(json!({"path": p, "x": "!", "y": "!"}));
         } else if let Some(r) = rec.strip_prefix("1 ").or_else(|| rec.strip_prefix("u ")) {
             let xy = &r[..2];
             let path = r
@@ -288,6 +288,20 @@ pub async fn git_status(hub: State<'_, Arc<HostHub>>, id: String) -> Result<Valu
             entries.push(json!({"path": path, "orig": orig, "x": &xy[..1], "y": &xy[1..]}));
         }
     }
+    (branch, upstream, ab, entries)
+}
+
+/// Porcelain v2 status: branch, upstream, ahead/behind vs base, entries (ignored ones included, `x`/`y` = `!`).
+#[tauri::command]
+pub async fn git_status(hub: State<'_, Arc<HostHub>>, id: String) -> Result<Value, String> {
+    let dir = root(&id)?;
+    let out = git(
+        &hub,
+        &dir,
+        &["status", "--porcelain=v2", "-z", "--branch", "--ignored"],
+    )
+    .await?;
+    let (branch, upstream, ab, entries) = parse_status(&out);
     let base = default_base(&hub, &dir).await;
     let vs_base = if base != "HEAD" {
         git(
@@ -441,5 +455,117 @@ Binary files /dev/null and b/img.png differ
         assert_eq!(f[1].path, "new.txt");
         assert!(f[2].binary);
         assert_eq!(f[2].status, "added");
+    }
+
+    /// Verbatim `git status --porcelain=v2 -z --branch --ignored` of a repo with node_modules/ (dir), .env and
+    /// target/ ignored, src/m.ts modified, two untracked files.
+    const STATUS_IGNORED: &str = "# branch.oid e494ad1\0# branch.head main\0\
+1 .M N... 100644 100644 100644 e69de29 e69de29 src/m.ts\0\
+? new.txt\0? src/n.ts\0! .env\0! node_modules/\0! target/\0";
+
+    // Incident: the explorer could not dim ignored files because git_status never asked for them. The payload the
+    // frontend reads is this serialized value: `x`/`y` = "!" and a collapsed directory keeps its trailing `/`.
+    #[test]
+    fn ignored_paths_are_reported_with_bang_and_keep_the_dir_slash() {
+        let (branch, _, _, entries) = parse_status(STATUS_IGNORED);
+        assert_eq!(branch.as_deref(), Some("main"));
+        let v = serde_json::to_value(&entries).unwrap();
+        let by = |p: &str| {
+            v.as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["path"] == p)
+                .cloned()
+        };
+        for p in [".env", "node_modules/", "target/"] {
+            let e = by(p).unwrap_or_else(|| panic!("{p} missing: {v}"));
+            assert_eq!(
+                (e["x"].as_str(), e["y"].as_str()),
+                (Some("!"), Some("!")),
+                "{p}"
+            );
+        }
+        assert_eq!(by("src/m.ts").unwrap()["y"], "M");
+        assert_eq!(by("new.txt").unwrap()["x"], "?");
+        assert_eq!(v.as_array().unwrap().len(), 6);
+    }
+
+    // Edge: an ignored path with spaces / unicode (`-z` is unquoted) stays whole.
+    #[test]
+    fn ignored_path_with_spaces_is_not_split() {
+        let (_, _, _, entries) = parse_status("! my build/out dir/\0! café.log\0");
+        let paths: Vec<_> = entries
+            .iter()
+            .map(|e| e["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(paths, ["my build/out dir/", "café.log"]);
+    }
+
+    // The parser is only as good as the flag: run the real git against a real repo with the exact args git_status uses.
+    #[test]
+    fn real_git_reports_ignored_entries_for_the_args_git_status_uses() {
+        let d = tempfile::tempdir().unwrap();
+        let run = |a: &[&str]| {
+            let o = std::process::Command::new("git")
+                .arg("-C")
+                .arg(d.path())
+                .args(["-c", "user.email=a@b", "-c", "user.name=n"])
+                .args(a)
+                .output()
+                .unwrap();
+            assert!(
+                o.status.success(),
+                "git {a:?}: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+            String::from_utf8_lossy(&o.stdout).into_owned()
+        };
+        run(&["init", "-q", "."]);
+        std::fs::write(d.path().join(".gitignore"), "node_modules/\n.env\n").unwrap();
+        std::fs::create_dir_all(d.path().join("node_modules/x")).unwrap();
+        std::fs::write(d.path().join("node_modules/x/i.js"), "").unwrap();
+        std::fs::write(d.path().join(".env"), "").unwrap();
+        std::fs::write(d.path().join("new.txt"), "").unwrap();
+        let out = run(&["status", "--porcelain=v2", "-z", "--branch", "--ignored"]);
+        let (_, _, _, entries) = parse_status(&out);
+        let get = |p: &str| {
+            entries
+                .iter()
+                .find(|e| e["path"] == p)
+                .map(|e| e["x"].clone())
+        };
+        assert_eq!(get("node_modules/"), Some(json!("!")), "{entries:?}");
+        assert_eq!(get(".env"), Some(json!("!")));
+        assert_eq!(get("new.txt"), Some(json!("?")));
+    }
+
+    /// Contract with the frontend: `apps/desktop/src/lib/__fixtures__/git-status.json` is the REAL serialization
+    /// of the `git_status` entries (parse of a verbatim `--ignored` run), which `tree.test.ts` classifies. A
+    /// rename of `x`/`y`/`path` on either side fails a test. `UPDATE_FIXTURES=1` regenerates it.
+    #[test]
+    fn git_status_fixture_is_the_real_serialization() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/desktop/src/lib/__fixtures__/git-status.json");
+        let (branch, upstream, ab, entries) = parse_status(STATUS_IGNORED);
+        let value = json!({"branch": branch, "upstream": upstream, "ab": ab, "entries": entries});
+        let mut buf = Vec::new();
+        let mut ser = serde_json::Serializer::with_formatter(
+            &mut buf,
+            serde_json::ser::PrettyFormatter::with_indent(b"\t"),
+        );
+        serde::Serialize::serialize(&value, &mut ser).unwrap();
+        let fresh = String::from_utf8(buf).unwrap() + "\n";
+        if std::env::var_os("UPDATE_FIXTURES").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &fresh).unwrap();
+        }
+        let committed = std::fs::read_to_string(&path)
+            .expect("fixture missing: run with UPDATE_FIXTURES=1 to create it");
+        let committed: Value = serde_json::from_str(&committed).unwrap();
+        let fresh: Value = serde_json::from_str(&fresh).unwrap();
+        assert_eq!(
+            committed, fresh,
+            "stale fixture: re-run with UPDATE_FIXTURES=1"
+        );
     }
 }

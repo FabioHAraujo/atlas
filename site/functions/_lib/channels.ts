@@ -86,8 +86,9 @@ export function accepts(channel: Channel, v: Version): boolean {
 }
 
 /** The tag `channel` should follow: highest precedence among the accepted tags. `tags` is what `releases.atom` lists (any
- * order, junk allowed); `stableTag` is the target of the `releases/latest` redirect and is always a candidate, so a
- * channel is never worse than Stable even when the 10-entry feed window no longer reaches it. */
+ * order, junk allowed); `stableTag` is the newest Stable (see `stableTag()` above: never the raw `releases/latest`
+ * redirect, which is an alpha pre-GA) and is always a candidate, so a channel is never worse than Stable even when the 10-entry
+ * feed window no longer reaches it. */
 export function resolve(channel: Channel, tags: Iterable<string>, stableTag: string | null): string | null {
 	let best: { tag: string; v: Version } | null = null;
 	for (const tag of [...tags, ...(stableTag ? [stableTag] : [])]) {
@@ -95,6 +96,27 @@ export function resolve(channel: Channel, tags: Iterable<string>, stableTag: str
 		if (v && accepts(channel, v) && (!best || precedence(v, best.v) > 0)) best = { tag, v };
 	}
 	return best?.tag ?? null;
+}
+
+/** Feed pages read at most while looking for a Stable behind a run of prereleases (10 releases each). */
+export const STABLE_PAGES = 5;
+
+/** The newest Stable (no prerelease label) among the feed `tags` and the `releases/latest` redirect. Pre-GA the redirect is the newest
+ * alpha (release.yml publishes the default channel's builds as ordinary releases), so it is only a candidate, never trusted.
+ * `readMore(oldestSeen)` returns the feed page after `oldestSeen` (`releases.atom?after=`); it is asked only while no Stable shows
+ * up and the last page was full (10), at most `STABLE_PAGES` pages in all. Same rule as `atlas_core::github::stable_tag`. */
+export async function stableTag(first: string[], latest: string | null, readMore: (after: string) => Promise<string[]>): Promise<string | null> {
+	const seen = [...first];
+	let page = first.length;
+	for (let i = 0; i < STABLE_PAGES; i++) {
+		const found = resolve("stable", seen, latest);
+		if (found || page < 10) return found;
+		const older = await readMore(seen[seen.length - 1]).catch(() => []);
+		page = older.length;
+		if (!older.length) return null;
+		seen.push(...older);
+	}
+	return resolve("stable", seen, latest);
 }
 
 /** Whether `version` is a prerelease whose own release (same major.minor.patch) is also in `versions`: the stable section is

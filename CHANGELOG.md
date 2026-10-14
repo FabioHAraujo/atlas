@@ -14,6 +14,28 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 - Settings → Shell no longer offers `rbash`, `tmux` or `screen` from `/etc/shells` (they cannot report an environment), and the shell fallback is `/bin/sh` where zsh is not installed.
 
+## [1.5.0-alpha.5] — 2026-10-14
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Changed
+
+- **Settings, reorganized.** A larger window and clearer sections: General (updates, update channel, links and notifications), Appearance, **Editor** (editor preferences and Languages, which used to sit under Appearance), **Terminal**, Workspaces, Agents, Keyboard shortcuts, SSH hosts and Help. Every row has the same layout, the update channel is a compact list with details on demand, and search takes you to each setting's new place.
+- **Gitignored files are dimmed** in the explorer (and stay out of Source Control), so `node_modules`, `target` or `.env` no longer look like your code. Readable in every bundled theme.
+
+### Fixed
+
+- The **+** for a new tab disappeared when a group had more tabs than fit, for example with a terminal or browser tab open. The tabs now scroll on their own and **+** always stays in view.
+
+## [1.5.0-alpha.4] — 2026-10-13
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Changed
+
+- **GitHub's "Latest" release is now the newest alpha, while Alpha is the default channel.** The releases page showed `v1.4.0` as "Latest" although every install that never chose a channel follows the newest alpha, which confused people. A build of the default channel is now published as a normal release marked "Latest"; betas and release candidates stay pre-releases. At GA, when the default goes back to Stable, only a Stable is "Latest" again with no other edit. The release flags come from the `default` recorded in `crates/atlas-core/data/channels.json`.
+- **Stable never follows that "Latest" badge.** `atlas update`, Atlas Desktop, the website (`/release.json?channel=stable`, `/download`) and both installers now read Stable as the newest release without a prerelease label from the release feed, so choosing Stable still means a real Stable (`v1.4.0` today), not the newest alpha. Installs on `v1.4.0` that never chose a channel keep resolving through `releases/latest`, so they are offered the newest alpha, which is the new default.
+
 ## [1.5.0-alpha.3] — 2026-10-13
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

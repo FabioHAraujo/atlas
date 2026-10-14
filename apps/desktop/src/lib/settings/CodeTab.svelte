@@ -92,7 +92,7 @@ if (answer !== 42) throw new Error("not yet");</pre>
 		label="Manage language servers"
 		description="Install, update or replace the server of each language."
 	>
-		<button class="link" onclick={() => updates.show("appearance/languages")}>Open Languages</button>
+		<button class="link" onclick={() => updates.show("editor/languages")}>Open Languages</button>
 	</Row>
 </Group>
 

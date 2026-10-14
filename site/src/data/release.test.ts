@@ -11,11 +11,14 @@ afterEach(() => {
 });
 
 const manifest = (v: string) => ({ version: v, date: "2026-10-13T00:00:00+00:00", assets: { "aarch64-apple-darwin": { desktop_dmg: { url: `https://github.com/x/releases/download/v${v}/Atlas-${v}.dmg`, sha256: "bb", size: 2 }, cli: { url: `https://github.com/x/releases/download/v${v}/atlas-${v}.tar.gz`, sha256: "cc", size: 1 } } } });
-const script = (feed: string[], stable = "v1.4.0", unpublished: string[] = []) => {
+const script = (feed: string[], stable = "v1.4.0", unpublished: string[] = [], pages: Record<string, string[]> = {}) => {
 	globalThis.fetch = (async (url: string | URL | Request) => {
 		const u = String(url);
 		if (u.endsWith("/releases/latest")) return new Response(null, { status: 302, headers: { location: `https://github.com/codeatlasdev/atlas/releases/tag/${stable}` } });
-		if (u.endsWith("/releases.atom")) return new Response(`<feed>${feed.map((t) => `<entry><link rel="alternate" href="https://github.com/codeatlasdev/atlas/releases/tag/${t}"/></entry>`).join("")}</feed>`);
+		const atom = (tags: string[]) => new Response(`<feed>${tags.map((t) => `<entry><link rel="alternate" href="https://github.com/codeatlasdev/atlas/releases/tag/${t}"/></entry>`).join("")}</feed>`);
+		const after = u.match(/\/releases\.atom\?after=([^&]+)$/)?.[1];
+		if (after) return atom(pages[decodeURIComponent(after)] ?? []);
+		if (u.endsWith("/releases.atom")) return atom(feed);
 		const m = u.match(/download\/(v[^/]+)\/manifest\.json/);
 		if (m && !unpublished.includes(m[1])) return Response.json(manifest(m[1].slice(1)));
 		return new Response("nf", { status: 404 });
@@ -65,5 +68,21 @@ describe("the other channels on the download page", () => {
 			throw new Error("down");
 		}) as unknown as typeof fetch;
 		expect(await channelReleases()).toEqual({ stable: null, beta: null });
+	});
+});
+
+// Incident guard: while alpha is the default, `releases/latest` IS the newest alpha. The Stable card must still be real stable.
+describe("the download page while /releases/latest is an alpha", () => {
+	test("the Stable card is the newest tag without a prerelease label, the primary button the alpha", async () => {
+		script(["v1.5.0-alpha.4", "v1.5.0-alpha.3", "v1.4.0", "v1.4.0-beta.1"], "v1.5.0-alpha.4");
+		expect(await latestRelease()).toMatchObject({ version: "1.5.0-alpha.4" });
+		const others = await channelReleases();
+		expect(others.stable).toMatchObject({ version: "1.4.0" });
+		expect(others.beta).toBeNull();
+	});
+	test("a window of alphas: the stable is found by paging the feed back", async () => {
+		const page1 = Array.from({ length: 10 }, (_, i) => `v1.5.0-alpha.${12 - i}`);
+		script(page1, "v1.5.0-alpha.12", [], { "v1.5.0-alpha.3": ["v1.5.0-alpha.2", "v1.4.0"] });
+		expect((await channelReleases()).stable).toMatchObject({ version: "1.4.0" });
 	});
 });

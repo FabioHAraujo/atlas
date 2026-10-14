@@ -808,3 +808,44 @@ describe("a stored theme that no longer exists", () => {
 		expect(resolveTerminalTheme(themes, "One Dark", app).name).toBe("One Dark");
 	});
 });
+
+// Incident (explorer, gitignored files): the first cut painted ignored names with `text.muted`. That token is lifted to
+// AA, so in One Dark it measured rgb(204,213,228) against a clean file's rgb(205,212,225): brighter, in effect not dimmed
+// at all, and in Dracula barely. A dimmed state needs its own token: readable (AA) yet strictly quieter than `text`.
+describe("version_control.ignored: dimmed like VS Code / Zed, still AA, in every bundled theme", () => {
+	const SURF = ["background", "editor.background", "surface.background", "elevated_surface.background"];
+	const rgb = (hex) => hex.slice(0, 7);
+	for (const t of bundled) {
+		const s = complete(t.style, t.appearance);
+		test(`${t.name} (${t.appearance}): AA on every surface and the sidebar, clearly quieter than text, not a vcs hue`, () => {
+			const ign = rgb(s["version_control.ignored"]);
+			const side = over(rgb(s.background), t.appearance === "dark" ? "#000000" : "#ffffff", 0.82);
+			const fails = [];
+			for (const k of SURF) {
+				const r = contrast(ign, rgb(s[k]));
+				if (r < 4.5) fails.push(`on ${k}: ${r.toFixed(2)} < 4.5`);
+			}
+			if (contrast(ign, side) < 4.5) fails.push(`over sidebar: ${contrast(ign, side).toFixed(2)} < 4.5`);
+			// "dimmed": the contrast against the editor background drops by at least 15% from the primary text's
+			const dim =
+				contrast(ign, rgb(s["editor.background"])) / contrast(rgb(s.text), rgb(s["editor.background"]));
+			if (dim > 0.85) fails.push(`not dimmed: ${(dim * 100).toFixed(0)}% of text contrast (want <= 85%)`);
+			// and it must not pass for a vcs colour: neutral, so chroma stays well under the hues'
+			if (toOklch(ign).c > 0.06) fails.push(`chroma ${toOklch(ign).c.toFixed(3)} reads as a hue`);
+			expect(fails).toEqual([]);
+		});
+	}
+
+	test("an explicit theme value that reads is kept; one that vanishes is lifted to AA keeping its hue", () => {
+		const keep = complete({ "editor.background": "#101820", "version_control.ignored": "#b4c1d1" }, "dark");
+		expect(keep["version_control.ignored"]).toBe("#b4c1d1");
+		const bad = complete({ "editor.background": "#fafafa", "version_control.ignored": "#d8d8d8" }, "light");
+		expect(bad["version_control.ignored"]).not.toBe("#d8d8d8");
+		expect(contrast(rgb(bad["version_control.ignored"]), rgb(bad.background))).toBeGreaterThanOrEqual(4.5);
+	});
+
+	test("the token drives --atlas-vcs-ignored in the CSS vars", () => {
+		const vars = cssVars(complete(bundled[0].style, bundled[0].appearance));
+		expect(vars["--atlas-vcs-ignored"]).toMatch(/^#[0-9a-f]{6,8}$/i);
+	});
+});

@@ -1,8 +1,11 @@
 // The release engine: the site never has a copy of "the latest release", it asks GitHub at the edge.
 //
-//   latest tag      github.com/<repo>/releases/latest redirect (no API quota, no token)
-//   beta/alpha      github.com/<repo>/releases.atom (10 newest published, no API) + the stable tag, resolved by ./channels.ts;
-//                   a candidate counts only once its manifest.json exists (the tag is pushed before the release is built)
+//   redirect        github.com/<repo>/releases/latest (no API quota, no token): the newest build of the DEFAULT channel
+//                   (release.yml publishes it as a normal release), so pre-GA an alpha. A hint, never "the stable tag".
+//   stable          the newest tag without a prerelease label among releases.atom (10 newest published, no API; older pages
+//                   with ?after=) and the redirect, resolved by ./channels.ts
+//   beta/alpha      the same feed + the stable tag; a candidate counts only once its manifest.json exists (the tag is pushed
+//                   before the release is built)
 //   changelog       raw.githubusercontent.com/<repo>/<tag>/CHANGELOG.md   (pinned to the tag: never a half-written main)
 //   assets          github.com/<repo>/releases/download/<tag>/manifest.json (version, date, sha256, size per asset)
 //
@@ -10,7 +13,7 @@
 // hangs off a tag is immutable and cached per tag. If GitHub is down or slow we serve the last good copy (the Cache
 // API entry is kept for a day past its TTL) instead of failing, so the page is never empty and never old by choice.
 
-import { CHANNELS, atomTags, resolve, type Channel } from "./channels";
+import { CHANNELS, atomTags, resolve, stableTag, type Channel } from "./channels";
 import { REPO, toRelease, type Manifest, type ReleaseInfo } from "./release";
 
 export const TAG_TTL = 60;
@@ -19,8 +22,8 @@ const TIMEOUT = 8000;
 
 const get = (url: string, init: RequestInit = {}) => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT), headers: { "user-agent": "atlas-site-edge" } });
 
-/** Latest published tag from the redirect of /releases/latest. Throws on anything unexpected. */
-export async function latestTag(): Promise<string> {
+/** The tag `releases/latest` redirects to: the newest build of the default channel (an alpha pre-GA). Throws on anything unexpected. */
+export async function redirectTag(): Promise<string> {
 	const res = await get(`https://github.com/${REPO}/releases/latest`, { method: "HEAD", redirect: "manual" });
 	const tag = res.headers.get("location")?.match(/\/releases\/tag\/([^/?#]+)$/)?.[1];
 	if (!tag || !/^v?[0-9A-Za-z._-]+$/.test(tag)) throw new Error(`no latest tag (HTTP ${res.status})`);
@@ -68,30 +71,39 @@ async function withLastGood<T>(cache: Cache, lastKey: Request, work: () => Promi
 	}
 }
 
-/** `fresh` (the `?fresh=1` cache-bust) skips the tag pointer so the redirect is asked again right now.
- * One call for the pages: resolves the latest tag, then loads + caches whatever hangs off it. */
-export async function resolveLatest<T>(kind: string, load: (tag: string) => Promise<T>, fresh = false): Promise<Resolved<T>> {
-	const cache = await caches.open(CACHE);
-	return withLastGood(cache, new Request(`https://cache.invalid/${kind}/last`), async () => {
-		const tag = await pointer(cache, "tag", latestTag, fresh);
-		return cachedByTag(cache, `https://cache.invalid/${kind}/${tag}`, () => load(tag));
-	});
-}
-
-/** The tags `releases.atom` lists (the 10 newest published, prereleases included). An unreachable or unreadable feed is an empty list:
- * beta and alpha then degrade to the stable tag instead of failing. */
-async function feedTags(cache: Cache, fresh: boolean): Promise<string[]> {
+/** The tags `releases.atom` lists (the 10 newest published, prereleases included); `after` pages back (`?after=<tag>`). An
+ * unreachable or unreadable feed is an empty list: beta and alpha then degrade to the stable tag instead of failing. */
+async function feedTags(cache: Cache, fresh: boolean, after?: string): Promise<string[]> {
 	const xml = await pointer(
 		cache,
-		"feed",
+		after ? `feed/${after}` : "feed",
 		async () => {
-			const res = await get(`https://github.com/${REPO}/releases.atom`);
+			const res = await get(`https://github.com/${REPO}/releases.atom${after ? `?after=${encodeURIComponent(after)}` : ""}`);
 			if (!res.ok) throw new Error(`releases.atom HTTP ${res.status}`);
 			return res.text();
 		},
 		fresh,
 	).catch(() => "");
 	return atomTags(xml);
+}
+
+/** The Stable tag: the newest tag without a prerelease label (never the raw redirect, see the header). Throws when the redirect is
+ * unreachable and the feed has none, so the callers' last-good fallback applies; `null` only when no Stable is published at all. */
+async function stablePointer(cache: Cache, feed: string[], fresh: boolean): Promise<string> {
+	const redirect = await pointer(cache, "tag", redirectTag, fresh).catch(() => null);
+	const stable = await stableTag(feed, redirect, (after) => feedTags(cache, fresh, after));
+	if (!stable) throw new Error(redirect ? "no Stable release is published" : "no latest tag");
+	return stable;
+}
+
+/** `fresh` (the `?fresh=1` cache-bust) skips the pointers so the redirect and the feed are asked again right now.
+ * One call for the pages: resolves the Stable tag, then loads + caches whatever hangs off it. */
+export async function resolveLatest<T>(kind: string, load: (tag: string) => Promise<T>, fresh = false): Promise<Resolved<T>> {
+	const cache = await caches.open(CACHE);
+	return withLastGood(cache, new Request(`https://cache.invalid/${kind}/last`), async () => {
+		const tag = await stablePointer(cache, await feedTags(cache, fresh), fresh);
+		return cachedByTag(cache, `https://cache.invalid/${kind}/${tag}`, () => load(tag));
+	});
 }
 
 /** Newest candidate `channel` accepts whose `load` succeeds (the tag is pushed before the release is published: walk down). */
@@ -109,14 +121,14 @@ async function newestPublished<T>(channel: Channel, feed: string[], stable: stri
 	return null;
 }
 
-/** Like `resolveLatest`, for one channel. Stable is the existing redirect path; beta and alpha follow the newest published tag they
+/** Like `resolveLatest`, for one channel. Stable is `resolveLatest`; beta and alpha follow the newest published tag they
  * accept (never older than stable). The last good copy is kept per channel. `value` is null only when nothing is published at all. */
 export async function resolveChannel<T>(kind: string, channel: Channel, load: (tag: string) => Promise<T>, fresh = false): Promise<Resolved<T | null>> {
 	if (channel === "stable") return resolveLatest(kind, load, fresh);
 	const cache = await caches.open(CACHE);
 	return withLastGood(cache, new Request(`https://cache.invalid/${kind}/last/${channel}`), async () => {
-		const stable = await pointer(cache, "tag", latestTag, fresh);
-		return newestPublished(channel, await feedTags(cache, fresh), stable, kind, cache, load);
+		const feed = await feedTags(cache, fresh);
+		return newestPublished(channel, feed, await stablePointer(cache, feed, fresh), kind, cache, load);
 	});
 }
 
@@ -124,8 +136,8 @@ export async function resolveChannel<T>(kind: string, channel: Channel, load: (t
 export async function resolveChannels<T>(kind: string, load: (tag: string) => Promise<T>, fresh = false): Promise<Resolved<Record<Channel, T | null>>> {
 	const cache = await caches.open(CACHE);
 	return withLastGood(cache, new Request(`https://cache.invalid/${kind}/last/all`), async () => {
-		const stable = await pointer(cache, "tag", latestTag, fresh);
 		const feed = await feedTags(cache, fresh);
+		const stable = await stablePointer(cache, feed, fresh);
 		const found = await Promise.all(CHANNELS.map((c) => newestPublished(c, feed, stable, kind, cache, load)));
 		return Object.fromEntries(CHANNELS.map((c, i) => [c, found[i]])) as Record<Channel, T | null>;
 	});

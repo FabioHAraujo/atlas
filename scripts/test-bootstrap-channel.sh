@@ -77,6 +77,18 @@ check "default channel falls back to stable when nothing newer exists" \
 check "default channel installs the newest alpha" \
   "$(printf 'v1.5.0-alpha.2\nv1.5.0-alpha.1\nv1.4.0\n' | select_tag "$DEFAULT_CHANNEL" 'v1.4.0')" "v1.5.0-alpha.2"
 
+# While alpha is the default, /releases/latest is the newest alpha (release.yml publishes the default
+# channel's builds as non-prerelease). A client that chose stable must still get the newest real stable:
+# `stable_from` takes the redirect only when it carries no prerelease label, and finds the rest in the feed.
+check "stable ignores an alpha /releases/latest" \
+  "$(printf 'v1.5.0-alpha.4\nv1.5.0-alpha.3\nv1.4.0\n' | stable_from 'v1.5.0-alpha.4')" "v1.4.0"
+check "stable still trusts a real stable redirect" \
+  "$(printf 'v1.4.0\n' | stable_from 'v1.4.0')" "v1.4.0"
+check "no stable in the feed and an alpha redirect: nothing, never the alpha" \
+  "$(printf 'v1.5.0-alpha.2\n' | stable_from 'v1.5.0-alpha.2')" ""
+check "a stable hotfix wins on precedence, not on feed order" \
+  "$(printf 'v1.4.1\nv1.5.0-alpha.1\nv1.4.0\n' | stable_from 'v1.5.0-alpha.1')" "v1.4.1"
+
 # site/public/install.sh (the curl | sh one-liner): which channel the installed atlas moves to.
 # Sourced in a subshell so its helpers do not leak into the checks above.
 step() { (ATLAS_BOOTSTRAP_SOURCE_ONLY=1; . "$ROOT/site/public/install.sh"; channel_step "$1"); }
@@ -84,6 +96,14 @@ check "install.sh: no ATLAS_CHANNEL means the installed atlas follows its defaul
 check "install.sh: explicit stable is saved as stable" "$(step stable)" "stable"
 check "install.sh: explicit beta" "$(step beta)" "beta"
 check "install.sh: explicit alpha" "$(step alpha)" "alpha"
+# install.sh bootstraps with the newest REAL stable, whatever /releases/latest says (it is an alpha pre-GA),
+# then the installed atlas moves to the channel: no ATLAS_CHANNEL -> its default (alpha); stable -> saved.
+istable() { (ATLAS_BOOTSTRAP_SOURCE_ONLY=1; . "$ROOT/site/public/install.sh"; printf '%s\n' "$1" | sed 's/,/\n/g' | install_stable_tag "$2"); }
+check "install.sh: /releases/latest is an alpha: the bootstrap binary is still the newest stable" \
+  "$(istable 'v1.5.0-alpha.4,v1.4.0,v1.4.0-beta.1' 'v1.5.0-alpha.4')" "v1.4.0"
+check "install.sh: /releases/latest is a stable: used as is" "$(istable 'v1.4.0' 'v1.4.0')" "v1.4.0"
+check "install.sh: nothing stable anywhere: empty, so the script dies instead of installing an alpha" \
+  "$(istable 'v1.5.0-alpha.4' 'v1.5.0-alpha.4')" ""
 check "install.sh: an unknown channel is rejected" "$(step nightly)" "invalid"
 check "install.sh: channel names are exact (no case folding)" "$(step Alpha)" "invalid"
 

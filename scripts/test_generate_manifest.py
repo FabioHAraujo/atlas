@@ -103,6 +103,15 @@ class Manifest(unittest.TestCase):
                 self.assertIn(f"/download/v{version}/", m["assets"]["aarch64-apple-darwin"]["cli"]["url"])
                 self.assertEqual(m["changelog"], f"https://github.com/codeatlasdev/atlas/releases/tag/v{version}")
 
+    # Incident guard: GitHub now publishes a default-channel alpha as a normal "Latest" release (release.yml),
+    # so GitHub's prerelease flag no longer says "has a SemVer label". The manifest's `prerelease` keeps that
+    # meaning (clients and the site read it to badge Alpha/Beta/RC), and it must NOT follow the GitHub flag.
+    def test_prerelease_is_the_semver_label_not_github_s_release_flag(self):
+        root, *_ = make_artifacts("1.5.0-alpha.4")
+        m = run_cli("1.5.0-alpha.4", root, {"GITHUB_SHA": "abc"})
+        self.assertTrue(m["prerelease"])
+        self.assertEqual(m["channel"], "alpha")
+
     def test_commit_prefers_env_then_git(self):
         root, *_ = make_artifacts("1.4.0")
         self.assertEqual(run_cli("1.4.0", root, {"ATLAS_COMMIT": "deadbeef"})["commit"], "deadbeef")

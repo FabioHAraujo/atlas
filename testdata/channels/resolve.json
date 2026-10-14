@@ -175,6 +175,36 @@
     "alpha": "v1.4.0-alpha.1"
    },
    "note": ""
+  },
+  {
+   "name": "default-channel alpha is /releases/latest: stable and beta never follow it",
+   "tags": [
+    "v1.5.0-alpha.4",
+    "v1.5.0-alpha.3",
+    "v1.4.0",
+    "v1.4.0-beta.1"
+   ],
+   "stable_tag": "v1.5.0-alpha.4",
+   "expect": {
+    "stable": "v1.4.0",
+    "beta": "v1.4.0",
+    "alpha": "v1.5.0-alpha.4"
+   },
+   "note": "release.yml publishes the default channel's builds as non-prerelease, so the redirect can be an alpha"
+  },
+  {
+   "name": "redirect is an alpha and the feed window has no stable: stable resolves to nothing, not to the alpha",
+   "tags": [
+    "v1.6.0-alpha.2",
+    "v1.6.0-alpha.1"
+   ],
+   "stable_tag": "v1.6.0-alpha.2",
+   "expect": {
+    "stable": null,
+    "beta": null,
+    "alpha": "v1.6.0-alpha.2"
+   },
+   "note": "callers page the feed further back (?after=) before concluding there is no stable"
   }
  ]
 }

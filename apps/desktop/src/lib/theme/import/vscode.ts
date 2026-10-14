@@ -64,6 +64,7 @@ const COLOR_MAP: Record<string, string> = {
 	"gitDecoration.modifiedResourceForeground": "version_control.modified",
 	"gitDecoration.deletedResourceForeground": "version_control.deleted",
 	"gitDecoration.renamedResourceForeground": "version_control.renamed",
+	"gitDecoration.ignoredResourceForeground": "version_control.ignored",
 };
 
 /** TextMate scope prefix -> syntax role. The longest matching prefix wins. */

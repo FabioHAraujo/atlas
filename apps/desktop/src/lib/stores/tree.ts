@@ -34,15 +34,49 @@ export const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : nam
 /** Folder part of a relative path (`a/b/c.ts` → `a/b`, `c.ts` → ``). */
 export const parentOf = (rel: string) => rel.split("/").slice(0, -1).join("/");
 
-/** Change state per path from `git status` entries; changed files mark every folder above them `modified`. */
-export function statusMap(entries: { path: string; x: string; y: string }[]): Record<string, string> {
+interface StatusEntry {
+	path: string;
+	x: string;
+	y: string;
+	conflict?: boolean;
+}
+
+/**
+ * Change state per path from `git status --ignored` entries. Changed files mark every folder above them `modified`;
+ * ignored ones (`x`/`y` = `!`, a collapsed folder arrives as `dir/`) are `ignored` and mark nothing above them.
+ */
+export function statusMap(entries: StatusEntry[]): Record<string, string> {
 	const map: Record<string, string> = {};
 	for (const e of entries) {
+		if (e.x === "!") {
+			map[e.path.replace(/\/$/, "")] ??= "ignored";
+			continue;
+		}
 		map[e.path] = e.x === "?" ? "untracked" : e.x === "D" || e.y === "D" ? "deleted" : "modified";
 		const parts = e.path.split("/");
 		for (let i = 1; i < parts.length; i++) map[parts.slice(0, i).join("/")] ??= "modified";
 	}
 	return map;
+}
+
+/**
+ * State of `rel`: its own entry, else `ignored` when a folder above it is (git reports a wholly ignored folder as one
+ * entry, the explorer lists what is inside).
+ */
+export function statusOf(map: Record<string, string>, rel: string): string | undefined {
+	if (map[rel]) return map[rel];
+	return ancestorsOf(rel).some((a) => map[a] === "ignored") ? "ignored" : undefined;
+}
+
+/** Source-control groups; ignored entries (`!`) belong to none of them. */
+export function statusGroups<T extends StatusEntry>(entries: T[]) {
+	const tracked = entries.filter((e) => e.x !== "!");
+	return {
+		staged: tracked.filter((e) => e.x !== "." && e.x !== "?" && !e.conflict),
+		changes: tracked.filter((e) => e.y !== "." && e.y !== "?" && !e.conflict),
+		untracked: tracked.filter((e) => e.x === "?"),
+		conflicts: tracked.filter((e) => e.conflict),
+	};
 }
 
 /** What a handled navigation key asks for; every field is optional (a handled key may do nothing). */

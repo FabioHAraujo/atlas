@@ -3,10 +3,11 @@
 //! Uses no REST API and no token: the unauthenticated API allows 60 requests an hour per IP,
 //! which a shared network (or a few update checks) exhausts. Instead, through `curl`
 //! (present on every supported OS):
-//! - the latest tag comes from the `releases/latest` redirect on github.com (that redirect
-//!   never points at a prerelease, which is what keeps the Stable channel stable);
-//! - Beta and Alpha also read `releases.atom` (public, 10 newest published releases, no
-//!   prerelease flag, so the channel is inferred from the SemVer tag) and pick the newest
+//! - the `releases/latest` redirect on github.com is a hint only: while the default channel is
+//!   Alpha, `release.yml` publishes alphas as ordinary releases, so the redirect can be an alpha.
+//!   Stable is therefore the newest tag without a prerelease label, see [`stable_tag`];
+//! - every channel reads `releases.atom` (public, 10 newest published releases, no
+//!   prerelease flag, so the channel is inferred from the SemVer tag) and picks the newest
 //!   version the channel accepts, see [`crate::channel::resolve`];
 //! - release notes are the `## [X.Y.Z] - date` sections of `CHANGELOG.md` at that tag
 //!   (the release body is the same section, extracted by `release.yml`);
@@ -69,8 +70,9 @@ fn run(mut cmd: Command) -> Result<Vec<u8>, GithubError> {
     ))
 }
 
-/// Tag of the latest published (non-draft, non-prerelease) release, from the redirect
-/// `github.com/<repo>/releases/latest` → `.../releases/tag/<tag>`.
+/// Tag the redirect `github.com/<repo>/releases/latest` → `.../releases/tag/<tag>` points at.
+/// Pre-GA that is the newest build of the default channel (an alpha), not necessarily a Stable:
+/// only [`stable_tag`] turns it into one.
 fn latest_tag(repo: &str) -> Result<String, GithubError> {
     let mut c = curl();
     c.args(["-o", "/dev/null", "-w", "%{redirect_url}"])
@@ -169,9 +171,53 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn atom(repo: &str) -> Result<String, GithubError> {
+    atom_page(repo, None)
+}
+
+/// A page of the feed: the 10 newest releases, or the 10 that follow `after` (`?after=<tag>`).
+fn atom_page(repo: &str, after: Option<&str>) -> Result<String, GithubError> {
     let mut c = curl();
-    c.arg(format!("https://github.com/{repo}/releases.atom"));
+    c.arg(match after {
+        Some(tag) => format!("https://github.com/{repo}/releases.atom?after={tag}"),
+        None => format!("https://github.com/{repo}/releases.atom"),
+    });
     Ok(String::from_utf8_lossy(&run(c)?).into_owned())
+}
+
+/// Feed pages read at most while looking for a Stable behind a run of prereleases (10 releases each).
+const STABLE_PAGES: usize = 5;
+
+/// The newest Stable (no prerelease label) among `tags` and the `latest` redirect. `latest` is
+/// only a candidate: while Alpha is the default channel it is an alpha, which Stable never
+/// follows. This is [`channel::resolve`] for Stable, kept as the one place that says so.
+fn stable_from<'a>(
+    tags: impl IntoIterator<Item = &'a str>,
+    latest: Option<&'a str>,
+) -> Option<String> {
+    channel::resolve(Channel::Stable, tags, latest)
+}
+
+/// The tag Stable follows: [`stable_from`] over the feed and the redirect, reading older feed
+/// pages (`?after=` the oldest tag seen) while a run of prereleases hides every Stable. The
+/// first page is `first` (already fetched by the caller), so the common case costs nothing.
+fn stable_tag(repo: &str, first: &[String], latest: Option<&str>) -> Option<String> {
+    let mut seen: Vec<String> = first.to_vec();
+    let mut page = first.len();
+    for _ in 0..STABLE_PAGES {
+        let found = stable_from(seen.iter().map(String::as_str), latest);
+        // A feed page is 10 long; a shorter one is the end of the history.
+        if found.is_some() || page < 10 {
+            return found;
+        }
+        let oldest = seen.last()?.clone();
+        let older = atom_tags(&atom_page(repo, Some(&oldest)).ok()?);
+        page = older.len();
+        if older.is_empty() {
+            return None;
+        }
+        seen.extend(older);
+    }
+    stable_from(seen.iter().map(String::as_str), latest)
 }
 
 /// `HEAD` on the release's `manifest.json`: the tag is pushed before the release is built and
@@ -200,19 +246,24 @@ fn newest_published(
     stable.map(str::to_string)
 }
 
-/// The tag `channel` follows, without fetching the changelog (what update checks need). Stable
-/// is the `releases/latest` redirect alone. Beta and Alpha add the Atom feed; if the feed cannot
-/// be read they fall back to Stable.
+/// The tag `channel` follows, without fetching the changelog (what update checks need). Every
+/// channel reads the Atom feed; if it cannot be read, the channel falls back to the Stable the
+/// `releases/latest` redirect names (when it names one).
 pub fn channel_tag(repo: &str, channel: Channel) -> Result<String, GithubError> {
-    let stable = latest_tag(repo);
-    if channel == Channel::Stable {
-        return stable;
-    }
+    let latest = latest_tag(repo);
     let feed = atom(repo).map(|x| atom_tags(&x)).unwrap_or_default();
-    let mut candidates: Vec<&str> = feed.iter().map(String::as_str).collect();
-    candidates.extend(stable.as_deref().ok());
-    newest_published(repo, channel, candidates, stable.as_deref().ok())
-        .ok_or_else(|| stable.unwrap_err())
+    let stable = stable_tag(repo, &feed, latest.as_deref().ok());
+    let found = if channel == Channel::Stable {
+        stable.clone()
+    } else {
+        let mut candidates: Vec<&str> = feed.iter().map(String::as_str).collect();
+        candidates.extend(stable.as_deref());
+        newest_published(repo, channel, candidates, stable.as_deref())
+    };
+    found.ok_or_else(|| match latest {
+        Err(e) => e,
+        Ok(_) => GithubError::Failed(format!("{repo} has no Stable release")),
+    })
 }
 
 /// The section of `tag` in `sections` as a [`ReleaseInfo`].
@@ -284,10 +335,14 @@ pub fn channel_views(
     installed: &semver::Version,
     selected: Channel,
 ) -> Vec<channel::ChannelView> {
-    // Beta and Alpha each read the feed; one fetch serves both, and Stable is the redirect.
-    let stable = latest_tag(repo).ok();
+    // One feed fetch and one Stable lookup serve all three channels.
+    let latest = latest_tag(repo).ok();
     let feed = atom(repo).map(|x| atom_tags(&x)).unwrap_or_default();
+    let stable = stable_tag(repo, &feed, latest.as_deref());
     let tags = |c: Channel| -> Option<String> {
+        if c == Channel::Stable {
+            return stable.clone();
+        }
         let mut cand: Vec<&str> = feed.iter().map(String::as_str).collect();
         cand.extend(stable.as_deref());
         newest_published(repo, c, cand, stable.as_deref())
@@ -536,6 +591,51 @@ mod tests {
                 "{c}"
             );
         }
+    }
+
+    // Incident guard: while the default channel is alpha, `releases/latest` points at the newest alpha
+    // (release.yml publishes the default channel's builds as non-prerelease). A client that chose Stable
+    // must still land on the newest real Stable, so the redirect is only a hint, never trusted blindly.
+    #[test]
+    fn stable_ignores_a_latest_redirect_that_carries_a_prerelease_label() {
+        let feed = [
+            "v1.5.0-alpha.4",
+            "v1.5.0-alpha.3",
+            "v1.4.0",
+            "v1.4.0-beta.1",
+        ];
+        assert_eq!(
+            stable_from(feed, Some("v1.5.0-alpha.4")).as_deref(),
+            Some("v1.4.0"),
+            "redirect says alpha, feed has v1.4.0"
+        );
+        // Redirect is a real Stable (GA behaviour): it is still a candidate.
+        assert_eq!(stable_from(feed, Some("v1.4.0")).as_deref(), Some("v1.4.0"));
+        // The feed window (10 entries) no longer reaches the last Stable and the redirect is an alpha:
+        // nothing trustworthy, so no Stable rather than an alpha.
+        assert_eq!(
+            stable_from(["v1.6.0-alpha.2", "v1.6.0-alpha.1"], Some("v1.6.0-alpha.2")),
+            None
+        );
+        // Feed unreadable: a redirect that is a Stable still works.
+        assert_eq!(
+            stable_from(Vec::<&str>::new(), Some("v1.4.0")).as_deref(),
+            Some("v1.4.0")
+        );
+        // A newer real Stable beats an older one in either source.
+        assert_eq!(
+            stable_from(["v1.4.1", "v1.4.0"], Some("v1.5.0-alpha.4")).as_deref(),
+            Some("v1.4.1")
+        );
+    }
+
+    #[test]
+    fn a_stable_hotfix_published_after_an_alpha_is_still_the_stable() {
+        // Feed order is publication order: the hotfix is first, but the rule is SemVer precedence.
+        assert_eq!(
+            stable_from(["v1.4.1", "v1.5.0-alpha.1", "v1.4.0"], Some("v1.4.1")).as_deref(),
+            Some("v1.4.1")
+        );
     }
 
     #[test]

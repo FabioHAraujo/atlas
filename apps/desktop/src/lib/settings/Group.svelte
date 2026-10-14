@@ -19,25 +19,26 @@
 	.group {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 8px;
 	}
 	header {
 		padding: 0 2px;
 	}
 	h3 {
 		margin: 0;
-		font-size: 12px;
+		font-size: 13px;
 		font-weight: 650;
-		letter-spacing: 0.01em;
-		color: var(--ca-text-secondary);
+		letter-spacing: -0.005em;
+		color: var(--ca-text-primary);
 	}
 	p {
 		margin: 2px 0 0;
-		font-size: 11.5px;
-		color: var(--ca-text-hint);
+		font-size: 12px;
+		line-height: 1.45;
+		color: var(--ca-text-secondary);
 	}
 	.card {
-		border-radius: 10px;
+		border-radius: 12px;
 		border: 0.5px solid var(--ca-outline-subtle);
 		background: var(--ca-surface-raised);
 	}

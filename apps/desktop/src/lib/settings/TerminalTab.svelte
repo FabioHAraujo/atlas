@@ -47,8 +47,8 @@
 	const ANSI_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7];
 </script>
 
-{#if gpu.supported}
-	<Group title="Renderer">
+<Group title="Renderer">
+	{#if gpu.supported}
 		<Row
 			id="gpu"
 			label="Fast terminal (GPU)"
@@ -66,8 +66,15 @@
 				{/if}
 			{/snippet}
 		</Row>
-	</Group>
-{/if}
+	{/if}
+	<Row
+		id="host-restart"
+		label="Terminal host"
+		description="The background process that keeps terminals alive. Restart it to pick up a new Atlas version; running terminals end."
+	>
+		<Button size="sm" variant="outlined" onclick={restart}>Restart terminal host</Button>
+	</Row>
+</Group>
 
 <Group title="Text">
 	<Row

@@ -41,7 +41,7 @@ The film is built from code by the studio in `../studio/` (`bun studio render at
 
 ## OG image
 
-`scripts/og.ts` screenshots the built hero (needs `playwright` in the folder you run it from; it is not a site dependency, `scripts/playwright.d.ts` declares the few calls it makes for the type-check). `apple-touch-icon.png`, `favicon.ico` and `favicon.svg` come from `assets/logo.svg` (white tile for the touch icon).
+`scripts/og.ts` screenshots the built hero (needs `playwright` in the folder you run it from; it is not a site dependency, `scripts/playwright.d.ts` declares the few calls it makes for the type-check). `apple-touch-icon.png`, `favicon.ico` and `favicon.svg` are generated from `assets/logo.svg` by `bun run icons` at the repo root (white tile for the touch icon); never edit them by hand.
 
 ## Constraints
 

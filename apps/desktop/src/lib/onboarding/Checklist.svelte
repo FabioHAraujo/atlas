@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Kbd } from "@codeatlasdev/ui";
+	import { corner } from "#lib/shell/cornerStack.ts";
 	import { Check, ChevronDown, X } from "@lucide/svelte";
 	import { runCommand, shortcutFor } from "#lib/keymap.svelte.ts";
 	import { onboarding } from "./state.svelte.ts";
@@ -31,7 +32,7 @@
 </script>
 
 {#if visible}
-	<aside class="card" class:collapsed={!open} aria-label="Getting started" data-testid="checklist">
+	<aside use:corner class="card" class:collapsed={!open} aria-label="Getting started" data-testid="checklist">
 		<header>
 			<button class="head" onclick={toggle} aria-expanded={open}>
 				<span class="ring" style:--pct="{(p.done / p.total) * 100}%"></span>
@@ -70,10 +71,6 @@
 
 <style>
 	.card {
-		position: fixed;
-		right: 20px;
-		bottom: 20px;
-		z-index: 60;
 		width: 250px;
 		padding: 4px;
 		border-radius: 14px;

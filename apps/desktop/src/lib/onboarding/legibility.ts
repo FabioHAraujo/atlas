@@ -113,7 +113,7 @@ export function copyScrim(s: { worstBackdrop: Rgb; subtitle: Rgb }): { alpha: nu
 
 /**
  * The colours the welcome copy is painted with. The stage is always a night sky, whatever the app theme, so the copy
- * uses the DARK theme of the same family (Alucard -> Dracula): brand-consistent and always readable on the stage.
+ * uses the DARK theme of the same family (Atlas Light -> Atlas Dark): brand-consistent and always readable on the stage.
  * Hero.svelte sets these as local custom properties; `legibility.test.ts` checks them against the stage.
  */
 export const HERO_TEXT = (dark: Record<string, string>) => ({

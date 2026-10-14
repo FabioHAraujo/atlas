@@ -171,12 +171,12 @@ describe("syntaxTokens", () => {
 });
 
 describe("selection", () => {
-	test("defaults to system with Dracula / Alucard", () => {
+	test("defaults to system with Atlas Light / Atlas Dark", () => {
 		expect(parseSelection(undefined)).toEqual({
 			v: 2,
 			mode: "system",
-			light: "Alucard",
-			dark: "Dracula",
+			light: "Atlas Light",
+			dark: "Atlas Dark",
 			terminal: "app",
 		});
 	});
@@ -186,7 +186,7 @@ describe("selection", () => {
 			v: 2,
 			mode: "dark",
 			light: "One Light",
-			dark: "Dracula",
+			dark: "Atlas Dark",
 			terminal: "app",
 		});
 		expect(parseSelection({ v: 2, mode: "sepia" }).mode).toBe("system");
@@ -198,8 +198,8 @@ describe("resolveTheme", () => {
 	const sel = (o) => parseSelection(o);
 
 	test("system mode follows the OS appearance", () => {
-		expect(resolveTheme(themes, sel({}), true).name).toBe("Dracula");
-		expect(resolveTheme(themes, sel({}), false).name).toBe("Alucard");
+		expect(resolveTheme(themes, sel({}), true).name).toBe("Atlas Dark");
+		expect(resolveTheme(themes, sel({}), false).name).toBe("Atlas Light");
 	});
 
 	test("fixed mode ignores the OS and uses the chosen name", () => {
@@ -208,8 +208,8 @@ describe("resolveTheme", () => {
 	});
 
 	test("an unknown or wrong-appearance name falls back to the default of that appearance", () => {
-		expect(resolveTheme(themes, sel({ mode: "dark", dark: "Gone" }), false).name).toBe("Dracula");
-		expect(resolveTheme(themes, sel({ mode: "dark", dark: "One Light" }), false).name).toBe("Dracula");
+		expect(resolveTheme(themes, sel({ mode: "dark", dark: "Gone" }), false).name).toBe("Atlas Dark");
+		expect(resolveTheme(themes, sel({ mode: "dark", dark: "One Light" }), false).name).toBe("Atlas Dark");
 	});
 
 	test("without the default themes, any theme of that appearance is used", () => {
@@ -220,12 +220,13 @@ describe("resolveTheme", () => {
 });
 
 describe("bundled themes", () => {
-	test("Atlas Dark reproduces the kit dark surface and text tokens", () => {
+	test("Atlas Dark maps the Tokyo Night blue ladder onto the kit surface and text tokens", () => {
 		const v = cssVars(parseThemeFamily(atlas)[0].style);
-		expect(v["--ca-surface-base"]).toBe("#0a0b0e");
-		expect(v["--ca-text-primary"]).toBe("#e9ebef");
-		// The kit's #2b80ff read 4.48:1 on the elevated surface and less on its own 14% tint (AA needs 4.5, theme.test.ts); the theme ships it lifted.
-		expect(v["--ca-brand-main"]).toBe("#5897fa");
+		expect(v["--ca-surface-sunken"]).toBe("#0b1320");
+		expect(v["--ca-surface-base"]).toBe("#131c2b");
+		expect(v["--ca-text-primary"]).toBe("#c0caf5");
+		// Accent text is the equal-lightness blue (L 0.75); it reads AA on the lightest chrome surface (theme.test.ts).
+		expect(v["--ca-brand-main"]).toBe("#87adfb");
 	});
 
 	test("every bundled theme defines a full 16-color terminal palette", () => {

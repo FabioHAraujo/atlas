@@ -143,8 +143,11 @@ export function complete(input: ThemeStyle, appearance: Appearance): ThemeStyle 
 
 /** The chrome surfaces UI text sits on: sidebar/chrome, editor, raised, overlay. */
 const SURFACE_KEYS = ["background", "editor.background", "surface.background", "elevated_surface.background"];
-/** Share of the sidebar the native window material shows through; `Sidebar.svelte` paints `--ca-surface-sunken` at 1 minus this. */
-export const SIDEBAR_SEE_THROUGH = 0.18;
+/**
+ * Share of the sidebar the native window material shows through. 0: the ground is the theme's (`theme/ground.ts`),
+ * because the material's brightness is the wallpaper's and showed light grey under dark themes.
+ */
+export const SIDEBAR_SEE_THROUGH = 0;
 
 /**
  * `fg` moved along lightness (hue and chroma kept) toward the readable side of the theme, `dark` = toward light,

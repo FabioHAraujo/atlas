@@ -25,5 +25,8 @@ base64 = { workspace = true }
 flate2 = { workspace = true }
 png = "0.18"
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [lints]
 workspace = true

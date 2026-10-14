@@ -227,9 +227,9 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		/* The native material shows through (18%, SIDEBAR_SEE_THROUGH in theme/derive.ts); the theme's own chrome surface
-		   carries the rest, so text contrast is a property of the theme tokens, never of the wallpaper or macOS appearance. */
-		background: color-mix(in srgb, var(--ca-surface-sunken) 82%, transparent);
+		/* The theme's own ground, opaque (theme/ground.ts): text contrast is a property of the theme tokens, never of the
+		   wallpaper or macOS appearance. */
+		background: var(--ca-surface-sunken);
 	}
 	.drag {
 		height: 52px;

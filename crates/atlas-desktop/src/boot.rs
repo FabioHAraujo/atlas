@@ -134,13 +134,16 @@ pub fn init_script(cache: Option<&ThemeCache>) -> String {
     js
 }
 
-/// Window appearance for the cached scheme (`None` = follow macOS).
+/// Window appearance (and so the native material) for the cached theme: the applied theme's own, whatever the
+/// scheme preference says. `None` (follow macOS) only without a cache.
 pub fn window_theme(cache: Option<&ThemeCache>) -> Option<tauri::Theme> {
-    match cache?.scheme.as_str() {
-        "dark" => Some(tauri::Theme::Dark),
-        "light" => Some(tauri::Theme::Light),
-        _ => None,
-    }
+    cache.map(|c| {
+        if c.dark {
+            tauri::Theme::Dark
+        } else {
+            tauri::Theme::Light
+        }
+    })
 }
 
 /// A user theme file as read from disk.
@@ -234,20 +237,20 @@ mod tests {
 
     fn cache(scheme: &str, dark: bool) -> ThemeCache {
         ThemeCache {
-            name: "Dracula".into(),
+            name: "Atlas Dark".into(),
             scheme: scheme.into(),
             dark,
-            vars: [("--ca-surface-base".to_string(), "#282a36".to_string())].into(),
+            vars: [("--ca-surface-base".to_string(), "#131c2b".to_string())].into(),
         }
     }
 
     #[test]
     fn init_script_replays_the_cached_theme_before_paint() {
         let js = init_script(Some(&cache("dark", true)));
-        assert!(js.contains(r##"{"--ca-surface-base":"#282a36"}"##));
+        assert!(js.contains(r##"{"--ca-surface-base":"#131c2b"}"##));
         assert!(js.contains("classList.toggle('dark',true)"));
         assert!(js.contains("colorScheme='dark'"));
-        assert!(js.contains(r#"dataset.atlasTheme="Dracula""#));
+        assert!(js.contains(r#"dataset.atlasTheme="Atlas Dark""#));
         // The kit reads its scheme from localStorage: it must agree with the cache.
         assert!(js.contains(r#"JSON.stringify("dark")"#));
     }
@@ -276,7 +279,26 @@ mod tests {
             window_theme(Some(&cache("light", false))),
             Some(tauri::Theme::Light)
         );
-        assert_eq!(window_theme(Some(&cache("system", true))), None);
+    }
+
+    // Incident (user, Atlas Dark, 2026-10-13): `scheme: system` (the default) left the window on "follow macOS", so the
+    // native material could be light under a dark theme. The window follows the theme that was APPLIED (`dark`).
+    #[test]
+    fn window_theme_follows_the_applied_theme_even_in_system_mode() {
+        assert_eq!(
+            window_theme(Some(&cache("system", true))),
+            Some(tauri::Theme::Dark)
+        );
+        assert_eq!(
+            window_theme(Some(&cache("system", false))),
+            Some(tauri::Theme::Light)
+        );
+        // a pinned scheme and a theme of the other appearance (a light theme chosen under `dark`) cannot happen
+        // through the UI, but the cache is a file: the applied theme still wins, it is what the page paints
+        assert_eq!(
+            window_theme(Some(&cache("dark", false))),
+            Some(tauri::Theme::Light)
+        );
     }
 
     #[test]

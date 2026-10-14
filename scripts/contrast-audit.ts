@@ -5,7 +5,7 @@
  * when any screen has a failure.
  *
  *   bun scripts/contrast-audit.ts                       # starts + stops its own instance (name: contrast-audit)
- *   bun scripts/contrast-audit.ts --themes "Alucard,One Light" --screens sidebar,settings-appearance
+ *   bun scripts/contrast-audit.ts --themes "Atlas Light,Atlas Dark" --screens sidebar,settings-appearance
  *   bun scripts/contrast-audit.ts --json /tmp/contrast.json --md /tmp/contrast.md
  *   ATLAS_DEBUG_SOCK=… bun scripts/contrast-audit.ts --attach   # use an instance you already started
  *

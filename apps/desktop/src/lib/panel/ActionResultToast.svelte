@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { CircleCheck, CircleX, X } from "@lucide/svelte";
+	import { corner } from "#lib/shell/cornerStack.ts";
 	import type { ProjectView } from "#lib/api.ts";
 	import { store } from "#lib/stores/projects.svelte.ts";
 	import { actionOutput } from "./actionOutput.svelte.ts";
@@ -42,7 +43,7 @@
 </script>
 
 {#if run && !actionOutput.open && store.current?.id === project.id}
-	<div class="chip" class:fail={run.status === "failed"} role="status">
+	<div use:corner class="chip" class:fail={run.status === "failed"} role="status">
 		{#if run.status === "ok"}<CircleCheck size={14} />{:else}<CircleX size={14} />{/if}
 		<span class="msg">{run.label} {run.status === "ok" ? "finished" : "failed"}</span>
 		<button class="view" onclick={view}>View output</button>
@@ -52,11 +53,6 @@
 
 <style>
 	.chip {
-		position: fixed;
-		right: 24px;
-		/* Above the kit Toaster stack (bottom: 24px, one toast ≈ 48px). */
-		bottom: 88px;
-		z-index: var(--ca-z-snackbar);
 		display: flex;
 		align-items: center;
 		gap: 8px;

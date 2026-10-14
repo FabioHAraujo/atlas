@@ -2,7 +2,7 @@
 	/** One theme in the picker: live miniature, name, badges and the overflow menu (export / remove). */
 	import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from "@codeatlasdev/ui";
 	import { Check, Ellipsis, Moon, Sun } from "@lucide/svelte";
-	import type { Theme } from "#lib/theme.ts";
+	import { DEFAULT_SELECTION, type Theme } from "#lib/theme.ts";
 	import ThemePreview from "./ThemePreview.svelte";
 	import { previewModel } from "./preview.ts";
 
@@ -26,10 +26,11 @@
 		cardEl?: HTMLElement;
 	} = $props();
 
-	const DEFAULTS: Record<string, true> = { Dracula: true, Alucard: true };
-
 	let m = $derived(previewModel(theme));
-	let isDefault = $derived(theme.source === "bundled" && Object.hasOwn(DEFAULTS, theme.name));
+	let isDefault = $derived(
+		theme.source === "bundled" &&
+			(theme.name === DEFAULT_SELECTION.dark || theme.name === DEFAULT_SELECTION.light),
+	);
 	let Icon = $derived(theme.appearance === "dark" ? Moon : Sun);
 	/** Dracula and Alucard credit their author on the card (data-driven by the family file). */
 	let byline = $derived(theme.source === "bundled" && theme.family === "Dracula");

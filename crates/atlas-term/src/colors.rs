@@ -20,10 +20,11 @@ pub struct Palette {
     pub selection_fg: Option<Rgb>,
 }
 
-/// Ghostty's default 16 ANSI colors (used when the theme provides none).
+/// Atlas Dark's 16 ANSI colors (Tokyo Night), used when a theme provides none. A test pins this table to
+/// `apps/desktop/src/lib/themes/atlas.json`, the single source of the palette.
 const ANSI_DEFAULT: [u32; 16] = [
-    0x1d1f21, 0xcc6666, 0xb5bd68, 0xf0c674, 0x81a2be, 0xb294bb, 0x8abeb7, 0xc5c8c6, 0x666666,
-    0xd54e53, 0xb9ca4a, 0xe7c547, 0x7aa6da, 0xc397d8, 0x70c0b1, 0xeaeaea,
+    0x15161e, 0xf7768e, 0x9ece6a, 0xe0af68, 0x7aa2f7, 0xbb9af7, 0x7dcfff, 0xa9b1d6, 0x414868,
+    0xf7768e, 0x9ece6a, 0xe0af68, 0x7aa2f7, 0xbb9af7, 0x7dcfff, 0xc0caf5,
 ];
 
 fn rgb(v: u32) -> Rgb {
@@ -263,5 +264,36 @@ mod tests {
         assert_eq!(p.base[1], Rgb { r: 255, g: 0, b: 0 });
         // Unset slot stays at default.
         assert_ne!(p.base[2], Rgb { r: 255, g: 0, b: 0 });
+    }
+
+    /// The terminal's own fallback table (a theme that ships no palette) is Atlas Dark's, read from the one source
+    /// of truth `themes/atlas.json`: the two can never drift apart (they did: Ghostty's defaults lived here).
+    #[test]
+    fn default_ansi_is_the_atlas_dark_table() {
+        let json: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../apps/desktop/src/lib/themes/atlas.json"
+        ))
+        .unwrap();
+        let dark = &json["themes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "Atlas Dark")
+            .unwrap()["style"];
+        const NAMES: [&str; 8] = [
+            "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+        ];
+        let theme: Vec<u32> = NAMES
+            .iter()
+            .map(|n| format!("terminal.ansi.{n}"))
+            .chain(NAMES.iter().map(|n| format!("terminal.ansi.bright_{n}")))
+            .map(|k| {
+                let hex = dark[&k].as_str().unwrap_or_else(|| panic!("{k} missing"));
+                u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap()
+            })
+            .collect();
+        assert_eq!(ANSI_DEFAULT.to_vec(), theme);
+        let p = Palette::new(Rgb::default(), Rgb::default(), None);
+        assert_eq!(p.base[4], rgb(0x7aa2f7));
     }
 }

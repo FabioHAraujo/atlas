@@ -122,7 +122,7 @@ The GPU terminal itself is switched with **Settings → Appearance → Terminal 
 
 | Key | Notes |
 |---|---|
-| `theme` | `{ "v": 2, "mode": "system", "light": "Alucard", "dark": "Dracula", "terminal": "app" }`: `mode` is `system`, `light` or `dark`; `light` and `dark` name the theme used for each appearance; `terminal` is `app` (same as the app) or the name of any theme. Defaults are Dracula (dark) and Alucard (light), both by Zeno Rocha and Luxonauta (MIT). Your own themes live in `~/.atlas/themes/` as Zed theme files (v0.2.0 format) and are reloaded as you save; the older `~/.atlas/desktop/themes/` is still read. A theme name that no longer exists falls back silently to Dracula (dark) or Alucard (light), and the terminal to the app theme. Settings → Appearance imports Ghostty configs, iTerm `.itermcolors`, VS Code theme `.json` and `.vsix`, Alacritty `.toml`/`.yml` and Base16 YAML, or a `.zip` / folder holding several themes (unpacked to a temporary folder on this Mac, nothing is uploaded; bring your own licensed copy, Atlas does not include paid themes), and exports a theme as JSON or a Ghostty config. Bundled: Dracula, Alucard, Atlas Dark/Light, One Dark/Light |
+| `theme` | `{ "v": 2, "mode": "system", "light": "Atlas Light", "dark": "Atlas Dark", "terminal": "app" }`: `mode` is `system`, `light` or `dark`; `light` and `dark` name the theme used for each appearance; `terminal` is `app` (same as the app) or the name of any theme. Defaults are Atlas Dark and Atlas Light (a Tokyo Night based pair, see [Atlas Dark and Light](#atlas-dark-and-light)); Dracula and Alucard by Zeno Rocha and Luxonauta (MIT) stay bundled, and anyone who picked them keeps them. Your own themes live in `~/.atlas/themes/` as Zed theme files (v0.2.0 format) and are reloaded as you save; the older `~/.atlas/desktop/themes/` is still read. A theme name that no longer exists falls back silently to Atlas Dark (dark) or Atlas Light (light), and the terminal to the app theme. Settings → Appearance imports Ghostty configs, iTerm `.itermcolors`, VS Code theme `.json` and `.vsix`, Alacritty `.toml`/`.yml` and Base16 YAML, or a `.zip` / folder holding several themes (unpacked to a temporary folder on this Mac, nothing is uploaded; bring your own licensed copy, Atlas does not include paid themes), and exports a theme as JSON or a Ghostty config. Bundled: Atlas Dark/Light, Dracula, Alucard, One Dark/Light |
 | `keymap` | rebind or unbind shortcuts, Zed syntax, `null` unbinds. See below |
 
 ```json
@@ -168,3 +168,23 @@ Every shortcut is a named command (`workspace::ToggleLeftDock`, `pane::SplitRigh
 | `workspace.json` | tabs, panes and docks per worktree |
 | `themes/` | legacy location of your Zed theme files (still read; new ones go to `~/.atlas/themes/`) |
 | `hook-endpoint.env` | loopback endpoint and token for agent hooks (new token per run) |
+
+## Atlas Dark and Light
+
+The default theme pair. Atlas Dark is built from the maintainer's Ghostty "Tokyo Night" custom palette (colors by [enkia](https://github.com/enkia/tokyo-night-vscode-theme), MIT): its 16 ANSI colors, foreground, cursor and syntax hues are used as they are, and the UI ground is rebuilt on one blue ramp. Everything lives in `apps/desktop/src/lib/themes/atlas.json`; the terminal, service logs, editor and chrome all read it, and the GPU terminal's fallback table (`atlas-term` `colors.rs`) and the `.dark` `--ansi-*` fallbacks in `app.css` are tests pinned to it.
+
+Why it looks the way it does (what Dracula, Tokyo Night, Catppuccin and One share, adapted to real panels):
+
+| Decision | Value | Reason |
+|---|---|---|
+| Surfaces on one hue | OKLCH hue ~262, chroma 0.029 to 0.036; `#0b1320` sunken, `#131c2b` editor and terminal, `#1d2637` raised, `#273143` overlay | A single blue hue reads as one material. Chroma stays low on large areas (calm, no saturated slabs) but above 0.025 so an IPS panel with backlight glow does not turn it grey. |
+| Even steps | about 4% OKLCH lightness between levels (0.186, 0.226, 0.268, 0.312) | Visible on IPS and low-contrast panels, so panels, popovers and the sidebar separate without heavy borders. |
+| No pure black | the darkest surface is L 0.186 | OLED black smears and crushes shadow detail while scrolling; near-black blue keeps pixels on and gradients smooth. |
+| Soft foreground | text `#c0caf5` (L 0.85), never pure white | Bright text on a dark ground blooms (halation, PWM shimmer on OLED) and thins glyph edges; 12:1 on the editor is plenty. |
+| Accents at equal lightness | red, orange, blue, magenta about L 0.75; yellow, green, cyan about L 0.80, chroma at most 0.15 | Dracula's rule: fixed roles, high-saturation accents on a desaturated ground. Equal perceived lightness keeps one accent from shouting over another, and every one is 5.5:1 or more on the overlay surface. |
+| sRGB-safe chroma | no accent is pushed past what sRGB holds | A P3 display shows the same color; nothing clips on sRGB or shifts on wide gamut. |
+| Readable at 1x | syntax colors fitted to at least 4.7:1 on every code surface (line, selection, active line); comments `#acbae2` italic | Anti-aliasing on a low-DPI panel thins light-on-dark text, so margin above AA 4.5 beats being on the line. |
+| Syntax roles | keyword purple, function green, string amber, type and namespace cyan, constant orange, property blue | One hue per role everywhere (Dracula's spec), the Tokyo hues. |
+
+Atlas Light is its Tokyo Night Day counterpart: pale blue-grey ground (`#e1e2e7`), navy text, the same role-to-hue map with deeper values so every color keeps AA on the pale ground. `bun test` (`theme/atlasDefault.test.ts`) pins the palette, the OKLCH ladder rules above and the default selection; `bun scripts/contrast-audit.ts` checks the rendered screens for both.
+

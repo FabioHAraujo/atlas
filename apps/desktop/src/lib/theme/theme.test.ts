@@ -753,10 +753,10 @@ describe("default-selection migration", () => {
 		expect(migrateSelection("junk").explicit).toBe(false);
 	});
 
-	test("the pre-Dracula default (never chosen on purpose) moves to Dracula/Alucard", () => {
+	test("a pre-v2 file naming exactly the Atlas pair was never a choice: it is the default", () => {
 		const m = migrateSelection({ mode: "system", light: "Atlas Light", dark: "Atlas Dark" });
 		expect(m.explicit).toBe(false);
-		expect(m.selection).toMatchObject({ light: "Alucard", dark: "Dracula", mode: "system" });
+		expect(m.selection).toMatchObject({ light: "Atlas Light", dark: "Atlas Dark", mode: "system" });
 	});
 
 	test("a legacy selection that differs in any field is the user's choice and is kept", () => {
@@ -794,15 +794,17 @@ describe("a stored theme that no longer exists", () => {
 	const sel = (o) => migrateSelection({ v: 2, ...o }).selection;
 
 	test("a missing app theme resolves to the default of that appearance, silently", () => {
-		expect(resolveTheme(themes, sel({ mode: "dark", dark: "Some Paid Theme" }), true).name).toBe("Dracula");
-		expect(resolveTheme(themes, sel({ mode: "light", light: "Some Paid Theme" }), false).name).toBe(
-			"Alucard",
+		expect(resolveTheme(themes, sel({ mode: "dark", dark: "Some Paid Theme" }), true).name).toBe(
+			"Atlas Dark",
 		);
-		expect(resolveTheme(themes, sel({ mode: "system", dark: "Gone" }), true).name).toBe("Dracula");
+		expect(resolveTheme(themes, sel({ mode: "light", light: "Some Paid Theme" }), false).name).toBe(
+			"Atlas Light",
+		);
+		expect(resolveTheme(themes, sel({ mode: "system", dark: "Gone" }), true).name).toBe("Atlas Dark");
 	});
 
 	test("a missing terminal theme means the app theme", () => {
-		const app = by("Dracula");
+		const app = by("Atlas Dark");
 		expect(resolveTerminalTheme(themes, "Some Paid Theme", app)).toBe(app);
 		expect(resolveTerminalTheme(themes, "app", app)).toBe(app);
 		expect(resolveTerminalTheme(themes, "One Dark", app).name).toBe("One Dark");

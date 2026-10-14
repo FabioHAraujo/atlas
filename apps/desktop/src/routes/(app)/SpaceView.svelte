@@ -6,6 +6,7 @@
 	import { Alert, Button } from "@codeatlasdev/ui";
 	import Contain from "#lib/errors/Contain.svelte";
 	import ActivityDrawer from "#lib/panel/ActivityDrawer.svelte";
+	import { corner } from "#lib/shell/cornerStack.ts";
 	import ConfirmAction from "./ConfirmAction.svelte";
 	import MissingProject from "./MissingProject.svelte";
 	import ProjectHeader from "./ProjectHeader.svelte";
@@ -39,17 +40,15 @@
 	{/if}
 
 	<div class="rule"></div>
-	<div class="float-anchor">
-		{#if agents.ompIntegration === "missing" && !ompDismissed}
-			<div class="banner floating">
-				<Alert severity="info" title="Enable omp integration">
-					Atlas shows omp's state (working, needs you, done) through a small omp extension.
-					<Button size="sm" onclick={() => agents.enableOmp()}>Enable</Button>
-					<Button size="sm" variant="ghost" onclick={dismissOmp}>Not now</Button>
-				</Alert>
-			</div>
-		{/if}
-	</div>
+	{#if agents.ompIntegration === "missing" && !ompDismissed}
+		<div use:corner class="floating">
+			<Alert severity="info" title="Enable omp integration">
+				Atlas shows omp's state (working, needs you, done) through a small omp extension.
+				<Button size="sm" onclick={() => agents.enableOmp()}>Enable</Button>
+				<Button size="sm" variant="ghost" onclick={dismissOmp}>Not now</Button>
+			</Alert>
+		</div>
+	{/if}
 
 	<Contain
 		where="Workbench"
@@ -66,28 +65,12 @@
 	.banner {
 		padding: 0 20px 10px;
 	}
-	/* Found by a probe that finishes after the first frame: it floats over the workbench instead
-	   of pushing it (and the native terminal views laid over it) down when it arrives. */
-	.float-anchor {
-		position: relative;
-		height: 0;
-		z-index: 5;
-	}
-	/* Bottom-right card over the workbench: never covers the tab strip or the editor's first lines,
-	   and never moves the layout (or the native terminal views laid over it). */
-	.banner.floating {
-		position: fixed;
-		right: 16px;
-		bottom: 104px;
-		width: min(420px, calc(100vw - 32px));
-		z-index: 5;
-		padding: 0;
-		pointer-events: none;
+	/* Found by a probe that finishes after the first frame: it lives in the corner stack (above the Getting started
+	   card, never over it) instead of pushing the workbench (and the native terminal views laid over it) down. */
+	.floating {
+		width: 100%;
 		box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
 		border-radius: 12px;
-	}
-	.banner.floating :global(*) {
-		pointer-events: auto;
 	}
 	.banner pre {
 		margin: 4px 0 0;

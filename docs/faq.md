@@ -55,7 +55,7 @@ Within a major version, yes. New fields are additive; unknown fields are errors,
 
 ## Can I use my own terminal theme and shortcuts in the desktop app?
 
-Yes. Settings → Appearance shows every theme as a card (Dracula and Alucard by Zeno Rocha and Luxonauta by default), can import your Ghostty, iTerm, VS Code, Alacritty or Base16 theme (or a zip or folder of themes you own), and gives the terminal its own theme. Themes use the Zed theme format (drop files in `~/.atlas/themes/`, reloaded as you save), and every shortcut is a named command you can rebind in Settings → Keyboard shortcuts or under `keymap` in `~/.atlas/desktop/settings.json`.
+Yes. Settings → Appearance shows every theme as a card (Atlas Dark and Atlas Light by default, with Dracula, Alucard and One), can import your Ghostty, iTerm, VS Code, Alacritty or Base16 theme (or a zip or folder of themes you own), and gives the terminal its own theme. Themes use the Zed theme format (drop files in `~/.atlas/themes/`, reloaded as you save), and every shortcut is a named command you can rebind in Settings → Keyboard shortcuts or under `keymap` in `~/.atlas/desktop/settings.json`.
 
 ## How do I contribute?
 

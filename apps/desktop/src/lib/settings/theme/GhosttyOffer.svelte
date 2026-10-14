@@ -1,6 +1,7 @@
 <script lang="ts">
 	/** The one-time toast offering the Ghostty theme. `Use theme` only opens Settings; nothing is applied here. */
 	import { Button } from "@codeatlasdev/ui";
+	import { corner } from "#lib/shell/cornerStack.ts";
 	import { Ghost, X } from "@lucide/svelte";
 	import { fly } from "svelte/transition";
 	import { ghosttyOffer, openGhosttyOffer } from "#lib/shell/themeCommands.svelte.ts";
@@ -19,7 +20,7 @@
 </script>
 
 {#if live}
-	<div class="card" role="status" transition:fly={{ y: 12, duration: 220 }}>
+	<div use:corner class="card" role="status" transition:fly={{ y: 12, duration: 220 }}>
 		<Ghost size={15} aria-hidden="true" />
 		<div class="text">
 			<b>Use your Ghostty theme?</b>
@@ -34,10 +35,6 @@
 
 <style>
 	.card {
-		position: fixed;
-		right: 16px;
-		bottom: 64px;
-		z-index: 1500;
 		display: flex;
 		align-items: center;
 		gap: 10px;

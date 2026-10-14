@@ -32,6 +32,7 @@ import { loadPrefs } from "#lib/stores/prefs.svelte.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { quick } from "#lib/stores/quick.svelte.ts";
 import { themes } from "#lib/stores/theme.svelte.ts";
+import { nativeAppearance } from "#lib/theme/ground.ts";
 import { startTrayFeed } from "#lib/stores/trayFeed.svelte.ts";
 import { updates } from "#lib/stores/updates.svelte.ts";
 import { ws } from "#lib/stores/workspace.svelte.ts";
@@ -107,12 +108,11 @@ function exposeStores() {
 
 /** Reactive syncs between the workspace, the project registry and the OS. */
 function syncEffects() {
-	// The native sidebar material follows the window appearance, not CSS:
-	// pin it to the chosen theme (null = follow macOS).
+	// The native window material follows the window appearance, not CSS: pin it to the RESOLVED theme's appearance
+	// (theme/ground.ts), so a dark theme is never drawn over a light material. null = follow macOS (no theme yet).
 	$effect(() => {
-		const p = colorScheme.preference;
 		getCurrentWindow()
-			.setTheme(p === "system" ? null : p)
+			.setTheme(nativeAppearance(colorScheme.preference, themes.current?.appearance))
 			.catch(() => {});
 	});
 

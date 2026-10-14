@@ -1,10 +1,11 @@
-/* Window is transparent: the native NSVisualEffectView (Sidebar material) shows
-   through the sidebar; the content pane paints its own opaque surface. */
+/* The window is transparent over a native NSVisualEffectView, whose brightness is the wallpaper's. The page owns
+   the ground instead: the theme's chrome surface (`--ca-surface-sunken`, theme/ground.ts), opaque, under the
+   sidebar and in the gutter around `.content`. The material only backs the rounded window corners. */
 html,
 body {
 	margin: 0;
 	height: 100%;
-	background: transparent !important;
+	background: var(--ca-surface-sunken) !important;
 	overflow: hidden;
 	font-family: var(--atlas-ui-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--ca-font-sans));
 	font-size: var(--atlas-ui-font-size, 13px);
@@ -39,7 +40,8 @@ html.opaque-window body {
 	--dot-fail: var(--atlas-state-error, var(--ca-semantic-error));
 	--dot-off: var(--ca-text-disabled);
 
-	/* ANSI 16 colors for service logs, tuned for the light surface. */
+	/* ANSI 16 colors for service logs, tuned for the light surface (the active theme's palette replaces them; the
+   `.dark` set below is Atlas Dark's, pinned to themes/atlas.json by ansiFallback.test.ts). */
 	--ansi-black: #3b3f46;
 	--ansi-red: #c4314b;
 	--ansi-green: #1f8a4c;
@@ -58,22 +60,22 @@ html.opaque-window body {
 	--ansi-bright-white: #3b3f46;
 }
 .dark {
-	--ansi-black: #6e7681;
-	--ansi-red: #ff7b8a;
-	--ansi-green: #6fdc8c;
-	--ansi-yellow: #f2cc60;
-	--ansi-blue: #79a8ff;
-	--ansi-magenta: #e39cf0;
-	--ansi-cyan: #67d8e8;
-	--ansi-white: #c9d1d9;
-	--ansi-bright-black: #8b949e;
-	--ansi-bright-red: #ffa0aa;
-	--ansi-bright-green: #9be9a8;
-	--ansi-bright-yellow: #ffe08a;
-	--ansi-bright-blue: #a5c4ff;
-	--ansi-bright-magenta: #f0b8f7;
-	--ansi-bright-cyan: #9eeaf5;
-	--ansi-bright-white: #f0f6fc;
+	--ansi-black: #15161e;
+	--ansi-red: #f7768e;
+	--ansi-green: #9ece6a;
+	--ansi-yellow: #e0af68;
+	--ansi-blue: #7aa2f7;
+	--ansi-magenta: #bb9af7;
+	--ansi-cyan: #7dcfff;
+	--ansi-white: #a9b1d6;
+	--ansi-bright-black: #414868;
+	--ansi-bright-red: #f7768e;
+	--ansi-bright-green: #9ece6a;
+	--ansi-bright-yellow: #e0af68;
+	--ansi-bright-blue: #7aa2f7;
+	--ansi-bright-magenta: #bb9af7;
+	--ansi-bright-cyan: #7dcfff;
+	--ansi-bright-white: #c0caf5;
 }
 
 .app {

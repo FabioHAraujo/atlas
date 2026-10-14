@@ -142,7 +142,7 @@ Other modes:
 - 🪟 **one window for many coding agents in parallel.** a project per space, a git worktree per task (with its own port offset, so each worktree runs its own stack), persistent terminals that survive quitting the app.
 - 🔍 **review without leaving.** diff review with notes sent back to the agent, PRs and checks via `gh`, an embedded browser with Design Mode, worktrees on SSH hosts.
 - 🎛️ **yours to shape.** Zed-style docks, command palette, rebindable keys and Zed themes.
-- 🎨 **themes.** Dracula and Alucard by [Zeno Rocha](https://github.com/zenorocha) and [Luxonauta](https://github.com/luxonauta) (MIT) are the defaults; import Ghostty, iTerm, VS Code, Alacritty or Base16 themes, or your own [Dracula Pro](https://draculatheme.com/pro) purchase from a zip.
+- 🎨 **themes.** Atlas Dark and Light (a blue, Tokyo Night based pair) are the defaults, next to Dracula and Alucard by [Zeno Rocha](https://github.com/zenorocha) and [Luxonauta](https://github.com/luxonauta) (MIT), and One; import Ghostty, iTerm, VS Code, Alacritty or Base16 themes, or your own [Dracula Pro](https://draculatheme.com/pro) purchase from a zip.
 
 ### GPU terminal
 

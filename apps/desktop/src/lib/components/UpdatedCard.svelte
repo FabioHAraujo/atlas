@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from "@codeatlasdev/ui";
+	import { corner } from "#lib/shell/cornerStack.ts";
 	import { Check, X } from "@lucide/svelte";
 	import { fly } from "svelte/transition";
 	import { updates } from "#lib/stores/updates.svelte.ts";
@@ -20,7 +21,12 @@
 </script>
 
 {#if v && !updates.whatsNewOpen}
-	<div class="card" role="status" transition:fly={{ y: reduced ? 0 : 12, duration: reduced ? 0 : 220 }}>
+	<div
+		use:corner
+		class="card"
+		role="status"
+		transition:fly={{ y: reduced ? 0 : 12, duration: reduced ? 0 : 220 }}
+	>
 		<span class="ok"><Check size={13} strokeWidth={3} /></span>
 		<div class="text">
 			<b>Updated to {v}</b>
@@ -33,10 +39,6 @@
 
 <style>
 	.card {
-		position: fixed;
-		right: 16px;
-		bottom: 16px;
-		z-index: 1500;
 		display: flex;
 		align-items: center;
 		gap: 10px;

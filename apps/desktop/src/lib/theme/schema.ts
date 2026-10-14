@@ -60,12 +60,12 @@ export interface ThemeSelection {
 export const DEFAULT_SELECTION: ThemeSelection = {
 	v: 2,
 	mode: "system",
-	light: "Alucard",
-	dark: "Dracula",
+	light: "Atlas Light",
+	dark: "Atlas Dark",
 	terminal: "app",
 };
 
-/** What shipped before Dracula: a stored selection equal to this was never a deliberate choice. */
+/** What shipped before v2 selections: a stored selection equal to this was never a deliberate choice. */
 const LEGACY_DEFAULT = { mode: "system", light: "Atlas Light", dark: "Atlas Dark" };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -243,7 +243,8 @@ export function parseFamily(json: unknown): ParsedFamily {
 
 /**
  * Stored `theme` setting → selection, and whether the user chose it deliberately. Absent, invalid
- * or the pre-Dracula default (never deliberate) → current defaults; anything else → kept.
+ * or a pre-v2 file naming the Atlas pair (never deliberate) → current defaults; anything else → kept.
+ * A v2 selection is only ever written by `setTheme`, so it is always a choice (a Dracula user stays on Dracula).
  */
 export function migrateSelection(raw: unknown): { selection: ThemeSelection; explicit: boolean } {
 	const def = { selection: { ...DEFAULT_SELECTION }, explicit: false };

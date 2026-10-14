@@ -3,12 +3,14 @@
 	import {
 		Bot,
 		CircleHelp,
+		Code,
+		Download,
 		FolderTree,
 		Keyboard,
 		Palette,
 		Server,
 		SlidersHorizontal,
-		Download,
+		SquareTerminal,
 	} from "@lucide/svelte";
 	import SearchField from "#lib/components/SearchField.svelte";
 	import { SECTIONS, type SettingsSection } from "#lib/settings/index.ts";
@@ -17,6 +19,8 @@
 	const ICONS: Record<SettingsSection, typeof Download> = {
 		general: SlidersHorizontal,
 		appearance: Palette,
+		editor: Code,
+		terminal: SquareTerminal,
 		workspaces: FolderTree,
 		agents: Bot,
 		keyboard: Keyboard,
@@ -27,7 +31,7 @@
 	let { searching }: { searching: boolean } = $props();
 </script>
 
-<nav>
+<nav aria-label="Settings sections">
 	<div class="navtitle">Settings</div>
 	<div class="find">
 		<SearchField clearable placeholder="Search settings" aria-label="Search settings" bind:value={u.query} />
@@ -37,6 +41,7 @@
 		<button
 			class="nav"
 			class:on={!searching && u.section === n.id}
+			aria-current={!searching && u.section === n.id ? "page" : undefined}
 			onclick={() => {
 				u.query = "";
 				u.section = n.id;
@@ -60,7 +65,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		padding: 18px 10px 12px;
+		padding: 20px 12px 14px;
 		background: var(--ca-surface-sunken);
 		border-right: 0.5px solid var(--ca-outline-subtle);
 	}
@@ -77,8 +82,8 @@
 		display: flex;
 		align-items: center;
 		gap: 9px;
-		height: 30px;
-		padding: 0 8px;
+		height: 32px;
+		padding: 0 10px;
 		border: 0;
 		border-radius: 7px;
 		background: none;

@@ -95,7 +95,7 @@
 		<Row label={h} description={tests[h] ?? undefined}>
 			<StatusChip status={chip(status[h])} label={(status[h] ?? "idle").slice(0, 60)} />
 			{#if status[h] === "connecting"}<Spinner size={11} />{/if}
-			<Button size="sm" variant="ghost" onclick={() => test(h)}>Test connection</Button>
+			<Button size="sm" variant="outlined" onclick={() => test(h)}>Test connection</Button>
 			<Button size="sm" variant="ghost" onclick={() => remove(h)}>Remove</Button>
 			{#snippet below()}
 				{#if status[h]?.startsWith("error")}<div class="err selectable">{status[h]}</div>{/if}
@@ -127,7 +127,6 @@
 </Group>
 
 {#if hosts.length}
-	<div class="gap"></div>
 	<Group
 		title="Remote project"
 		description="Add a project that lives on one of your hosts. The folder must contain an atlas.yaml."
@@ -159,9 +158,6 @@
 {/if}
 
 <style>
-	.gap {
-		height: 4px;
-	}
 	.select {
 		width: 180px;
 	}

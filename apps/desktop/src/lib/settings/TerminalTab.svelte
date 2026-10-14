@@ -64,6 +64,13 @@
 			{/if}
 		{/snippet}
 	</Row>
+	<Row
+		id="host-restart"
+		label="Terminal host"
+		description="The background process that keeps terminals alive. Restart it to pick up a new Atlas version; running terminals end."
+	>
+		<Button size="sm" variant="outlined" onclick={restart}>Restart terminal host</Button>
+	</Row>
 </Group>
 
 <Group title="Text">

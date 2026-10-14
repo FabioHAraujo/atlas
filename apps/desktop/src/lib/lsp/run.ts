@@ -46,7 +46,7 @@ export async function runAction(id: ActionId, path: string, payload?: string): P
 			await setPref("enable_language_servers", true);
 			return;
 		case "open-settings-languages":
-			return updates.show("appearance/languages");
+			return updates.show("editor/languages");
 		case "docs":
 			window.open(DOCS_URL, "_blank");
 			return;

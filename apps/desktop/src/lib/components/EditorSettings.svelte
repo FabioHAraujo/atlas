@@ -1,17 +1,15 @@
 <script lang="ts">
-	import { Tabs, TabsList, TabsTrigger, TabsContent, toast } from "@codeatlasdev/ui";
+	/** Settings ▸ Editor: the code font and editing prefs, and the language servers, in two tabs. */
+	import { Tabs, TabsContent, TabsList, TabsTrigger, toast } from "@codeatlasdev/ui";
 	import { homeDir } from "@tauri-apps/api/path";
 	import { errText } from "#lib/api.ts";
-	import { openFile } from "#lib/stores/files.svelte.ts";
-	import { ws } from "#lib/stores/workspace.svelte.ts";
-	import { updates } from "#lib/stores/updates.svelte.ts";
-	import { APPEARANCE_TABS, relativeFrom, type AppearanceTab } from "#lib/settings/index.ts";
-	import PageHead from "#lib/settings/PageHead.svelte";
-	import ThemeTab from "#lib/settings/ThemeTab.svelte";
+	import { SECTION_TABS, relativeFrom, type SettingsTab } from "#lib/settings/index.ts";
 	import CodeTab from "#lib/settings/CodeTab.svelte";
 	import LanguagesTab from "#lib/settings/LanguagesTab.svelte";
-	import InterfaceTab from "#lib/settings/InterfaceTab.svelte";
-	import TerminalTab from "#lib/settings/TerminalTab.svelte";
+	import PageHead from "#lib/settings/PageHead.svelte";
+	import { openFile } from "#lib/stores/files.svelte.ts";
+	import { updates } from "#lib/stores/updates.svelte.ts";
+	import { ws } from "#lib/stores/workspace.svelte.ts";
 
 	/** Opens settings.json in an editor tab of the current worktree (the editor takes worktree-relative paths). */
 	async function editJson() {
@@ -31,21 +29,18 @@
 </script>
 
 <PageHead
-	title="Appearance"
-	description="Colors, fonts and layout. Changes apply right away in every Atlas window."
+	title="Editor"
+	description="The code editor and diffs: font, indentation and display, and the language servers behind completion and diagnostics."
 />
 
-<Tabs bind:value={updates.tab as AppearanceTab} class="atabs">
-	<TabsList>
-		{#each APPEARANCE_TABS as t (t.id)}
+<Tabs bind:value={updates.tab as SettingsTab} class="etabs">
+	<TabsList class="etabs-list">
+		{#each SECTION_TABS.editor ?? [] as t (t.id)}
 			<TabsTrigger value={t.id}>{t.label}</TabsTrigger>
 		{/each}
 	</TabsList>
-	<TabsContent value="appearance"><div class="tab"><ThemeTab /></div></TabsContent>
 	<TabsContent value="editor"><div class="tab"><CodeTab /></div></TabsContent>
 	<TabsContent value="languages"><div class="tab"><LanguagesTab /></div></TabsContent>
-	<TabsContent value="interface"><div class="tab"><InterfaceTab /></div></TabsContent>
-	<TabsContent value="terminal"><div class="tab"><TerminalTab /></div></TabsContent>
 </Tabs>
 
 <p class="foot">
@@ -53,16 +48,21 @@
 </p>
 
 <style>
+	/* The tab strip hugs its tabs instead of stretching across the page. */
+	:global(.etabs-list) {
+		align-self: flex-start;
+		width: fit-content;
+	}
 	.tab {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
-		padding-top: 14px;
+		gap: 20px;
+		padding-top: 16px;
 	}
 	.foot {
 		margin: 0;
-		font-size: 11.5px;
-		color: var(--ca-text-hint);
+		font-size: 12px;
+		color: var(--ca-text-secondary);
 	}
 	.link {
 		border: 0;

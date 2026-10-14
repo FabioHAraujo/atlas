@@ -1,8 +1,11 @@
 <script lang="ts">
-	import { Alert, Button, Spinner, toast } from "@codeatlasdev/ui";
+	import { Alert, Button, Select, Spinner, toast } from "@codeatlasdev/ui";
 	import { Check, ChevronRight, RefreshCw, X } from "@lucide/svelte";
 	import { api, errText, type ShellInfo } from "#lib/api.ts";
 	import { tilde } from "#lib/format.ts";
+	import FieldInput from "#lib/settings/FieldInput.svelte";
+	import Group from "#lib/settings/Group.svelte";
+	import Row from "#lib/settings/Row.svelte";
 
 	let info = $state<ShellInfo | null>(null);
 	let busy = $state(false);
@@ -48,47 +51,52 @@
 {:else if !info}
 	<div class="muted"><Spinner size={12} /> Reading your shell…</div>
 {:else}
-	<div class="group">
-		<div class="field">
-			<div class="flabel">Shell<small>Atlas runs this to learn your PATH.</small></div>
-			<div class="control">
-				<select
-					class="mono"
+	<Group>
+		<Row label="Shell" description="Atlas runs this to learn your PATH.">
+			<div class="select">
+				<Select
+					size="sm"
 					value={info.configured ?? "auto"}
 					disabled={busy}
-					onchange={(e) => {
-						const v = e.currentTarget.value;
-						set(v === "auto" ? null : v);
-					}}
-				>
-					<option value="auto"
-						>Automatic (recommended){info.probe && !info.configured
-							? ` — ${info.probe.shell.split("/").pop()}`
-							: ""}</option
-					>
-					{#each options as s (s)}<option value={s}>{s}</option>{/each}
-				</select>
-				<Button variant="ghost" size="sm" disabled={busy} onclick={() => set(info?.configured ?? null)}>
-					{#snippet leading()}{#if busy}<Spinner size={13} />{:else}<RefreshCw size={13} />{/if}{/snippet}
-					Reload now
-				</Button>
+					options={[
+						{
+							value: "auto",
+							label: `Automatic (recommended)${
+								info.probe && !info.configured ? ` — ${info.probe.shell.split("/").pop()}` : ""
+							}`,
+						},
+						...options.map((o) => ({ value: o, label: o })),
+					]}
+					onchange={(v) => set(v === "auto" ? null : v)}
+				/>
 			</div>
-		</div>
-		<form
-			class="field"
-			onsubmit={(e) => {
-				e.preventDefault();
-				if (custom.trim()) set(custom.trim());
-			}}
-		>
-			<div class="flabel">Other shell<small>Full path to a shell not listed.</small></div>
-			<div class="control">
-				<input class="mono" placeholder="/usr/local/bin/nu" bind:value={custom} disabled={busy} />
-				<Button variant="glass" size="sm" type="submit" disabled={busy || !custom.trim()}
+			<Button variant="outlined" size="sm" disabled={busy} onclick={() => set(info?.configured ?? null)}>
+				{#snippet leading()}{#if busy}<Spinner size={13} />{:else}<RefreshCw size={13} />{/if}{/snippet}
+				Reload now
+			</Button>
+		</Row>
+		<Row label="Other shell" description="Full path to a shell not listed.">
+			<form
+				class="other"
+				onsubmit={(e) => {
+					e.preventDefault();
+					if (custom.trim()) set(custom.trim());
+				}}
+			>
+				<FieldInput
+					class="text mono"
+					aria-label="Other shell"
+					placeholder="/usr/local/bin/nu"
+					spellcheck="false"
+					value={custom}
+					oninput={(e) => (custom = e.currentTarget.value)}
+					disabled={busy}
+				/>
+				<Button variant="outlined" size="sm" type="submit" disabled={busy || !custom.trim()}
 					>Use this shell</Button
 				>
-			</div>
-		</form>
+			</form>
+		</Row>
 		<div class="status">
 			{#if info.probe?.error}
 				<span class="st bad"
@@ -101,7 +109,7 @@
 				>
 			{/if}
 		</div>
-	</div>
+	</Group>
 
 	{#if info.probe?.error}
 		<Alert severity="error" title="Your projects only see the basic system PATH">
@@ -111,7 +119,7 @@
 		</Alert>
 	{/if}
 
-	<div class="group">
+	<Group>
 		<div class="ghead">
 			<span>Tools your projects can find</span>
 			<span class="muted">{found} of {info.tools.length} found on PATH</span>
@@ -137,64 +145,32 @@
 			</button>
 			{#if showPath}<pre class="mono selectable">{info.path.join("\n")}</pre>{/if}
 		{/if}
-	</div>
+	</Group>
 {/if}
 
 <style>
-	.group {
-		border-radius: 10px;
-		border: 0.5px solid var(--ca-outline-subtle);
-		background: var(--ca-surface-raised);
+	.select {
+		width: 260px;
 	}
-	.field {
-		display: grid;
-		grid-template-columns: 170px minmax(0, 1fr);
-		align-items: center;
-		gap: 12px;
-		padding: 10px 14px;
-		margin: 0;
-	}
-	.field + .field {
-		border-top: 0.5px solid var(--ca-outline-subtle);
-	}
-	.flabel {
-		font-size: 13px;
-		font-weight: 500;
-	}
-	.flabel small {
-		display: block;
-		margin-top: 2px;
-		font-size: 11.5px;
-		font-weight: 400;
-		line-height: 1.35;
-		color: var(--ca-text-secondary);
-	}
-	.control {
+	.other {
 		display: flex;
 		gap: 8px;
-		min-width: 0;
+		align-items: center;
+		width: 360px;
 	}
-	select,
-	input {
+	.other :global(input) {
 		flex: 1;
 		min-width: 0;
-		height: 30px;
-		font-size: 12px;
-		padding: 0 8px;
-		border-radius: 7px;
-		border: 0.5px solid var(--atlas-control-border, var(--ca-outline-default));
-		background: var(--ca-surface-sunken);
-		color: var(--ca-text-primary);
 	}
 	.status {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 10px;
-		padding: 10px 14px;
+		padding: 11px 16px;
 		border-top: 0.5px solid var(--ca-outline-subtle);
 		background: var(--ca-surface-sunken);
-		border-radius: 0 0 10px 10px;
+		border-radius: 0 0 12px 12px;
 		font-size: 12px;
 	}
 	.st {
@@ -228,9 +204,9 @@
 	.ghead {
 		display: flex;
 		justify-content: space-between;
-		padding: 10px 14px 4px;
+		padding: 13px 16px 4px;
 		font-size: 13px;
-		font-weight: 500;
+		font-weight: 550;
 	}
 	.tools {
 		display: grid;

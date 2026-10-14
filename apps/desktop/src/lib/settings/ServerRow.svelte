@@ -77,12 +77,13 @@
 			{#if badge}<span class="badge">{badge}</span>{/if}
 		</div>
 		<div class="state">
-			{#if view.kind === "downloading" || view.kind === "starting"}<Spinner size="sm" />{/if}
+			{#if view.kind === "downloading" || view.kind === "starting"}<Spinner size={14} />{/if}
 			<StatusChip status={CHIP[view.kind]} label={view.kind === "blocked" ? "Needs setup" : view.text} />
 		</div>
 	</div>
 
-	<div class="langs">
+	<div class="langs" role="group" aria-label="Languages this server handles">
+		<span class="hint">Enabled for</span>
 		{#each entry.languages as language, i (language)}
 			<label class="lang">
 				<Switch
@@ -93,7 +94,6 @@
 				<span>{entry.languageLabels[i] ?? language}</span>
 			</label>
 		{/each}
-		<span class="hint">Enabled</span>
 	</div>
 
 	{#if entry.detected.path}
@@ -138,7 +138,9 @@
 				>Install</Button
 			>
 		{/if}
-		<Button size="sm" variant="outlined" disabled={busy || !running} onclick={onrestart}>Restart</Button>
+		{#if running}
+			<Button size="sm" variant="outlined" disabled={busy} onclick={onrestart}>Restart</Button>
+		{/if}
 		<Button size="sm" variant="ghost" onclick={onlog}>Open log</Button>
 		<span class="grow"></span>
 		<Button size="sm" variant="ghost" onclick={() => (customOpen = !customOpen)} aria-expanded={customOpen}>
@@ -178,7 +180,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
-		padding: 12px 14px;
+		padding: 14px 16px;
 		min-width: 0;
 	}
 	.head {
@@ -208,7 +210,7 @@
 	}
 	.ver {
 		font-size: 11.5px;
-		color: var(--ca-text-hint);
+		color: var(--ca-text-secondary);
 	}
 	.badge {
 		padding: 1px 6px;
@@ -240,8 +242,8 @@
 		color: var(--ca-text-primary);
 	}
 	.hint {
-		font-size: 11px;
-		color: var(--ca-text-hint);
+		font-size: 11.5px;
+		color: var(--ca-text-secondary);
 	}
 	.path {
 		display: flex;
@@ -258,7 +260,7 @@
 	}
 	.k {
 		font-size: 11px;
-		color: var(--ca-text-hint);
+		color: var(--ca-text-secondary);
 	}
 	.blocked {
 		display: flex;
@@ -295,11 +297,15 @@
 		user-select: text;
 		-webkit-user-select: text;
 	}
+	/* Primary action first, secondary after it, the quiet "Custom server" toggle at the far end. */
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 6px;
+		margin-top: 2px;
+		padding-top: 10px;
+		border-top: 0.5px solid var(--ca-outline-subtle);
 	}
 	.grow {
 		flex: 1;

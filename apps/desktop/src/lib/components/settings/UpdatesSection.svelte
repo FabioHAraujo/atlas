@@ -76,10 +76,32 @@
 			{/if}
 		</p>
 	</div>
-	<Button variant="ghost" size="sm" disabled={u.checking || !!u.running} onclick={() => u.check()}>
-		{#snippet leading()}<RefreshCw size={13} />{/snippet}
-		Check now
-	</Button>
+	<div class="hact">
+		{#if u.relaunchNeeded}
+			<Button onclick={u.relaunch}>
+				{#snippet leading()}<RotateCcw size={14} />{/snippet}
+				Restart Atlas
+			</Button>
+		{:else if u.linked}
+			<Button variant="outlined" disabled={!!u.running} onclick={u.unlink}>
+				{#snippet leading()}{#if u.running === "unlink"}<Spinner size={14} />{:else}<Unlink
+							size={14}
+						/>{/if}{/snippet}
+				Unlink dev build
+			</Button>
+		{:else if u.available}
+			<Button disabled={!!u.running} onclick={u.updateAll}>
+				{#snippet leading()}{#if u.running === "update"}<Spinner size={14} />{:else}<Download
+							size={14}
+						/>{/if}{/snippet}
+				{u.running === "update" ? "Updating…" : "Update CLI and app"}
+			</Button>
+		{/if}
+		<Button variant="outlined" disabled={u.checking || !!u.running} onclick={() => u.check()}>
+			{#snippet leading()}<RefreshCw size={13} />{/snippet}
+			Check now
+		</Button>
+	</div>
 </div>
 
 {#if u.error}
@@ -182,37 +204,19 @@
 {/if}
 
 <div class="foot">
-	{#if u.relaunchNeeded}
-		<Button onclick={u.relaunch}>
-			{#snippet leading()}<RotateCcw size={14} />{/snippet}
-			Restart Atlas
-		</Button>
-	{:else if u.linked}
-		<Button variant="glass" disabled={!!u.running} onclick={u.unlink}>
-			{#snippet leading()}{#if u.running === "unlink"}<Spinner size={14} />{:else}<Unlink
-						size={14}
-					/>{/if}{/snippet}
-			Unlink dev build
-		</Button>
-	{:else if u.available}
-		<Button variant="glass" onclick={u.showWhatsNew}>What's new</Button>
-		<Button disabled={!!u.running} onclick={u.updateAll}>
-			{#snippet leading()}{#if u.running === "update"}<Spinner size={14} />{:else}<Download
-						size={14}
-					/>{/if}{/snippet}
-			{u.running === "update" ? "Updating…" : "Update CLI and app"}
-		</Button>
-	{:else if u.aheadOfChannel && u.info && !u.info.app.dev}
+	{#if u.available && !u.linked && !u.relaunchNeeded}
 		<Button variant="ghost" onclick={u.showWhatsNew}>What's new</Button>
-		<Button variant="glass" disabled={!!u.running} onclick={u.downgrade}>
+	{:else if u.aheadOfChannel && u.info && !u.info.app.dev && !u.relaunchNeeded}
+		<Button variant="ghost" onclick={u.showWhatsNew}>What's new</Button>
+		<Button variant="outlined" disabled={!!u.running} onclick={u.downgrade}>
 			{#snippet leading()}{#if u.running === "update"}<Spinner size={14} />{:else}<Download
 						size={14}
 					/>{/if}{/snippet}
 			Install {u.release?.version} now (downgrade)
 		</Button>
-	{:else if u.info && !u.info.app.dev}
+	{:else if u.info && !u.info.app.dev && !u.linked && !u.relaunchNeeded}
 		<Button variant="ghost" onclick={u.showWhatsNew}>What's new</Button>
-		<Button variant="glass" disabled={!!u.running} onclick={u.reinstall}>
+		<Button variant="outlined" disabled={!!u.running} onclick={u.reinstall}>
 			{#snippet leading()}{#if u.running === "reinstall"}<Spinner size={14} />{:else}<Download
 						size={14}
 					/>{/if}{/snippet}
@@ -239,7 +243,11 @@
 	.hero {
 		display: flex;
 		align-items: center;
-		gap: 14px;
+		gap: 16px;
+		padding: 16px 18px;
+		border-radius: 12px;
+		background: color-mix(in oklab, var(--tone) 7%, var(--ca-surface-raised));
+		box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--tone) 28%, transparent);
 		--tone: var(--ca-semantic-success);
 	}
 	.hero.avail {
@@ -251,6 +259,13 @@
 	.htext {
 		flex: 1;
 		min-width: 0;
+	}
+	.hact {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		justify-content: flex-end;
 	}
 	.badge {
 		width: 44px;
@@ -386,6 +401,9 @@
 		display: flex;
 		justify-content: flex-end;
 		gap: 8px;
+	}
+	.foot:empty {
+		display: none;
 	}
 	.skipnote {
 		margin: 8px 2px 0;

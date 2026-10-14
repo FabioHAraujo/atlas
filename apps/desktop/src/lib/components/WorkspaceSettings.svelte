@@ -131,8 +131,6 @@
 	{/if}
 </Group>
 
-<div class="gap"></div>
-
 <Group
 	title="Clean up"
 	description="Linked worktrees take disk space. Scan to see how big each one is, its last commit and whether it has unsaved work."
@@ -171,9 +169,6 @@
 </Group>
 
 <style>
-	.gap {
-		height: 4px;
-	}
 	.wt {
 		display: grid;
 		grid-template-columns: 20px 1.4fr 1.4fr 70px 70px 1fr;

@@ -10,6 +10,10 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 - **Atlas on Windows.** Windows 10 (1809+) and 11 on x64 get the CLI, the TUI, the MCP server and Atlas Desktop: install with `irm https://atlas.codeatlas.com.br/install.ps1 | iex` in PowerShell (no admin rights; `atlas.exe` in `~\.atlas\bin`, added to your user `PATH`), then `atlas desktop`, or run the per-user `Atlas-<version>-x86_64-pc-windows-msvc-setup.exe` from the release page; `atlas update` keeps both current. Terminals run on ConPTY with PowerShell 7, Windows PowerShell or `cmd.exe`, `atlas.yaml` commands run through `cmd.exe` like npm scripts, and the terminal host restarts instead of upgrading live. See [Windows](docs/installation.md#windows).
 
+### Changed
+
+- **Code of Conduct updated to the Contributor Covenant 3.0** (was 2.1), with the reporting channel (a private report on the repository) and the moderators (the maintainers) filled in. Linked from the README badge, the issue chooser and the pull request checklist.
+
 ### Fixed
 
 - **New terminals opened blank until a reload (Windows, Linux).** An xterm.js terminal asked the terminal host for its history before its listener was registered; a fast host answered first, the history was lost and every later byte waited behind it. The terminal (and the chat tab) now attach only once they listen.

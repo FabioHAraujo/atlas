@@ -117,6 +117,7 @@ export function complete(input: ThemeStyle, appearance: Appearance): ThemeStyle 
 		["version_control.renamed", "info"],
 	] as const)
 		set(s, k, color(s[from]));
+	set(s, "version_control.ignored", mix(fg, bg, 0.28));
 	set(s, "scrollbar.thumb.background", withAlpha(fg, 0.22));
 	set(s, "scrollbar.thumb.hover_background", withAlpha(fg, 0.4));
 	set(s, "link_text.hover", color(s.info));
@@ -242,6 +243,12 @@ function legible(s: ThemeStyle, dark: boolean) {
 			lift(k, AA, [...text, ...own]);
 		}
 	lift("text.disabled", 3, text);
+	// Gitignored names: quieter than `text` by construction (seeded from it toward the background), then lifted to AA
+	// like every label. Unlike `text.muted`, which the tint stacks above push to or past `text` in some themes.
+	const rowTints = [0.06, dark ? 0.13 : 0.09].flatMap((a) =>
+		text.map((bg) => over(opaque(color(s.text)!), bg, a)),
+	);
+	lift("version_control.ignored", AA, [...text, ...rowTints]);
 	// The field boundary reads 3:1 on every surface AND on the 5% text tint a field is filled with, over each.
 	const fieldFills = text.flatMap((bg) => [bg, over(opaque(color(s.text)!), bg, 0.05)]);
 	lift("border.control", 3, fieldFills);

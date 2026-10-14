@@ -56,6 +56,8 @@ export const UI_TOKENS: Record<string, string[]> = {
 	"version_control.modified": ["--atlas-vcs-modified"],
 	"version_control.deleted": ["--atlas-vcs-deleted"],
 	"version_control.renamed": ["--atlas-vcs-renamed"],
+	/** Gitignored files and folders in the explorer: dimmed (quieter than `text`) yet AA on every surface. */
+	"version_control.ignored": ["--atlas-vcs-ignored"],
 	"scrollbar.thumb.background": ["--atlas-scrollbar-thumb"],
 	"scrollbar.thumb.hover_background": ["--atlas-scrollbar-thumb-hover"],
 	"link_text.hover": ["--atlas-link"],

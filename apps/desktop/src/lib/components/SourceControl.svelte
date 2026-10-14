@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { primaryKey } from "#lib/keys.ts";
+	import { kbd, primaryKey } from "#lib/keys.ts";
 	import { Button, DropdownMenu, DropdownMenuItem, Spinner, TextArea, toast } from "@codeatlasdev/ui";
 	import { Plus, Minus, Undo2, Sparkles, Ellipsis, GitPullRequest } from "@lucide/svelte";
 	import { listen } from "@tauri-apps/api/event";
@@ -193,7 +193,7 @@
 	{/if}
 
 	<div class="msg" role="presentation" onkeydown={(e) => e.key === "Enter" && primaryKey(e) && commit()}>
-		<TextArea bind:value={message} placeholder="Commit message (⌘Enter to commit)" rows={3} />
+		<TextArea bind:value={message} placeholder={`Commit message (${kbd("cmd-enter")} to commit)`} rows={3} />
 		<div class="row-btns">
 			<Button size="sm" disabled={!!busy || primaryLabel === "Up to date"} onclick={primary}>
 				{#snippet leading()}{#if busy && busy !== "ai"}<Spinner size={12} />{/if}{/snippet}

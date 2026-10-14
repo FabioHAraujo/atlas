@@ -12,7 +12,7 @@
 	import { themes } from "#lib/stores/theme.svelte.ts";
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
 	import FindInput from "./FindInput.svelte";
-	import { IS_MAC } from "#lib/keys.ts";
+	import { IS_MAC, primaryKey } from "#lib/keys.ts";
 	import { xtermKey } from "#lib/termKeys.ts";
 	import { ptyStream, type PtyEvent } from "#lib/ptyStream.ts";
 
@@ -99,7 +99,9 @@
 		t.loadAddon(search);
 		t.loadAddon(new Unicode11Addon());
 		t.unicode.activeVersion = "11";
-		t.loadAddon(new WebLinksAddon((ev, url) => (onLink ? onLink(url, ev.metaKey) : void api.openUrl(url))));
+		t.loadAddon(
+			new WebLinksAddon((ev, url) => (onLink ? onLink(url, primaryKey(ev)) : void api.openUrl(url))),
+		);
 		t.open(el);
 		try {
 			t.loadAddon(new WebglAddon());
@@ -119,7 +121,7 @@
 					return false;
 				// The browser's own paste follows; xterm's paste handler sends the text.
 				case "paste":
-				// App shortcuts (⌘T, ⌘W, ⌘\ …; Ctrl+Shift+T … off macOS) reach the window handler.
+				// App shortcuts (⌘T, ⌘W, ⌘\ …; Ctrl+Shift+P, Ctrl+Tab … off macOS) reach the window handler.
 				case "app":
 					return false;
 				case "shiftEnter":

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from "svelte";
-	import { primaryKey } from "#lib/keys.ts";
+	import { kbd, primaryKey } from "#lib/keys.ts";
 	import { EditorView } from "@codemirror/view";
 	import { toast } from "@codeatlasdev/ui";
 	import {
@@ -316,14 +316,19 @@
 				</button>
 			{/if}
 			{#if isHtml(path)}
-				<Tip label="Open preview (⌘⇧V)" side="bottom">
+				<Tip label={`Open preview (${kbd("shift-cmd-v")})`} side="bottom">
 					{#snippet child(props)}
 						<button {...props} onclick={() => void previewHtml(worktreeId, path)}><Globe size={13} /></button>
 					{/snippet}
 				</Tip>
 			{/if}
 			{#if hasRich}
-				<Tip label={rich ? `Show source (⌘⇧M)` : `${isMd ? "Rich" : ft.label} view (⌘⇧M)`} side="bottom">
+				<Tip
+					label={rich
+						? `Show source (${kbd("shift-cmd-m")})`
+						: `${isMd ? "Rich" : ft.label} view (${kbd("shift-cmd-m")})`}
+					side="bottom"
+				>
 					{#snippet child(props)}
 						<button {...props} class:on={rich} aria-pressed={rich} onclick={() => setRich(!rich)}>
 							{#if rich}<Code size={13} />{:else}<Eye size={13} />{/if}

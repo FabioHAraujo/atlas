@@ -311,6 +311,14 @@ pub fn reply(id: u64, res: Result<Value, String>) -> String {
     v.to_string()
 }
 
+/// The `pty_title` push for the title a `pty_attach` answer carries, or `None` when it has none. A
+/// program that titles its terminal once, before a client attached (PowerShell does at start), would
+/// otherwise never reach that client: the push went out while nobody listened.
+pub fn title_event(pty: &str, attach: &Value) -> Option<Value> {
+    let title = attach["title"].as_str().filter(|t| !t.is_empty())?;
+    Some(serde_json::json!({"ev": "pty_title", "pty": pty, "title": title}))
+}
+
 /// The first client line: `{"hello":{token,client,proto}}`.
 pub fn hello_line(token: &str, client: &str) -> String {
     serde_json::json!({"hello": {"token": token, "client": client, "proto": PROTO}}).to_string()

@@ -42,6 +42,32 @@ fn a_console_title_that_is_a_program_path_shows_the_program_name() {
     }
 }
 
+// Incident (Windows): PowerShell titles its console once, at start, before the app has attached to the new
+// terminal. That `pty_title` push went to nobody and the tab kept "Terminal". The attach answer carries the
+// current title; `protocol::title_event` turns it into the event the app's tab store reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_title_set_before_attach_comes_back_as_a_title_event() {
+    let dir = std::env::temp_dir().join(format!("atlas-host-title-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = if cfg!(windows) {
+        "title built"
+    } else {
+        "printf '\\033]0;built\\007'"
+    };
+    let s = Session::spawn(shell_req(script), &dir).unwrap();
+    until_exited(&s).await;
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let info = s.attach(1, tx, true, true);
+    assert_eq!(
+        crate::protocol::title_event(&s.id, &info),
+        Some(serde_json::json!({"ev": "pty_title", "pty": s.id, "title": "built"}))
+    );
+    assert_eq!(
+        crate::protocol::title_event("p", &serde_json::json!({"title": ""})),
+        None
+    );
+}
+
 /// A raw reader that never reads must not freeze the program: it is dropped
 /// after `RAW_STALL` and the output (far more than the queues hold) completes.
 #[tokio::test(flavor = "multi_thread")]

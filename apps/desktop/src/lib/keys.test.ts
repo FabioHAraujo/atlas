@@ -3,6 +3,9 @@ import { expect, test } from "bun:test";
 import {
 	DEFAULT_KEYMAP,
 	bindingsOf,
+	defaultKeymap,
+	kbd,
+	modClick,
 	label,
 	merge,
 	normalize,
@@ -158,7 +161,7 @@ test("labels read Ctrl/Alt/Shift words off macOS and glyphs on macOS", () => {
 });
 
 // Off macOS the app's shortcuts are Ctrl chords; a shell needs ^C, ^R, ^L, ^W, ^K… for itself. In a focused terminal a
-// plain Ctrl+letter goes to the program and the app is reached with Shift added, as in Windows Terminal.
+// plain Ctrl+letter goes to the program; Ctrl+Shift, digit, Tab and punctuation chords still reach the app.
 test("off macOS a focused terminal keeps plain Ctrl+letter for the program", () => {
 	const ev = (code: string, m = {}) => ({ code, ctrlKey: false, shiftKey: false, altKey: false, ...m });
 	for (const code of ["KeyC", "KeyR", "KeyL", "KeyW", "KeyK", "KeyT"]) {
@@ -172,4 +175,110 @@ test("off macOS a focused terminal keeps plain Ctrl+letter for the program", () 
 	expect(shellKeepsCtrl(ev("KeyR", { ctrlKey: true, altKey: true }), false)).toBe(false);
 	// macOS app shortcuts are ⌘ chords: nothing to keep.
 	expect(shellKeepsCtrl(ev("KeyC", { ctrlKey: true }), true)).toBe(false);
+});
+
+// Incident (Windows, 2026-10-14): the palette listed "Ctrl+S" for both Save (⌘S) and Toggle sidebar (⌃⌘S), and
+// "Ctrl+1" for tab 1 (⌘1), space 1 (⌃1) and recent worktree 1 (⌃⌘1). Off macOS ⌃ and ⌘ are the same key, so only
+// one of each could ever run. Every default binding must run from exactly the keys its label names.
+test("off macOS every default binding runs from the keys its label names, and no two share a label", () => {
+	const CODE: Record<string, string> = {
+		"`": "Backquote",
+		"\\": "Backslash",
+		"[": "BracketLeft",
+		"]": "BracketRight",
+		",": "Comma",
+		".": "Period",
+		"/": "Slash",
+		"-": "Minus",
+		"=": "Equal",
+		";": "Semicolon",
+		"'": "Quote",
+		escape: "Escape",
+		enter: "Enter",
+		tab: "Tab",
+		backspace: "Backspace",
+		delete: "Delete",
+		space: "Space",
+		up: "ArrowUp",
+		down: "ArrowDown",
+		left: "ArrowLeft",
+		right: "ArrowRight",
+		home: "Home",
+		end: "End",
+		pageup: "PageUp",
+		pagedown: "PageDown",
+	};
+	/** The key event a Windows/Linux user makes for a canonical stroke (⌘ and ⌃ are both Ctrl there). */
+	const eventFor = (stroke: string) => {
+		const parts = stroke.split("-");
+		if (stroke.endsWith("--")) parts.splice(-2, 2, "-");
+		const key = parts.pop()!;
+		const code = /^[a-z]$/.test(key)
+			? `Key${key.toUpperCase()}`
+			: /^\d$/.test(key)
+				? `Digit${key}`
+				: /^f\d+$/.test(key)
+					? key.toUpperCase()
+					: CODE[key];
+		const ctrlKey = parts.includes("cmd") || parts.includes("ctrl");
+		return {
+			code,
+			ctrlKey,
+			altKey: parts.includes("alt"),
+			shiftKey: parts.includes("shift"),
+			metaKey: false,
+		};
+	};
+	const m = merge(defaultKeymap(false), {});
+	const byLabel = new Map<string, string[]>();
+	const wrong: string[] = [];
+	for (const [stroke, id] of m) {
+		const l = label(stroke, false);
+		byLabel.set(l, [...(byLabel.get(l) ?? []), id]);
+		const ran = strokesOf(eventFor(stroke) as KeyboardEvent, false)
+			.map((s) => m.get(s))
+			.find(Boolean);
+		if (ran !== id) wrong.push(`${l} runs ${ran}, not ${id}`);
+	}
+	expect(wrong).toEqual([]);
+	expect([...byLabel].filter(([, ids]) => ids.length > 1)).toEqual([]);
+	// Where the macOS-only chords went.
+	expect(label(bindingsOf("shell::ToggleSidebar", m)[0], false)).toBe("Alt+Shift+S");
+	expect(label(bindingsOf("shell::Space1", m)[0], false)).toBe("Alt+1");
+	expect(label(bindingsOf("atlas::RecentWorktree1", m)[0], false)).toBe("Alt+Shift+1");
+	expect(label(bindingsOf("pane::ActivateItem1", m)[0], false)).toBe("Ctrl+1");
+	expect(m.get("cmd-s")).toBe("workspace::Save");
+	// macOS keeps its keymap as written.
+	expect(defaultKeymap(true)).toEqual(DEFAULT_KEYMAP);
+});
+
+// Incident class (Windows): AltGr arrives as Ctrl+Alt. Typing "ś" (Polish AltGr+S) or "²" (Brazilian AltGr+2) must
+// stay text, not run Ctrl+Alt+S (Save all) or a Ctrl+Alt+digit binding.
+test("off macOS a Ctrl+Alt chord that types a character is AltGr text, not a shortcut", () => {
+	const ev = (code: string, key: string) =>
+		({ code, key, ctrlKey: true, altKey: true, shiftKey: false, metaKey: false }) as KeyboardEvent;
+	expect(strokesOf(ev("KeyS", "ś"), false)).toEqual([]);
+	expect(strokesOf(ev("Digit2", "²"), false)).toEqual([]);
+	expect(strokesOf(ev("KeyQ", "@"), false)).toEqual([]);
+	// A real Ctrl+Alt chord reports the plain key.
+	expect(strokesOf(ev("KeyS", "s"), false)[0]).toBe("alt-cmd-s");
+	expect(strokesOf(ev("KeyS", "S"), false)[0]).toBe("alt-cmd-s");
+	expect(strokesOf(ev("ArrowLeft", "ArrowLeft"), false)[0]).toBe("alt-cmd-left");
+	// macOS has no AltGr: ⌃⌥ chords stay chords.
+	expect(strokesOf(ev("KeyS", "ś"), true)).toEqual(["ctrl-alt-s"]);
+});
+
+// Incident (Windows): placeholders and hints spelled macOS keys ("⌘Enter to commit", "⎋ close", "⌘-click"), which a
+// Windows or Linux keyboard does not have. UI text names keys through `kbd`, which follows the platform like labels.
+test("kbd names a key for UI text: glyphs on macOS, Ctrl/Shift/Esc words elsewhere", () => {
+	expect(kbd("cmd-l", true)).toBe("⌘L");
+	expect(kbd("cmd-l", false)).toBe("Ctrl+L");
+	expect(kbd("cmd-enter", false)).toBe("Ctrl+Enter");
+	expect(kbd("shift-enter", true)).toBe("⇧↩");
+	expect(kbd("shift-enter", false)).toBe("Shift+Enter");
+	expect(kbd("escape", true)).toBe("⎋");
+	expect(kbd("escape", false)).toBe("Esc");
+	expect(kbd("cmd-shift-m", false)).toBe("Ctrl+Shift+M");
+	expect(modClick(true)).toBe("⌘-click");
+	expect(modClick(false)).toBe("Ctrl+click");
 });

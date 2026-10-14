@@ -206,6 +206,8 @@ Defaults follow macOS, Zed and browser conventions. Every shortcut is a named co
 { "keymap": { "cmd-j": null, "cmd-shift-j": "workspace::ToggleBottomDock" } }
 ```
 
+**On Windows and Linux** the table reads with Ctrl for ⌘ (the Windows/Super key belongs to the system) and Alt for ⌥; labels in the app say so (`Ctrl+Shift+P`). The keymap file keeps the `cmd-…` spelling on every platform. Three macOS-only chords move, since ⌃ and ⌘ are the same Ctrl key there: spaces ⌃1…⌃9 are **Alt+1…9**, recent worktrees ⌃⌘1…⌃⌘6 are **Alt+Shift+1…6**, and the sidebar ⌃⌘S is **Alt+Shift+S**. In a focused terminal a plain Ctrl+letter goes to the shell (^C, ^R, ^W …), while Ctrl+Shift chords (Ctrl+Shift+P for the palette) and Ctrl with a digit, Tab or punctuation still reach the app; Ctrl+C copies when text is selected and Ctrl+V pastes. A Ctrl+Alt chord that types a character (AltGr on Windows: `ś`, `²`, `@`) stays text. The native menu shows no keys there; the app window handles them.
+
 | Keys                      | Action                                                                                                                       |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | ⌘⇧P                       | command palette                                                                                                              |

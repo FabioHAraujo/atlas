@@ -1,7 +1,7 @@
 <script lang="ts">
 	/** One hunk as a table: line numbers, comment gutter, highlighted code, review notes and the draft box. */
 	import { Check, MessageSquarePlus } from "@lucide/svelte";
-	import { primaryKey } from "#lib/keys.ts";
+	import { kbd, primaryKey } from "#lib/keys.ts";
 	import type { DiffHunk } from "#lib/api.ts";
 	import type { DiffComment } from "#lib/stores/workspace.svelte.ts";
 
@@ -80,7 +80,7 @@
 						<!-- svelte-ignore a11y_autofocus -->
 						<textarea
 							autofocus
-							placeholder="Comment for the agent (⌘Enter to save, Esc to cancel)"
+							placeholder={`Comment for the agent (${kbd("cmd-enter")} to save, Esc to cancel)`}
 							bind:value={draft.text}
 							onkeydown={(e) => {
 								if (e.key === "Enter" && primaryKey(e)) onsave();

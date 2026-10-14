@@ -97,8 +97,9 @@ impl ServiceManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Env precedence (low→high): inherited < env_files < service `env:` <
+        // Env precedence (low→high): login shell < env_files < service `env:` <
         // atlas-injected (PORT, FORCE_COLOR, BROWSER below).
+        cmd.envs(atlas_core::login_env::vars());
         cmd.envs(crate::runtime::envfile::layered_env(
             &self.file_env,
             &extra_env,

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { primaryKey } from "#lib/keys.ts";
 	import { invoke } from "@tauri-apps/api/core";
 	import { listen } from "@tauri-apps/api/event";
 	import { DropdownMenu, DropdownMenuItem, toast } from "@codeatlasdev/ui";
@@ -119,7 +120,7 @@
 
 	function onkeydown(e: KeyboardEvent) {
 		if (!visible) return;
-		if (e.metaKey && e.key === "l") {
+		if (primaryKey(e) && e.key === "l") {
 			e.preventDefault();
 			document.getElementById(`addr-${tab.id}`)?.focus();
 		}

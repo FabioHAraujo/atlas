@@ -12,7 +12,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::master::Waiter;
-use super::title::TitleParser;
+use super::title::{TitleParser, shown};
 use super::{Buf, RING_MAX, RawOut, Session, bin_path, open_append};
 
 const RING_DROP: usize = 64 * 1024;
@@ -93,7 +93,7 @@ impl Session {
                 self.answer_startup_query(&mut pending);
             }
             if let Some(t) = title.feed(&pending) {
-                self.set_title(t);
+                self.set_title(shown(t));
             }
             for (conn, out) in self.output(&pending) {
                 if !send_raw(&out, &pending).await {

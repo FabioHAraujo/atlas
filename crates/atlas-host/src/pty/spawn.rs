@@ -29,22 +29,11 @@ fn default_argv() -> Vec<String> {
     vec![std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".into())]
 }
 
-/// The account's login shell (what Terminal uses), else `$SHELL`, else zsh.
+/// The shell a terminal tab starts: the one the environment probe resolved (override, `$SHELL`, the
+/// account's login shell), so a tab and a service see the same PATH.
 #[cfg(unix)]
 fn login_shell() -> String {
-    // SAFETY: getpwuid returns a pointer into static storage or null; we copy out at once.
-    let account = unsafe {
-        let pw = libc::getpwuid(libc::getuid());
-        (!pw.is_null() && !(*pw).pw_shell.is_null()).then(|| {
-            std::ffi::CStr::from_ptr((*pw).pw_shell)
-                .to_string_lossy()
-                .into_owned()
-        })
-    };
-    account
-        .or_else(|| std::env::var("SHELL").ok())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "/bin/zsh".into())
+    atlas_core::login_env::resolve_shell().0
 }
 
 /// A started child, before it becomes a [`Session`].
@@ -69,6 +58,7 @@ fn spawn_pipe(argv: &[String], cwd: &str, env: Vec<(String, String)>) -> Result<
         }
     };
     cmd.current_dir(cwd)
+        .envs(atlas_core::login_env::vars())
         .envs(env)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -153,7 +143,7 @@ fn spawn_pty(
     let mut cmd = CommandBuilder::new(&argv[0]);
     cmd.args(&argv[1..]);
     cmd.cwd(cwd);
-    for (k, v) in env {
+    for (k, v) in atlas_core::login_env::vars().into_iter().chain(env) {
         cmd.env(k, v);
     }
     let mut child = pair

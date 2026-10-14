@@ -1,6 +1,17 @@
 // @ts-nocheck bun test runtime types are not part of the app tsconfig
 import { expect, test } from "bun:test";
-import { DEFAULT_KEYMAP, bindingsOf, label, merge, normalize, rebind, strokeOf, unbind } from "./keys.ts";
+import {
+	DEFAULT_KEYMAP,
+	bindingsOf,
+	label,
+	merge,
+	normalize,
+	rebind,
+	shellKeepsCtrl,
+	strokeOf,
+	strokesOf,
+	unbind,
+} from "./keys.ts";
 
 test("keystrokes normalize modifier order, aliases and shifted characters", () => {
 	expect(normalize("shift-cmd-P")).toBe("shift-cmd-p");
@@ -98,4 +109,67 @@ test("⌃- and ⌃⇧- are Go Back / Go Forward over jump positions, distinct fr
 	expect(m.get(normalize("ctrl--"))).toBe("editor::GoBack");
 	expect(m.get(normalize("ctrl-shift--"))).toBe("editor::GoForward");
 	expect(m.get("cmd-[")).toBe("shell::Back");
+});
+
+// Incident (Windows, first run): every shortcut was bound to ⌘ (the Meta key), which on Windows and Linux is the
+// system's own Windows/Super key, so no app shortcut worked and every hint read `⌘K`. Off macOS, Ctrl takes ⌘'s
+// place (as in VS Code and Zed) and labels read `Ctrl+K`.
+test("off macOS, Ctrl is the primary modifier: Ctrl+K is the ⌘K binding", () => {
+	const ev = (code: string, m: Partial<KeyboardEvent> = {}) =>
+		({ code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...m }) as KeyboardEvent;
+	expect(strokeOf(ev("KeyK", { ctrlKey: true }), false)).toBe("cmd-k");
+	expect(strokeOf(ev("KeyP", { ctrlKey: true, shiftKey: true }), false)).toBe("shift-cmd-p");
+	expect(strokeOf(ev("KeyS", { ctrlKey: true, altKey: true }), false)).toBe("alt-cmd-s");
+	// The Windows key is the system's: it never reaches a binding.
+	expect(strokeOf(ev("KeyK", { metaKey: true }), false)).toBeNull();
+	// macOS is unchanged.
+	expect(strokeOf(ev("KeyK", { ctrlKey: true }), true)).toBe("ctrl-k");
+	expect(strokeOf(ev("KeyK", { metaKey: true }), true)).toBe("cmd-k");
+});
+
+test("off macOS a Ctrl chord also reaches a binding written with ctrl, after the ⌘ one", () => {
+	const ev = (code: string, m: Partial<KeyboardEvent> = {}) =>
+		({ code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...m }) as KeyboardEvent;
+	expect(strokesOf(ev("Tab", { ctrlKey: true }), false)).toEqual(["cmd-tab", "ctrl-tab"]);
+	expect(strokesOf(ev("Backquote", { ctrlKey: true }), false)).toEqual(["cmd-`", "ctrl-`"]);
+	expect(strokesOf(ev("KeyK", { metaKey: true }), true)).toEqual(["cmd-k"]);
+	expect(strokesOf(ev("KeyA"), false)).toEqual(["a"]);
+	const m = merge(DEFAULT_KEYMAP, {});
+	const run = (e: KeyboardEvent) =>
+		strokesOf(e, false)
+			.map((s) => m.get(s))
+			.find(Boolean);
+	expect(run(ev("KeyK", { ctrlKey: true }))).toBe("atlas::Jump");
+	expect(run(ev("Tab", { ctrlKey: true }))).toBe("pane::ActivateRecentItem");
+	expect(run(ev("Backquote", { ctrlKey: true }))).toBe("terminal_panel::ToggleFocus");
+	expect(run(ev("KeyP", { ctrlKey: true, shiftKey: true }))).toBe("command_palette::Toggle");
+});
+
+test("labels read Ctrl/Alt/Shift words off macOS and glyphs on macOS", () => {
+	expect(label("shift-cmd-p", false)).toBe("Ctrl+Shift+P");
+	expect(label("cmd-k", false)).toBe("Ctrl+K");
+	expect(label("alt-cmd-s", false)).toBe("Ctrl+Alt+S");
+	expect(label("ctrl-tab", false)).toBe("Ctrl+Tab");
+	expect(label("ctrl-`", false)).toBe("Ctrl+`");
+	expect(label("alt-cmd-left", false)).toBe("Ctrl+Alt+←");
+	expect(label("cmd--", false)).toBe("Ctrl+-");
+	expect(label("escape", false)).toBe("Esc");
+	expect(label("shift-cmd-p", true)).toBe("⇧⌘P");
+});
+
+// Off macOS the app's shortcuts are Ctrl chords; a shell needs ^C, ^R, ^L, ^W, ^K… for itself. In a focused terminal a
+// plain Ctrl+letter goes to the program and the app is reached with Shift added, as in Windows Terminal.
+test("off macOS a focused terminal keeps plain Ctrl+letter for the program", () => {
+	const ev = (code: string, m = {}) => ({ code, ctrlKey: false, shiftKey: false, altKey: false, ...m });
+	for (const code of ["KeyC", "KeyR", "KeyL", "KeyW", "KeyK", "KeyT"]) {
+		expect(shellKeepsCtrl(ev(code, { ctrlKey: true }), false)).toBe(true);
+	}
+	// The app still gets Ctrl+Shift chords, Ctrl+digits, Ctrl+Tab and Ctrl+`.
+	expect(shellKeepsCtrl(ev("KeyT", { ctrlKey: true, shiftKey: true }), false)).toBe(false);
+	expect(shellKeepsCtrl(ev("Digit1", { ctrlKey: true }), false)).toBe(false);
+	expect(shellKeepsCtrl(ev("Tab", { ctrlKey: true }), false)).toBe(false);
+	expect(shellKeepsCtrl(ev("Backquote", { ctrlKey: true }), false)).toBe(false);
+	expect(shellKeepsCtrl(ev("KeyR", { ctrlKey: true, altKey: true }), false)).toBe(false);
+	// macOS app shortcuts are ⌘ chords: nothing to keep.
+	expect(shellKeepsCtrl(ev("KeyC", { ctrlKey: true }), true)).toBe(false);
 });

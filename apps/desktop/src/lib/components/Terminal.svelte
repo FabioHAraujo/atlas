@@ -12,6 +12,9 @@
 	import { themes } from "#lib/stores/theme.svelte.ts";
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
 	import FindInput from "./FindInput.svelte";
+	import { IS_MAC } from "#lib/keys.ts";
+	import { xtermKey } from "#lib/termKeys.ts";
+	import { ptyStream, type PtyEvent } from "#lib/ptyStream.ts";
 
 	let {
 		pty,
@@ -105,45 +108,41 @@
 		}
 		t.attachCustomKeyEventHandler((e) => {
 			if (e.type !== "keydown") return true;
-			if (e.metaKey && e.key === "f") {
-				searchOpen = true;
-				return false;
-			}
-			// Let app shortcuts (⌘T, ⌘W, ⌘\ …) reach the window handler.
-			if (e.metaKey) return false;
-			if (e.shiftKey && e.key === "Enter") {
-				void host.ptyWrite(pty, "\x1b[13;2u");
-				return false;
+			switch (xtermKey(e, t.hasSelection(), IS_MAC)) {
+				case "search":
+					searchOpen = true;
+					return false;
+				case "copy":
+					void navigator.clipboard.writeText(t.getSelection());
+					t.clearSelection();
+					e.preventDefault();
+					return false;
+				// The browser's own paste follows; xterm's paste handler sends the text.
+				case "paste":
+				// App shortcuts (⌘T, ⌘W, ⌘\ …; Ctrl+Shift+T … off macOS) reach the window handler.
+				case "app":
+					return false;
+				case "shiftEnter":
+					void host.ptyWrite(pty, "\x1b[13;2u");
+					return false;
 			}
 			return true;
 		});
 		const offs: (() => void)[] = [];
 		let alive = true;
-		const pendingLive: Uint8Array[] = [];
-		let replayed = false;
-		listen<{ data: string; replay: boolean }>(`pty://${pty}`, (e) => {
-			const bytes = b64bytes(e.payload.data);
-			if (e.payload.replay) {
-				t.reset();
-				t.write(bytes);
-				replayed = true;
-				pendingLive.splice(0).forEach((b) => t.write(b));
-			} else if (replayed) t.write(bytes);
-			else pendingLive.push(bytes);
-		}).then((u) => (alive ? offs.push(u) : u()));
-		const attach = () =>
-			host
-				.ptyAttach(pty, true)
-				.then(() => {
+		const stream = ptyStream({
+			listen: (f) => listen<PtyEvent>(`pty://${pty}`, (e) => f(e.payload)),
+			attach: () =>
+				host.ptyAttach(pty, true).then(() => {
 					fit?.fit();
 					return host.ptyResize(pty, t.cols, t.rows);
-				})
-				.catch(() => {});
-		void attach();
-		listen("host://reconnected", () => {
-			replayed = false;
-			void attach();
-		}).then((u) => (alive ? offs.push(u) : u()));
+				}),
+			decode: b64bytes,
+			write: (b) => t.write(b),
+			reset: () => t.reset(),
+		});
+		offs.push(() => stream.dispose());
+		listen("host://reconnected", () => stream.reattach()).then((u) => (alive ? offs.push(u) : u()));
 		if (!readonly) t.onData((d) => void host.ptyWrite(pty, d).catch(() => {}));
 		let timer: number | undefined;
 		const ro = new ResizeObserver(() => {
@@ -158,6 +157,7 @@
 		return () => {
 			alive = false;
 			ro.disconnect();
+			clearTimeout(timer);
 			offs.forEach((u) => u());
 			void host.ptyDetach(pty).catch(() => {});
 			t.dispose();

@@ -43,6 +43,7 @@ impl DockerManager {
             }
             let mut cmd = Command::new("docker");
             cmd.no_window();
+            cmd.envs(atlas_core::login_env::vars());
             cmd.args(["compose", "-f"]);
             cmd.arg(&self.compose_file);
             cmd.args(["up", "-d"]);
@@ -75,6 +76,7 @@ impl DockerManager {
         self.state = ServiceState::Stopped;
         let mut cmd = Command::new("docker");
         cmd.no_window();
+        cmd.envs(atlas_core::login_env::vars());
         cmd.args(["compose", "-f"]);
         cmd.arg(&self.compose_file);
         cmd.arg("down");
@@ -93,7 +95,8 @@ impl DockerManager {
     pub async fn is_docker_available() -> bool {
         let mut cmd = Command::new("docker");
         cmd.no_window();
-        cmd.args(["info"])
+        cmd.envs(atlas_core::login_env::vars())
+            .args(["info"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .kill_on_drop(true);

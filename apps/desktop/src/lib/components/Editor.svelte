@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from "svelte";
+	import { primaryKey } from "#lib/keys.ts";
 	import { EditorView } from "@codemirror/view";
 	import { toast } from "@codeatlasdev/ui";
 	import {
@@ -252,7 +253,7 @@
 
 	function onkeydown(e: KeyboardEvent) {
 		if (!focused) return;
-		if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "m" && hasRich && phase === "text") {
+		if (primaryKey(e) && e.shiftKey && e.key.toLowerCase() === "m" && hasRich && phase === "text") {
 			setRich(!rich);
 			e.preventDefault();
 		}

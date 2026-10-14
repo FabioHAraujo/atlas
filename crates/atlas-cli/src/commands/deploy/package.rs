@@ -73,6 +73,7 @@ pub fn package(
         eprintln!("▸ build: {build}");
         // The project's own build command, in this machine's shell (`cmd` on Windows).
         let st = atlas_core::sys::shell(build)
+            .envs(atlas_core::login_env::vars())
             .current_dir(root)
             .status()
             .context("running build")?;

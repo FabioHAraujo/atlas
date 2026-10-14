@@ -10,6 +10,47 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 - **Atlas on Windows.** Windows 10 (1809+) and 11 on x64 get the CLI, the TUI, the MCP server and Atlas Desktop: install with `irm https://atlas.codeatlas.com.br/install.ps1 | iex` in PowerShell (no admin rights; `atlas.exe` in `~\.atlas\bin`, added to your user `PATH`), then `atlas desktop`, or run the per-user `Atlas-<version>-x86_64-pc-windows-msvc-setup.exe` from the release page; `atlas update` keeps both current. Terminals run on ConPTY with PowerShell 7, Windows PowerShell or `cmd.exe`, `atlas.yaml` commands run through `cmd.exe` like npm scripts, and the terminal host restarts instead of upgrading live. See [Windows](docs/installation.md#windows).
 
+### Fixed
+
+- **New terminals opened blank until a reload (Windows, Linux).** An xterm.js terminal asked the terminal host for its history before its listener was registered; a fast host answered first, the history was lost and every later byte waited behind it. The terminal (and the chat tab) now attach only once they listen.
+- **"Starting your stack…" never finished for a stack with no services.** A project whose `atlas.yaml` declares no services (all commented out) stayed on the welcome progress forever; it is done once the runner has reported. Its health dot, header pill (now _No services_, not an orange _0 of 0 up_) and popover card say it is up.
+- **Shortcuts on Windows and Linux.** The keymap's `cmd-…` bindings use Ctrl off macOS (the Windows/Super key belongs to the system), labels read `Ctrl+Shift+P` instead of `⇧⌘P`, and in a focused terminal a plain Ctrl+letter goes to the shell (^C, ^R, ^L …) while the app's shortcuts are reached with Shift added; Ctrl+C copies when there is a selection, Ctrl+V pastes.
+- **Terminal tabs on Windows were titled with the shell's full path** (`C:\WINDOWS\System32\…\powershell.exe`): the title is the program's name (`powershell`, `cmd - npm run dev`).
+- **A theme error on every window load on Windows.** WebView2 runs the startup script before `<html>` exists; the cached theme is now applied as soon as it does.
+- **A missing command in `atlas.yaml` on Windows** (`cmd` exits 1, not 127) is explained like on macOS and Linux: the program is named, with the `Path` Atlas used and how to add its folder.
+
+## [1.5.0-alpha.8] — 2026-10-14
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Changed
+
+- **The menu-bar popover, redesigned.** It sits on the active theme's ground and surface ladder (Atlas Dark's blue, Atlas Light's paper) instead of pure black, with AA contrast on every text and state color in both. Each running project is one card with a state rail and a chip that names what is wrong (_redis, api +2 failed_), one bar segment per service, a clean CPU sparkline, and **Restart failed** / **Logs** / **Open** / **Stop**. Agents and Terminals are one balanced row, stopped projects a dense list that reveals **Start** on hover or focus, and the popover is keyboard-navigable (↑ ↓ Home End, Enter, ⎋).
+
+### Fixed
+
+- **The popover header showed the old purple tile.** The mark is now drawn from `assets/logo.svg` through the generated `mark.ts` (which also carries the logo's gradient), so `bun run icons --check` covers it.
+- **The popover was pure black, not the theme.** The kit declares its whole token set on any element with the class `dark`, and the popover put that class on its root, replacing the applied theme. The popover window is also now created with the cached theme and native appearance, like the main window.
+- **The sparkline under a project card was a broken, clipped line.** It was an ECharts canvas handed `var()`/`oklch()` colors it cannot parse, in a 22 px box; it is now an inline SVG that stretches to the card.
+- **The project list was cut off at the bottom with no scroll.** The list scrolls inside the popover with the header and footer pinned, and the window is never taller than the room the screen leaves below the menu bar.
+- **The Agents and Terminals cards left an empty cell** next to a lone project card.
+- **"Find projects" offered a repo's own demo stack as a project.** `atlas/demo` (named `orbit-shop`) was found and added next to your real projects. A `demo/`, `examples/`, `fixtures/`, `testdata/` or `samples/` folder inside a git checkout belongs to that checkout and is no longer offered, by the folder walk or by Spotlight. To drop one already added, use **Remove from Atlas** in its sidebar menu (`⋯`).
+
+## [1.5.0-alpha.7] — 2026-10-14
+
+> `v1.5.0-alpha.6` was tagged but never published: its Linux build failed under the local release runner. This release carries everything from it plus the fixes below.
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
+### Fixed
+
+- **Linux: the stack setup failed with `exit 127: sh: 1: bun: not found` when Atlas Desktop was started from the menu.** A menu launch has no shell rc, so `~/.bun/bin` (and nvm, mise, cargo…) was not on `PATH`. The user's login-shell environment (`$SHELL`, else the passwd entry, run as an interactive login shell with a timeout; rc output around it is ignored) is now one shared probe in `atlas-core` used by every spawn on Linux and macOS: services, `pre_command`, actions, mobile sessions, docker, `atlas dev` itself, and the terminal host's ptys and `exec`. If the shell cannot be probed, the usual user bin directories are prepended and the Settings panel says so. An exit 127 in the setup names the missing binary, the `PATH` Atlas used and how to fix it. See [Shell environment](docs/desktop.md#shell-environment).
+- **The Linux release builds under `act`.** The Linux job failed on `sudo: command not found` (the `act` container runs as root); the system-library step now uses `sudo` only when it exists, in `release.yml` and `ci.yml`. The AppImage bundle needs `APPIMAGE_EXTRACT_AND_RUN` (no FUSE in a container), and the Arch job needs `pacman --disable-sandbox` (its seccomp sandbox fails in an emulated amd64 container). `scripts/act-release.sh` gained `-j <job>` to run one job (the Linux build, say) without the macOS ones, and `.actrc` maps `ubuntu-22.04`.
+
+### Changed
+
+- The workflows' GitHub Actions moved to their Node 24 releases (`checkout` v6, `download-artifact` v8, `upload-artifact` v7, `action-gh-release` v3.0.3), still pinned by SHA. Under `act` the artifact upload stays on `upload-artifact` v5, the newest its artifact server accepts.
+
 ## [1.5.0-alpha.6] — 2026-10-14
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).

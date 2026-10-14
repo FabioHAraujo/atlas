@@ -5,7 +5,7 @@
  * its current binding.
  */
 import { api } from "#lib/api.ts";
-import { DEFAULT_KEYMAP, bindingsOf, label, merge, rebind, strokeOf, unbind } from "#lib/keys.ts";
+import { DEFAULT_KEYMAP, bindingsOf, label, merge, rebind, strokesOf, unbind } from "#lib/keys.ts";
 
 export interface Command {
 	id: string;
@@ -91,7 +91,7 @@ export const resetKeymap = () => saveKeymap({});
 
 /** Stroke labels bound to a command (`["⌘B"]`). */
 export function bindingLabels(id: string): string[] {
-	return bindingsOf(id, merge(DEFAULT_KEYMAP, keymap.user)).map(label);
+	return bindingsOf(id, merge(DEFAULT_KEYMAP, keymap.user)).map((k) => label(k));
 }
 
 /** First binding of a command, as a label. */
@@ -105,11 +105,15 @@ export function shortcutFor(id: string): string | undefined {
  */
 export function dispatch(e: KeyboardEvent, ownedByFocus?: (e: KeyboardEvent) => boolean): boolean {
 	if (ownedByFocus?.(e)) return false;
-	const s = strokeOf(e);
-	const id = s && merge(DEFAULT_KEYMAP, keymap.user).get(s);
-	const c = id ? commands.get(id) : undefined;
-	if (!c || !(c.when?.() ?? true)) return false;
-	noteRun(c.id);
-	c.run();
-	return true;
+	const effective = merge(DEFAULT_KEYMAP, keymap.user);
+	// Off macOS a Ctrl chord can mean a ⌘ binding or a ⌃ one (see keys.ts `strokesOf`): first that runs wins.
+	for (const s of strokesOf(e)) {
+		const id = effective.get(s);
+		const c = id ? commands.get(id) : undefined;
+		if (!c || !(c.when?.() ?? true)) continue;
+		noteRun(c.id);
+		c.run();
+		return true;
+	}
+	return false;
 }

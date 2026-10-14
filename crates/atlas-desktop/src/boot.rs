@@ -120,13 +120,19 @@ pub fn init_script(cache: Option<&ThemeCache>) -> String {
         let vars = serde_json::to_string(&c.vars).unwrap_or_else(|_| "{}".into());
         let name = serde_json::to_string(&c.name).unwrap_or_else(|_| "\"\"".into());
         let scheme = serde_json::to_string(&c.scheme).unwrap_or_else(|_| "\"system\"".into());
+        // WebView2 (Windows) runs this before the document has its <html> element (WKWebView already has
+        // it): apply as soon as it exists rather than throwing on a null `documentElement`.
         js.push_str(&format!(
-            "(function(){{var h=document.documentElement,v={vars},s=h.style,k;\
+            "(function(){{function a(){{var h=document.documentElement;if(!h)return false;\
+             var v={vars},s=h.style,k;\
              for(k in v)s.setProperty(k,v[k]);\
              h.dataset.atlasTheme={name};\
              h.classList.toggle('dark',{dark});\
              s.colorScheme={scheme_css};\
-             try{{localStorage.setItem('ca-scheme',JSON.stringify({scheme}))}}catch(e){{}}}})();",
+             try{{localStorage.setItem('ca-scheme',JSON.stringify({scheme}))}}catch(e){{}}\
+             return true}}\
+             if(!a()){{var o=new MutationObserver(function(){{if(a())o.disconnect()}});\
+             o.observe(document,{{childList:true}})}}}})();",
             dark = c.dark,
             scheme_css = if c.dark { "'dark'" } else { "'light'" },
         ));
@@ -144,6 +150,12 @@ pub fn window_theme(cache: Option<&ThemeCache>) -> Option<tauri::Theme> {
             tauri::Theme::Light
         }
     })
+}
+
+/// Everything a window needs to be born in the app's theme: the native appearance and the init script. The main window
+/// and the menu-bar popover share it, so neither starts on the kit's defaults.
+pub fn window_boot(cache: Option<&ThemeCache>) -> (Option<tauri::Theme>, String) {
+    (window_theme(cache), init_script(cache))
 }
 
 /// A user theme file as read from disk.
@@ -253,6 +265,46 @@ mod tests {
         assert!(js.contains(r#"dataset.atlasTheme="Atlas Dark""#));
         // The kit reads its scheme from localStorage: it must agree with the cache.
         assert!(js.contains(r#"JSON.stringify("dark")"#));
+    }
+
+    // Incident (v1.5.0-alpha.7): the menu-bar popover was pure black. Only the main window was built with the cached
+    // theme on <html>; the popover started on the kit's defaults (no Atlas surface ladder, no cached scheme), so its
+    // cards sat on black instead of the theme's ground. Both windows now share one boot recipe.
+    #[test]
+    fn the_popover_boots_with_the_same_cached_theme_as_the_main_window() {
+        let c = cache("dark", true);
+        let (theme, js) = window_boot(Some(&c));
+        assert_eq!(theme, Some(tauri::Theme::Dark));
+        assert_eq!(js, init_script(Some(&c)));
+        assert!(js.contains("--ca-surface-base"));
+    }
+
+    #[test]
+    fn a_light_cache_boots_a_light_window_even_when_the_scheme_is_system() {
+        let (theme, js) = window_boot(Some(&cache("system", false)));
+        assert_eq!(theme, Some(tauri::Theme::Light));
+        assert!(js.contains("classList.toggle('dark',false)"));
+    }
+
+    #[test]
+    fn without_a_cache_the_popover_follows_macos_and_replays_nothing() {
+        let (theme, js) = window_boot(None);
+        assert_eq!(theme, None);
+        assert!(!js.contains("setProperty"));
+    }
+
+    // Incident (Windows, first run): WebView2 runs initialization scripts before <html> exists, so
+    // `document.documentElement.style` threw on every load and the cached theme was never applied. The
+    // script waits for the element instead of assuming it.
+    #[test]
+    fn init_script_waits_for_the_html_element_instead_of_assuming_it() {
+        let js = init_script(Some(&cache("dark", true)));
+        assert!(js.contains("if(!h)return false"), "{js}");
+        assert!(js.contains("new MutationObserver"), "{js}");
+        assert!(js.contains("o.observe(document,{childList:true})"), "{js}");
+        // Every use of the element is behind the guard.
+        let guard = js.find("if(!h)return false").unwrap();
+        assert!(js.find(".style").unwrap() > guard);
     }
 
     #[test]

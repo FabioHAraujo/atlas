@@ -18,6 +18,7 @@ impl ServiceManager {
     async fn detect_ios_devices() -> Vec<(String, String)> {
         // Try xcrun simctl list devices --json first (simulators)
         let output = Command::new("xcrun")
+            .envs(atlas_core::login_env::vars())
             .args(["simctl", "list", "devices", "--json"])
             .output()
             .await;
@@ -32,6 +33,7 @@ impl ServiceManager {
 
         // Try xcrun devicectl for physical devices
         let phys = Command::new("xcrun")
+            .envs(atlas_core::login_env::vars())
             .args([
                 "devicectl",
                 "list",
@@ -54,6 +56,7 @@ impl ServiceManager {
     async fn detect_android_devices() -> Vec<(String, String)> {
         let output = Command::new("adb")
             .no_window()
+            .envs(atlas_core::login_env::vars())
             .args(["devices", "-l"])
             .output()
             .await;

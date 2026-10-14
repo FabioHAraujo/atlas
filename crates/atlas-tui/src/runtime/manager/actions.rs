@@ -208,6 +208,7 @@ pub(super) async fn run_action_streaming(
     let mut cmd = atlas_core::sys::shell_tokio(command);
     atlas_core::sys::CommandExt::no_window(&mut cmd);
     cmd.current_dir(root_dir)
+        .envs(atlas_core::login_env::vars())
         .envs(file_env)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

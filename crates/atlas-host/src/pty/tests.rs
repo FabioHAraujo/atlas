@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use super::title::TitleParser;
+use super::title::{TitleParser, shown};
 use super::{RAW_QUEUE, Session};
 use crate::protocol::PtyCreate;
 
@@ -13,6 +13,33 @@ fn title_split_across_chunks() {
     assert_eq!(p.feed(b": work\x07y").as_deref(), Some("π : work"));
     assert_eq!(p.feed(b"\x1b]2;two\x1b\\").as_deref(), Some("two"));
     assert_eq!(p.feed(b"\x1b]1;icon\x07"), None);
+}
+
+// Incident: on Windows every terminal tab read "C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe":
+// ConPTY titles the console with the program's full path (cmd adds " - <command>" while one runs).
+#[test]
+fn a_console_title_that_is_a_program_path_shows_the_program_name() {
+    let ps = r"C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe";
+    assert_eq!(shown(ps.into()), "powershell");
+    assert_eq!(
+        shown(r"C:\WINDOWS\system32\cmd.EXE - npm run dev".into()),
+        "cmd - npm run dev"
+    );
+    assert_eq!(
+        shown(r"Administrator: C:\Program Files\PowerShell\7\pwsh.exe".into()),
+        "Administrator: pwsh"
+    );
+    // Anything else is the program's own title, untouched.
+    for t in [
+        "vim notes.txt",
+        "~/src: zsh",
+        r"C:\src\atlas",
+        "claude",
+        "build.exe finished",
+        "",
+    ] {
+        assert_eq!(shown(t.into()), t);
+    }
 }
 
 /// A raw reader that never reads must not freeze the program: it is dropped
@@ -105,4 +132,68 @@ async fn kill_ends_a_running_program() {
     s.signal("KILL").unwrap();
     until_exited(&s).await;
     assert!(s.signal("bogus").is_err());
+}
+
+// The login-env fixtures are POSIX shells.
+#[cfg(unix)]
+/// Incident (Linux, app launched from the menu): a terminal or agent started through hostd inherited the
+/// bare session PATH and could not find `bun` (`~/.bun/bin`, added only by the user's rc file). Every pty
+/// and exec hostd starts runs with the login shell's environment, under the caller's own `env`.
+#[tokio::test(flavor = "multi_thread")]
+async fn pty_and_exec_find_binaries_the_login_shell_put_on_path() {
+    use atlas_core::login_env::{fixtures, install, probe_with};
+    let Some(sh) = fixtures::some_shell() else {
+        return;
+    };
+    let home = fixtures::fake_home();
+    install(probe_with(sh, home.path(), &fixtures::gui_env(home.path())));
+    let dir = tempfile::tempdir().unwrap();
+
+    let req = PtyCreate {
+        cwd: "/".into(),
+        argv: vec!["/bin/sh".into(), "-c".into(), "bun from-pty".into()],
+        env: Default::default(),
+        cols: 80,
+        rows: 24,
+        scope: Default::default(),
+        title: None,
+        mode: Default::default(),
+    };
+    let s = Session::spawn(req, dir.path()).unwrap();
+    let t0 = std::time::Instant::now();
+    while s.exited().is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "pty did not exit");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let out = String::from_utf8_lossy(&s.buf.lock().ring_bytes()).into_owned();
+    assert!(out.contains("bun-ran from-pty"), "{out:?}");
+
+    let r = crate::exec::run(
+        "/",
+        &[
+            "/bin/sh".into(),
+            "-c".into(),
+            "bun from-exec; echo $CALLER".into(),
+        ],
+        &[("CALLER".to_string(), "mine".to_string())].into(),
+        None,
+        10_000,
+    )
+    .await
+    .unwrap();
+    let stdout = {
+        use base64::Engine;
+        let b = r["stdout"].as_str().unwrap_or_default();
+        String::from_utf8_lossy(
+            &base64::engine::general_purpose::STANDARD
+                .decode(b)
+                .unwrap_or_default(),
+        )
+        .into_owned()
+    };
+    assert!(
+        stdout.contains("bun-ran from-exec") && stdout.contains("mine"),
+        "{r}"
+    );
 }

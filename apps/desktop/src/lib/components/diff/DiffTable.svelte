@@ -1,6 +1,7 @@
 <script lang="ts">
 	/** One hunk as a table: line numbers, comment gutter, highlighted code, review notes and the draft box. */
 	import { Check, MessageSquarePlus } from "@lucide/svelte";
+	import { primaryKey } from "#lib/keys.ts";
 	import type { DiffHunk } from "#lib/api.ts";
 	import type { DiffComment } from "#lib/stores/workspace.svelte.ts";
 
@@ -82,7 +83,7 @@
 							placeholder="Comment for the agent (⌘Enter to save, Esc to cancel)"
 							bind:value={draft.text}
 							onkeydown={(e) => {
-								if (e.key === "Enter" && e.metaKey) onsave();
+								if (e.key === "Enter" && primaryKey(e)) onsave();
 								if (e.key === "Escape") draft = null;
 							}}></textarea>
 					</td>

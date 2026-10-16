@@ -15,6 +15,8 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 ### Fixed
 
+- **Linux: no way to copy text out of the terminal** (#28). The xterm.js terminal never wrote the clipboard. **Ctrl+Shift+C** copies the selection, **Ctrl+Shift+V** pastes (bracketed), **Ctrl+C** copies only while text is selected and is otherwise still SIGINT, and *Copy on select* (`terminal.copy_on_select`) now works in xterm.js terminals too. When the webview's async clipboard is refused, the copy falls back to `execCommand("copy")`. Not yet verified on a real Linux desktop.
+
 - **TUI logs: a custom range ending `HH:MM` dropped that last minute.** `00:00-23:59` hid the lines of 23:59; an end without seconds now covers its whole minute.
 - **Source control lists every untracked file, and paths read correctly.** A new folder was one row (`.logs/`) instead of its files, so they could not be reviewed, staged or discarded one by one; `git status` now runs with `--untracked-files=all` (ignored folders such as `node_modules/` stay one dimmed entry via `--ignored=matching`). Paths clipped at the start with `direction: rtl` also had their edge punctuation reordered (`.logs/` showed as `/logs.`); the text is now an LTR isolate inside the clipping box in Source control, the review file list, the command palette, Find projects and the LSP popover. [#29](https://github.com/codeatlasdev/atlas/issues/29)
 

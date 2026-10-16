@@ -6,6 +6,10 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 ## [Unreleased]
 
+### Changed
+
+- **Desktop: every coding agent shows its official logo instead of a generic robot.** The New-tab menu (`New omp session`, `New Claude Code session`, `New Codex session`, `New omp chat`), agent tabs (logo beside the state glyph), the tab switcher, the Agents view and the session list in the right sidebar use the Claude Code mark, the OpenAI blossom (Codex, black or white to match the theme) and the omp π. Marks are inlined unaltered, never recolored; an agent without a logo keeps the robot. Source, license and brand rules of each file: `apps/desktop/src/lib/agent-logos/README.md`. A test fails when an agent in the Rust registry has no logo.
+
 ### Fixed
 
 - **Tab and space shortcuts work while an embedded browser page has focus** (#42). ⌘1…⌘9, ⌃Tab / ⌃⇧Tab, ⇧⌘[ ⇧⌘], ⌃⌘1…⌃⌘6 and every other ⌘ ⌃ ⌥ chord bound in your keymap (remaps included) used to go to the page and do nothing until you clicked out of it. A native key monitor now takes only the strokes the keymap binds from a focused browser page; typing and unbound keys still reach the page.

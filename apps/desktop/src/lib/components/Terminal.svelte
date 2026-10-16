@@ -11,6 +11,7 @@
 	import { b64bytes } from "#lib/b64.ts";
 	import { themes } from "#lib/stores/theme.svelte.ts";
 	import { prefs } from "#lib/stores/prefs.svelte.ts";
+	import { imeStagingKey, keepTextareaEmpty } from "#lib/xtermInput.ts";
 	import { isMac } from "#lib/lsp/navigation.ts";
 	import { copyText, keyAction } from "./terminal/clipboardKeys.ts";
 	import FindInput from "./FindInput.svelte";
@@ -143,7 +144,10 @@
 			firstRender.dispose();
 			drawn = true;
 		});
+		// Linux dead keys: xterm re-sends its hidden textarea (issue #23), see `xtermInput.ts`.
+		const input = keepTextareaEmpty(t);
 		t.attachCustomKeyEventHandler((e) => {
+			if (imeStagingKey(e, input.composing())) return false;
 			// Linux clipboard keys: Ctrl+Shift+C/V, and Ctrl+C while text is selected (issue #28).
 			const clip = keyAction(e, { mac: isMac(), hasSelection: t.hasSelection() });
 			if (clip) {
@@ -224,6 +228,7 @@
 		ro.observe(el);
 		return () => {
 			alive = false;
+			input.stop();
 			ro.disconnect();
 			offs.forEach((u) => u());
 			void host.ptyDetach(pty).catch(() => {});

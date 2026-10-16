@@ -6,6 +6,10 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 ## [Unreleased]
 
+## [1.5.0-alpha.12] — 2026-10-16
+
+Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
+
 ### Changed
 
 - **UI kit `@codeatlasdev/ui` 0.7.1 → 4.0.0** (bits-ui is gone: every overlay is a native `<dialog>` or `popover`, and a closed one renders nothing). Atlas drops the workarounds the kit now makes unnecessary: the deferral of overlays in neighbour space layers (`Overlay`, `AfterIdle`, the idle queue, `Tip`'s lazy tooltip), the doubled-class overrides for disabled buttons, field borders, the destructive label, tooltips and menus (the theme now sets the kit's own `--ca-outline-control`, `--ca-semantic-error-contrast`, `--ca-tooltip-bg`, `--ca-overlay-bg`, `--ca-focus-ring` and `--ca-action-disabled-bg`), the dialog-body WKWebView fix, and the local `nativeFeel` (the kit's, which also clears `data-kbd` from `<html>` on cleanup). `GlassCard` became `Card`. Kit 4.0.0 also fixes what Atlas had reported: a modal opened over another (Settings → Find projects) no longer throws `Maximum call stack size exceeded` (ui#138), `--ca-scrim-blur` and `--ca-tooltip-blur` turn the scrim and tooltip blur off without touching the shared `--ca-blur-ultra-thin` (ui#135, ui#137), and the one text-selection class is `.ca-selectable` for both the context menu and selection (ui#136; Atlas's `.selectable` is renamed).

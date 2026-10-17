@@ -23,9 +23,10 @@ const KIT_COMPONENTS = [
 	"Select",
 	"Switch",
 	"Chip",
-	"SchemeAsset",
 	"DropdownMenu",
 	"DropdownMenuItem",
+	"DropdownMenuSeparator",
+	"SchemeAsset",
 	"Popover",
 ];
 const Stub = () => {};

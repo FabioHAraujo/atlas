@@ -110,7 +110,6 @@ import { join } from "node:path";
 const rows = {
 	"sidebar/ProjectHead.svelte": "Project menu",
 	"sidebar/WorktreeRow.svelte": "Worktree menu",
-	"Explorer.svelte": "More actions",
 };
 for (const [file, label] of Object.entries(rows)) {
 	test(`${file}: the … is a RowMore button and the row ignores events from its menu`, () => {
@@ -123,6 +122,25 @@ for (const [file, label] of Object.entries(rows)) {
 		expect(src.match(/fromMenu\(/g).length).toBeGreaterThanOrEqual(2);
 	});
 }
+
+// The Explorer row has one menu mechanism: its "…" is a button that stops its own click and key and opens the tree's
+// PointerMenu (the one item list right-click and Shift+F10 use) at its rect. The row and the tree both consult
+// `fromMenu`, so nothing from a menu activates a row or moves the tree cursor.
+test("Explorer.svelte: the … opens the shared PointerMenu and the row/tree ignore events from a menu", () => {
+	const src = readFileSync(join(import.meta.dir, "Explorer.svelte"), "utf8");
+	expect(src).not.toMatch(/<DropdownMenu\b/);
+	expect(src).not.toMatch(/\{#snippet trigger\(\)\}/);
+	const more = src.match(/<button[^>]*class="more"[\s\S]*?<\/button\s*>/)?.[0] ?? "";
+	expect(more).toContain('aria-label="More actions"');
+	expect(more).toContain("ev.stopPropagation()");
+	expect(more).toContain("openMenu(menuOf(rel, isDir)");
+	// row click, row Space key and the tree's key handler all consult it
+	expect(src.match(/fromMenu\(/g).length).toBeGreaterThanOrEqual(3);
+	expect(src).toMatch(/onclick=\{\(ev\) => fromMenu\(ev\) \|\| activate\(rel, isDir\)\}/);
+	expect(src).toMatch(
+		/function onTreeKey\(ev: KeyboardEvent\) \{\s*if \(editing \|\| fromMenu\(ev\)\) return;/,
+	);
+});
 
 test("fromMenu is true only for events that started inside a menu", async () => {
 	const { fromMenu } = await import("./rowEvent.ts");

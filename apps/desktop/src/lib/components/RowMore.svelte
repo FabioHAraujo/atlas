@@ -15,6 +15,7 @@
 		icon,
 		children,
 		class: className = "",
+		el = $bindable(),
 	}: {
 		/** Accessible name of the button. */
 		label: string;
@@ -22,6 +23,8 @@
 		/** Menu items. */
 		children: Snippet;
 		class?: string;
+		/** The button, for a row that opens its own menu from elsewhere (right-click clicks it). */
+		el?: HTMLButtonElement;
 	} = $props();
 </script>
 
@@ -31,6 +34,7 @@
 		<button
 			type="button"
 			{...rest}
+			bind:this={el}
 			class={className}
 			aria-label={label}
 			onclick={(e) => {

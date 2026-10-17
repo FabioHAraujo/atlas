@@ -74,6 +74,27 @@ test("Enter and Space on the … open the menu and never activate the row", asyn
 	}
 });
 
+test("right-click on the row opens the menu through the … button and does not activate the row", async () => {
+	const { target, calls } = setup();
+	row(target).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+	await settle();
+	expect(menu()).not.toBeNull();
+	expect(calls.activate).toBe(0);
+});
+
+test("right-click inside the open menu does not click the … again (the menu stays open)", async () => {
+	const { target } = setup();
+	trigger(target).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+	await settle();
+	expect(menu()).not.toBeNull();
+	menu()
+		.querySelector("[role=menuitem]")
+		.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+	await settle();
+	expect(menu()?.getAttribute("data-state")).toBe("open");
+	expect(trigger(target).getAttribute("aria-expanded")).toBe("true");
+});
+
 test("Enter on the row itself still activates it", async () => {
 	const { target, calls } = setup();
 	row(target).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -103,7 +124,7 @@ test("a second click on the … closes the menu again without activating the row
 });
 
 // The real rows import the whole store graph (`import.meta.glob`, Tauri) and cannot be mounted under bun, so the
-// three that carry a "…" are pinned by what their markup must contain. Verified red: restore the bare `trigger` span
+// two that carry a RowMore "…" are pinned by what their markup must contain. Verified red: restore the bare `trigger` span
 // in any of them and this fails.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -122,6 +143,18 @@ for (const [file, label] of Object.entries(rows)) {
 		expect(src.match(/fromMenu\(/g).length).toBeGreaterThanOrEqual(2);
 	});
 }
+
+// ProjectHead keeps right-click on the row: it clicks the same RowMore button (bound as `menuTrigger`), and skips
+// right-clicks that started inside the menu itself. The "Remove from Atlas…" item lives in the shared RowMenu.
+test("ProjectHead.svelte: right-click opens the RowMore menu; RowMenu carries Remove from Atlas…", () => {
+	const head = readFileSync(join(import.meta.dir, "sidebar/ProjectHead.svelte"), "utf8");
+	expect(head).toContain("bind:el={menuTrigger}");
+	expect(head).toMatch(/oncontextmenu=\{\(e\) => \{[^}]*fromMenu\(e\)[^}]*menuTrigger\?\.click\(\)/);
+	expect(head).toContain("<RowMenu ");
+	expect(readFileSync(join(import.meta.dir, "sidebar/RowMenu.svelte"), "utf8")).toContain(
+		"Remove from Atlas",
+	);
+});
 
 // The Explorer row has one menu mechanism: its "…" is a button that stops its own click and key and opens the tree's
 // PointerMenu (the one item list right-click and Shift+F10 use) at its rect. The row and the tree both consult

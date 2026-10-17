@@ -5,6 +5,9 @@
 	import RowMore from "#lib/components/RowMore.svelte";
 	import { fromMenu } from "#lib/components/rowEvent.ts";
 
+	/** Right-click on the row opens its menu through the `…` button, as ProjectHead does. */
+	let button: HTMLButtonElement | undefined = $state();
+
 	let {
 		legacy = false,
 		onactivate,
@@ -16,6 +19,10 @@
 	class="row"
 	role="button"
 	tabindex="0"
+	oncontextmenu={(e) => {
+		e.preventDefault();
+		if (!fromMenu(e)) button?.click();
+	}}
 	onclick={(e) => fromMenu(e) || onactivate()}
 	onkeydown={(e) => e.key === "Enter" && !fromMenu(e) && onactivate()}
 >
@@ -28,7 +35,7 @@
 			<DropdownMenuItem onclick={onpick}>Pick</DropdownMenuItem>
 		</DropdownMenu>
 	{:else}
-		<RowMore label="Menu" class="more">
+		<RowMore label="Menu" class="more" bind:el={button}>
 			{#snippet icon()}…{/snippet}
 			<DropdownMenuItem onclick={onpick}>Pick</DropdownMenuItem>
 		</RowMore>

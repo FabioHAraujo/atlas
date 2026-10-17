@@ -8,7 +8,6 @@
 	import { fromMenu } from "#lib/components/rowEvent.ts";
 	import ProjectIcon from "#lib/shell/ProjectIcon.svelte";
 	import { shell } from "#lib/shell/shell.svelte.ts";
-	import { identities } from "#lib/stores/identity.svelte.ts";
 	import { health, store } from "#lib/stores/projects.svelte.ts";
 	import { worktrees } from "#lib/stores/worktrees.svelte.ts";
 	import { ws } from "#lib/stores/workspace.svelte.ts";
@@ -25,6 +24,8 @@
 	const w = $derived(ws.worktree(r.id));
 	const up = $derived(live?.services.filter((s) => s.state === "running").length ?? 0);
 	const open = $derived(!!sidebar.openRepos[r.id]);
+	/** The `…` button: right-click on the row opens the same menu through it. */
+	let menuTrigger: HTMLButtonElement | undefined = $state();
 
 	/** The active project with worktrees only selects; everything else switches to it. */
 	function activate() {
@@ -46,7 +47,7 @@
 	aria-label="{r.name}{active ? '' : ' — open project'}"
 	oncontextmenu={(e) => {
 		e.preventDefault();
-		identities.editing = r.id;
+		if (!fromMenu(e)) menuTrigger?.click();
 	}}
 	onmouseenter={() => (sidebar.hovered = r.id)}
 	onmouseleave={() => sidebar.hovered === r.id && (sidebar.hovered = null)}
@@ -97,7 +98,7 @@
 			<Plus size={13} />
 		</button>
 	{/if}
-	<RowMore label="Project menu" class="hover-btn">
+	<RowMore label="Project menu" class="hover-btn" bind:el={menuTrigger}>
 		{#snippet icon()}<Ellipsis size={13} />{/snippet}
 		<RowMenu p={r} {w} {onAgent} />
 	</RowMore>

@@ -20,6 +20,7 @@ import {
 	toggleLeftPanel,
 	toggleSidebar,
 } from "#lib/stores/docks.svelte.ts";
+import { commitMessages, generateForSelected } from "#lib/stores/commitMessage.svelte.ts";
 import { openBranchPicker } from "#lib/stores/branch.svelte.ts";
 import { openDiff } from "#lib/stores/files.svelte.ts";
 import { isHtml } from "#lib/stores/preview.ts";
@@ -215,6 +216,12 @@ function tabCommands(): Command[] {
 			when: hasWt,
 		},
 		{ id: "git::Diff", label: "Changes", run: () => openDiff(ws.selected!.id), when: hasWt },
+		{
+			id: "git::GenerateCommitMessage",
+			label: "Generate commit message",
+			run: generateForSelected,
+			when: () => hasWt() && commitMessages.provider.state !== "off",
+		},
 		{ id: "git::Branch", label: "Switch branch…", run: () => void openBranchPicker(), when: hasWt },
 	];
 }

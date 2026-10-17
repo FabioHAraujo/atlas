@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Found } from "#lib/components/sidebar/discovery.ts";
 import type { Identity } from "#lib/shell/identity.ts";
+import type { ProviderState } from "#lib/commitMessage.ts";
 import { parseBranches, parseSwitched, type Branches, type Switched } from "#lib/branches.ts";
 
 export interface DiscoverArgs {
@@ -282,6 +283,11 @@ export const git = {
 	run: (id: string, args: string[], stdin?: string) =>
 		invoke<RunResult>("git_run", { id, args, stdin: stdin ?? null }),
 	files: (id: string) => invoke<string[]>("git_files", { id }),
+	commitMsgProvider: () => invoke<ProviderState>("commit_msg_provider"),
+	/** Starts a run; progress arrives as `commit-msg://<request>` events. Rejects with `no_provider` when none is set up. */
+	commitMsgGenerate: (id: string, instruction?: string) =>
+		invoke<string>("commit_msg_generate", { id, instruction: instruction ?? null }),
+	commitMsgCancel: (request: string) => invoke<void>("commit_msg_cancel", { request }),
 	branches: async (id: string): Promise<Branches> => parseBranches(await invoke("git_branches", { id })),
 	/** `create`: new branch from HEAD; `stash`: stash (incl. untracked) first. */
 	switch: async (

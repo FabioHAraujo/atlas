@@ -6,6 +6,10 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 
 ## [Unreleased]
 
+### Added
+
+- Desktop: auto clean up of linked worktrees (Settings → Workspaces, off by default): when their PR is merged (checked with `gh` by the app itself) or after N days without agent activity. Pinned worktrees, the one on screen and any with a running stack are skipped; a worktree with uncommitted changes, untracked files, `.env*` files (even gitignored) or commits on no remote is kept; the branch is kept, and a cleaned worktree can be restored for 7 days (#58).
+
 ### Fixed
 
 - **`install.sh` failed on Linux with a 404** ([#91](https://github.com/codeatlasdev/atlas/issues/91)). It always started from the newest Stable, and no Stable has a Linux build yet (1.4.0 predates them), so `curl … | sh` died on `atlas-1.4.0-x86_64-unknown-linux-gnu.tar.gz`, with or without `ATLAS_CHANNEL=alpha`. It now checks that the release has the build for your platform first. With no channel set or `ATLAS_CHANNEL=alpha` it falls back to the default channel's newest build (`/releases/latest`); with `stable` or `beta` it stops with a message that names the newest Stable and the alpha one-liner, and never installs an alpha.

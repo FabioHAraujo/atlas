@@ -3,7 +3,7 @@
 #   $env:ATLAS_CHANNEL = 'stable'; irm https://atlas.codeatlas.com.br/install.ps1 | iex   # stable, beta or alpha
 #
 # The Windows twin of install.sh: downloads the newest Stable GitHub Release (no prerelease label) of
-# codeatlasdev/atlas, verifies its sha256 and runs the binary's own `atlas install`, which puts
+# codeatlasdev/atlas that has a Windows build (else, on the alpha channel, the default channel's newest build), verifies its sha256 and runs the binary's own `atlas install`, which puts
 # `atlas.exe` in ~\.atlas\bin, adds that folder to your user PATH and installs the bundled agent
 # skills. Then the installed atlas moves to the channel you follow: the default (alpha while Atlas
 # is in alpha, so the newest build from main) or the one in ATLAS_CHANNEL, which is remembered.
@@ -64,7 +64,30 @@ while (-not $tag -and $pages -lt 5 -and $seen.Count -ge 10) {
   $tag = Get-Stable ($seen + $latest)
   $pages++
 }
-if (-not $tag) { Die "could not find a stable release: https://github.com/$Repo/releases" }
+$stable = $tag
+
+# A Stable can predate a platform (1.4.0 has no Windows build; #91 was the same on Linux). Start from the
+# first candidate whose release has the build: the newest Stable, then, on the alpha channel (the
+# default), the /releases/latest redirect, the default channel's newest build. Stable and beta never
+# get an alpha. Same rules as bootstrap_candidates/first_with_asset in install.sh.
+function Test-Asset([string]$t) {
+  $v = $t -replace '^v', ''
+  if (-not $v -or $v -notmatch '^[0-9A-Za-z._-]+$') { return $false }
+  & curl.exe -fsSIL --proto '=https' --tlsv1.2 -o NUL "https://github.com/$Repo/releases/download/$t/atlas-$v-$target.tar.gz" 2>$null
+  return $LASTEXITCODE -eq 0
+}
+$step = if ($channel) { $channel } else { $DefaultChannel }
+$candidates = @($stable)
+if ($step -eq 'alpha' -and $latest -and $latest -ne $stable) { $candidates += $latest }
+$tag = $candidates | Where-Object { $_ } | Where-Object { Test-Asset $_ } | Select-Object -First 1
+if (-not $tag) {
+  if ($step -in @('stable', 'beta')) {
+    Die "no Stable release has a build for $target yet (newest Stable: $(if ($stable) { $stable } else { 'none' })). Install the newest alpha instead:
+    `$env:ATLAS_CHANNEL = 'alpha'; irm https://atlas.codeatlas.com.br/install.ps1 | iex"
+  }
+  Die "could not find a release with a build for ${target}: https://github.com/$Repo/releases"
+}
+if ($tag -ne $stable) { Say "no Stable build for $target yet (newest Stable: $(if ($stable) { $stable } else { 'none' })); starting from $tag" }
 $version = $tag -replace '^v', ''
 
 $asset = "atlas-$version-$target.tar.gz"

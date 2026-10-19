@@ -16,6 +16,7 @@
 	import { copyText, keyAction } from "./terminal/clipboardKeys.ts";
 	import { browserFontEnv, usableFamilies } from "./terminal/xtermFont.ts";
 	import FindInput from "./FindInput.svelte";
+	import { ptyStream, type PtyEvent } from "#lib/ptyStream.ts";
 
 	let {
 		pty,
@@ -195,39 +196,36 @@
 				void copyText(t.getSelection());
 		});
 		offs.push(() => sel.dispose());
-		const pendingLive: Uint8Array[] = [];
-		let replayed = false;
-		listen<{ data: string; replay: boolean }>(`pty://${pty}`, (e) => {
-			const bytes = b64bytes(e.payload.data);
-			if (e.payload.replay) {
-				// Fresh buffer behind a hidden host: the reset's blank frame is never on screen.
-				drawn = false;
-				t.reset();
-				t.write(bytes, () => {
-					const render = t.onRender(() => {
-						render.dispose();
-						drawn = true;
-					});
-					t.refresh(0, t.rows - 1);
-				});
-				replayed = true;
-				pendingLive.splice(0).forEach((b) => t.write(b));
-			} else if (replayed) t.write(bytes);
-			else pendingLive.push(bytes);
-		}).then((u) => (alive ? offs.push(u) : u()));
-		const attach = () =>
-			host
-				.ptyAttach(pty, true)
-				.then(() => {
+		const stream = ptyStream({
+			listen: (f) => listen<PtyEvent>(`pty://${pty}`, (e) => f(e.payload)),
+			attach: () =>
+				host.ptyAttach(pty, true).then(() => {
 					fit?.fit();
 					return host.ptyResize(pty, t.cols, t.rows);
-				})
-				.catch(() => {});
-		void attach();
-		listen("host://reconnected", () => {
-			replayed = false;
-			void attach();
-		}).then((u) => (alive ? offs.push(u) : u()));
+				}),
+			decode: b64bytes,
+			// While hidden (after a replay's reset) show the terminal only once the replay has been drawn.
+			write: (b) =>
+				t.write(
+					b,
+					drawn
+						? undefined
+						: () => {
+								const render = t.onRender(() => {
+									render.dispose();
+									drawn = true;
+								});
+								t.refresh(0, t.rows - 1);
+							},
+				),
+			// Fresh buffer behind a hidden host: the reset's blank frame is never on screen.
+			reset: () => {
+				drawn = false;
+				t.reset();
+			},
+		});
+		offs.push(() => stream.dispose());
+		listen("host://reconnected", () => stream.reattach()).then((u) => (alive ? offs.push(u) : u()));
 		if (!readonly) t.onData((d) => void host.ptyWrite(pty, d).catch(() => {}));
 		let timer: number | undefined;
 		const ro = new ResizeObserver(() => {
@@ -243,6 +241,7 @@
 			alive = false;
 			input.stop();
 			ro.disconnect();
+			clearTimeout(timer);
 			offs.forEach((u) => u());
 			void host.ptyDetach(pty).catch(() => {});
 			t.dispose();

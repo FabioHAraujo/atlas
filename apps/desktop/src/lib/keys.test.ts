@@ -247,6 +247,8 @@ test("off macOS every default binding runs from the keys its label names, and no
 	expect(label(bindingsOf("shell::Space1", m)[0], false)).toBe("Alt+1");
 	expect(label(bindingsOf("atlas::RecentWorktree1", m)[0], false)).toBe("Alt+Shift+1");
 	expect(label(bindingsOf("pane::ActivateItem1", m)[0], false)).toBe("Ctrl+1");
+	expect(label(bindingsOf("editor::GoBack", m)[0], false)).toBe("Alt+←");
+	expect(m.get("ctrl--")).toBeUndefined();
 	expect(m.get("cmd-s")).toBe("workspace::Save");
 	// macOS keeps its keymap as written.
 	expect(defaultKeymap(true)).toEqual(DEFAULT_KEYMAP);

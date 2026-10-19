@@ -325,6 +325,8 @@ mod tests {
     use std::time::Duration;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+    // Windows path syntax (drive letters, `\`); on Unix `\` is part of a file name.
+    #[cfg(windows)]
     #[test]
     fn pipe_names_are_stable_distinct_per_path_and_fold_case_and_separators() {
         let a = pipe_name(Path::new(r"C:\Users\u\.atlas\hostd.sock"));

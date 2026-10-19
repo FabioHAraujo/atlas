@@ -826,7 +826,10 @@ mod tests {
         let p = probe(&[], &proj).unwrap();
         assert!(p.has_config);
         assert_eq!(p.name, "x");
-        assert_eq!(Path::new(&p.root), atlas_core::paths::canonical(&proj).unwrap());
+        assert_eq!(
+            Path::new(&p.root),
+            atlas_core::paths::canonical(&proj).unwrap()
+        );
 
         // `find_root` walks up: a subfolder of a configured project would silently add the PARENT, so the probe
         // reports the folder the config really lives in and the UI says so.
@@ -834,8 +837,14 @@ mod tests {
         std::fs::create_dir_all(&sub).unwrap();
         let p = probe(&[], &sub).unwrap();
         assert!(p.has_config);
-        assert_eq!(Path::new(&p.root), atlas_core::paths::canonical(&proj).unwrap());
-        assert_eq!(Path::new(&p.picked), atlas_core::paths::canonical(&sub).unwrap());
+        assert_eq!(
+            Path::new(&p.root),
+            atlas_core::paths::canonical(&proj).unwrap()
+        );
+        assert_eq!(
+            Path::new(&p.picked),
+            atlas_core::paths::canonical(&sub).unwrap()
+        );
     }
 
     #[test]
@@ -869,8 +878,14 @@ mod tests {
         let (first, fresh) = register(&mut entries, &proj).unwrap();
         assert!(fresh);
         assert_eq!(entries.len(), 1);
-        assert_eq!(Path::new(&first.root), atlas_core::paths::canonical(&proj).unwrap());
-        assert_eq!(first.id, registry::id_for(&atlas_core::paths::canonical(&proj).unwrap()));
+        assert_eq!(
+            Path::new(&first.root),
+            atlas_core::paths::canonical(&proj).unwrap()
+        );
+        assert_eq!(
+            first.id,
+            registry::id_for(&atlas_core::paths::canonical(&proj).unwrap())
+        );
         let (again, fresh) = register(&mut entries, &proj).unwrap();
         assert!(!fresh);
         assert_eq!(again.id, first.id);

@@ -181,6 +181,9 @@ const OFF_MAC: Record<string, string> = {
 	"ctrl-cmd-s": "alt-shift-s",
 	...Object.fromEntries([1, 2, 3, 4, 5, 6].map((n) => [`ctrl-cmd-${n}`, `alt-shift-${n}`])),
 	...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`ctrl-${n}`, `alt-${n}`])),
+	// Ctrl− is Zoom out off macOS (cmd-- there): history moves to Alt+←/→, as in VS Code on Windows and Linux.
+	"ctrl--": "alt-left",
+	"ctrl-shift--": "alt-right",
 };
 
 /** The default keymap on this platform: [`DEFAULT_KEYMAP`] on macOS, with [`OFF_MAC`]'s moves elsewhere. */

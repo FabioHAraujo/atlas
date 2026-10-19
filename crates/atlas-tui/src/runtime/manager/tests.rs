@@ -1161,7 +1161,9 @@ exit 1"#,
     }
 }
 
-/// Same class: `docker` is not installed / not on the PATH a menu-launched app has.
+/// Same class: `docker` is not installed / not on the PATH a menu-launched app has. Unix only: on Windows the
+/// process search also falls back to the parent's PATH and the system folders, so a runner's docker is found.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_missing_docker_binary_is_reported_not_silent() {
     let empty = tempfile::TempDir::new().unwrap();

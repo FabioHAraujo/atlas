@@ -28,6 +28,7 @@ fn activity_is_reported_at_most_once_per_interval() {
     assert!(!a.due(t0 + ACTIVITY_EVERY), "same instant twice");
 }
 
+#[cfg(unix)]
 fn sh(cmd: &str) -> PtyCreate {
     PtyCreate {
         cwd: "/".into(),
@@ -42,7 +43,9 @@ fn sh(cmd: &str) -> PtyCreate {
 }
 
 /// Listener-only clients (the app watches every pty that way) get `pty_activity` when the program prints,
-/// and none from a program that stays silent.
+/// and none from a program that stays silent. Unix only: ConPTY writes its own setup sequences for every
+/// program, so on Windows no program is silent.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn listeners_get_activity_only_from_output() {
     let dir = std::env::temp_dir().join(format!("atlas-host-act-{}", std::process::id()));
@@ -108,9 +111,17 @@ async fn a_title_set_before_attach_comes_back_as_a_title_event() {
     until_exited(&s).await;
     let (tx, _rx) = mpsc::unbounded_channel();
     let info = s.attach(1, tx, true, true);
+    let ev = crate::protocol::title_event(&s.id, &info).expect("a title event");
     assert_eq!(
-        crate::protocol::title_event(&s.id, &info),
-        Some(serde_json::json!({"ev": "pty_title", "pty": s.id, "title": "built"}))
+        (&ev["ev"], &ev["pty"]),
+        (&serde_json::json!("pty_title"), &serde_json::json!(s.id))
+    );
+    // An elevated Windows console (CI runners are) puts "Administrator: " before what the program set.
+    let title = ev["title"].as_str().unwrap_or_default();
+    assert_eq!(
+        title.trim_start_matches("Administrator:").trim_start(),
+        "built",
+        "{title:?}"
     );
     assert_eq!(
         crate::protocol::title_event("p", &serde_json::json!({"title": ""})),

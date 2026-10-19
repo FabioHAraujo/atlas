@@ -355,6 +355,8 @@ mod tests {
 
     /// Rootless docker: no DOCKER_HOST exported, the daemon listens on `$XDG_RUNTIME_DIR/docker.sock`
     /// and `/var/run/docker.sock` is absent or somebody else's.
+    // Unix sockets: Docker on Windows listens on a named pipe.
+    #[cfg(unix)]
     #[test]
     fn rootless_docker_socket_is_found_through_xdg_runtime_dir() {
         let env = env_of(&[("XDG_RUNTIME_DIR", "/run/user/1000")]);
@@ -383,6 +385,7 @@ mod tests {
     }
 
     /// macOS behaviour is unchanged: OrbStack's socket beats the system one.
+    #[cfg(unix)]
     #[test]
     fn orbstack_socket_still_beats_the_system_socket() {
         let home = std::path::PathBuf::from("/Users/dev");

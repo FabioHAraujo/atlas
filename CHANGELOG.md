@@ -9,6 +9,8 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 ### Added
 
 - **Atlas on Windows.** Windows 10 (1809+) and 11 on x64 get the CLI, the TUI, the MCP server and Atlas Desktop: install with `irm https://atlas.codeatlas.com.br/install.ps1 | iex` in PowerShell (no admin rights; `atlas.exe` in `~\.atlas\bin`, added to your user `PATH`), then `atlas desktop`, or run the per-user `Atlas-<version>-x86_64-pc-windows-msvc-setup.exe` from the release page; `atlas update` keeps both current. Terminals run on ConPTY with PowerShell 7, Windows PowerShell or `cmd.exe`, `atlas.yaml` commands run through `cmd.exe` like npm scripts, and the terminal host restarts instead of upgrading live. See [Windows](docs/installation.md#windows).
+- Desktop: custom agents (#56). Settings → Agents → Custom agents runs any agent CLI (OpenCode, Gemini CLI, Amp…): name, command, arguments, resume arguments (`{session}`) and environment, saved under `customAgents` in `~/.atlas/desktop/settings.json`. It starts from the + menu and ⌘⇧A (as the default agent) like omp, Claude Code and Codex. Without hooks its tab shows working while the terminal prints and idle after 3 quiet seconds (new hostd event `pty_activity`); the hook event contract an agent can use for real states is documented in `docs/agents.md`.
+- Desktop: auto clean up of linked worktrees (Settings → Workspaces, off by default): when their PR is merged (checked with `gh` by the app itself) or after N days without agent activity. Pinned worktrees, the one on screen and any with a running stack are skipped; a worktree with uncommitted changes, untracked files, `.env*` files (even gitignored) or commits on no remote is kept; the branch is kept, and a cleaned worktree can be restored for 7 days (#58).
 
 ### Fixed
 
@@ -18,6 +20,7 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 - **Terminal tabs on Windows were titled with the shell's full path** (`C:\WINDOWS\System32\…\powershell.exe`), or stayed "Terminal" when the shell set its title before the tab attached (PowerShell sets it once): the title is the program's name (`powershell`, `cmd - npm run dev`) and is taken from the attach answer too.
 - **A theme error on every window load on Windows.** WebView2 runs the startup script before `<html>` exists; the cached theme is now applied as soon as it does.
 - **A missing command in `atlas.yaml` on Windows** (`cmd` exits 1, not 127) is explained like on macOS and Linux: the program is named, with the `Path` Atlas used and how to add its folder.
+- **`install.sh` failed on Linux with a 404** ([#91](https://github.com/codeatlasdev/atlas/issues/91)). It always started from the newest Stable, and no Stable has a Linux build yet (1.4.0 predates them), so `curl … | sh` died on `atlas-1.4.0-x86_64-unknown-linux-gnu.tar.gz`, with or without `ATLAS_CHANNEL=alpha`. It now checks that the release has the build for your platform first. With no channel set or `ATLAS_CHANNEL=alpha` it falls back to the default channel's newest build (`/releases/latest`); with `stable` or `beta` it stops with a message that names the newest Stable and the alpha one-liner, and never installs an alpha.
 - Desktop: kit menus and listboxes (the + new-tab menu, Select, Combobox) open above the native terminal and browser instead of under them (#86).
 - Desktop (Linux): no more repeated "Failed to start the audio device" errors when WebKitGTK has no usable audio device; sounds stay off for the session (#87).
 
@@ -102,6 +105,11 @@ Atlas is in **alpha**: expect bugs and breaking changes. Please [report what bre
 - **Error reports carry the cause, not a wall of one repeated line.** The log tails in a report (Report button, diagnostics) strip terminal colour codes and collapse repeated lines into one `(repeated N×)` line, so the lines before a burst of the same error (here the "Too many open files" that started it) reach the issue.
 - **A no-probe service could flash Running during a crash loop** when a health watcher of the previous spawn fired right after a restart. Running is now accepted only from a live child, and for services without a port or health check only after the minimum uptime of the current spawn.
 
+### Fixed
+
+- **New terminals opened blank until a reload (Linux).** An xterm.js terminal asked the terminal host for its history before its listener was registered; a fast host answered first, the history was lost and every later byte waited behind it. The terminal (and the chat tab) now attach only once they listen.
+- **"Starting your stack…" never finished for a stack with no services.** A project whose `atlas.yaml` declares no services (all commented out) stayed on the welcome progress forever; it is done once the runner has reported. Its health dot, header pill (now _No services_, not an orange _0 of 0 up_) and popover card say it is up.
+
 ## [1.5.0-alpha.8] — 2026-10-14
 
 Atlas is in **alpha**: expect bugs and breaking changes. Please [report what breaks](https://github.com/codeatlasdev/atlas/issues/new).
@@ -153,7 +161,6 @@ Atlas is in **alpha**: expect bugs and breaking changes. Please [report what bre
 - **After an update, "Terminal host not reachable" toasts (three identical ones) and "Terminal is gone" on every tab.** Three separate causes. (1) An app older than the CLI that `atlas update` had just installed handed the terminal host over again after every handoff, in a loop (11 takeovers within 6 seconds in a real `hostd.log`), because the loop guard remembered the old daemon's pid and each handoff makes a new one; it is now tried once per session. (2) While the host was briefly unreachable, the terminal list came back empty instead of failing, so every tab was declared gone and **Restart** called the same missing host; the list now errors, the tabs keep their state and **Restart** says the host is down instead of failing silently. (3) A host that is alive but refuses the app (its token file replaced, or wedged) held the singleton lock forever, so every start died with "another atlas hostd is running"; the app now ends exactly that daemon (the pid in `hostd.pid`, only when that process is an `atlas hostd`) and starts a clean one, and says so in the report.
 - **One toast per outage, with something to do.** The same host failure from several tabs is one toast with a count (`×3`), a plain sentence instead of a log path, a **Restart terminal host** button (works when the host answers and when it does not) and a **Report** button.
 - **⌘V of an image did nothing in the fast terminal.** A screenshot (CleanShot, ⇧⌘⌃4, "Copy Image") pasted into omp, Claude Code or Codex running in Atlas was dropped, because the web view's paste event carries no image. The terminal now reads the macOS pasteboard itself, like Ghostty and iTerm2: text is pasted (bracketed), files copied in Finder paste as shell-quoted paths, and an image-only clipboard is handed to the program the way it expects (an empty bracketed paste, or Ctrl+V when bracketed paste is off), so the agent reads the clipboard and attaches the image. See [Paste](docs/terminal.md#paste).
-
 
 ## [1.5.0-alpha.5] — 2026-10-14
 

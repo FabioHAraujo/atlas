@@ -1,5 +1,6 @@
 //! The project registry commands: list, add, remove, pin, identity, relink and discovery.
 
+use atlas_core::sys::CommandExt as _;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -205,7 +206,7 @@ pub fn projects_add(
 /// Returns its entry and whether it is new. A folder without a config is refused (`probe` tells the UI first).
 fn register(entries: &mut Vec<Entry>, picked: &Path) -> Result<(Entry, bool), String> {
     let root = config::find_root(picked).ok_or(format!("no atlas.yaml in {}", picked.display()))?;
-    let root = root.canonicalize().unwrap_or(root);
+    let root = atlas_core::paths::canonical(&root).unwrap_or(root);
     let id = registry::id_for(&root);
     if let Some(e) = existing(entries, &id, &root) {
         return Ok((e.clone(), false));
@@ -243,10 +244,8 @@ fn probe(entries: &[Entry], picked: &Path) -> Result<Probe, String> {
     if !picked.is_dir() {
         return Err(format!("{} is not a folder", picked.display()));
     }
-    let picked = picked
-        .canonicalize()
-        .unwrap_or_else(|_| picked.to_path_buf());
-    let found = config::find_root(&picked).map(|r| r.canonicalize().unwrap_or(r));
+    let picked = atlas_core::paths::canonical(picked).unwrap_or_else(|_| picked.to_path_buf());
+    let found = config::find_root(&picked).map(|r| atlas_core::paths::canonical(&r).unwrap_or(r));
     let root = found.clone().unwrap_or_else(|| picked.clone());
     let name = found
         .as_deref()
@@ -521,7 +520,7 @@ pub fn projects_relink(
 fn relink(entries: &mut [Entry], id: &str, picked: &Path) -> Result<String, String> {
     let root = config::find_root(picked)
         .ok_or_else(|| format!("no atlas.yaml in {}", picked.display()))?;
-    let root = root.canonicalize().unwrap_or(root);
+    let root = atlas_core::paths::canonical(&root).unwrap_or(root);
     let root_s = root.to_string_lossy().into_owned();
     if entries
         .iter()
@@ -630,6 +629,7 @@ pub async fn project_init(
     dir: String,
 ) -> Result<ProjectView, String> {
     let out = tokio::process::Command::new(super::atlas_bin()?)
+        .no_window()
         .args(["init", "--dir", &dir])
         .stdin(std::process::Stdio::null())
         .output()
@@ -763,7 +763,11 @@ mod tests {
         let stored = relink(&mut entries, "keep", &new).unwrap();
         assert_eq!(entries[0].id, "keep");
         assert_eq!(entries[0].root, stored);
-        assert_eq!(Path::new(&stored), new.canonicalize().unwrap());
+        // The stored form: canonical, and on Windows with forward slashes and no verbatim prefix.
+        assert_eq!(
+            Path::new(&stored),
+            atlas_core::paths::canonical(&new).unwrap()
+        );
         assert_eq!(missing_of(&entries[0]), None);
 
         // No atlas.yaml in (or above) the folder: refused, entry untouched.
@@ -779,7 +783,7 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let used = t.path().join("used");
         project(&used);
-        let canon = used.canonicalize().unwrap();
+        let canon = atlas_core::paths::canonical(&used).unwrap();
         let mut entries = vec![entry("a", &t.path().join("old")), entry("b", &canon)];
         let err = relink(&mut entries, "a", &used).unwrap_err();
         assert!(err.contains("already another project"), "{err}");
@@ -822,7 +826,10 @@ mod tests {
         let p = probe(&[], &proj).unwrap();
         assert!(p.has_config);
         assert_eq!(p.name, "x");
-        assert_eq!(Path::new(&p.root), proj.canonicalize().unwrap());
+        assert_eq!(
+            Path::new(&p.root),
+            atlas_core::paths::canonical(&proj).unwrap()
+        );
 
         // `find_root` walks up: a subfolder of a configured project would silently add the PARENT, so the probe
         // reports the folder the config really lives in and the UI says so.
@@ -830,8 +837,14 @@ mod tests {
         std::fs::create_dir_all(&sub).unwrap();
         let p = probe(&[], &sub).unwrap();
         assert!(p.has_config);
-        assert_eq!(Path::new(&p.root), proj.canonicalize().unwrap());
-        assert_eq!(Path::new(&p.picked), sub.canonicalize().unwrap());
+        assert_eq!(
+            Path::new(&p.root),
+            atlas_core::paths::canonical(&proj).unwrap()
+        );
+        assert_eq!(
+            Path::new(&p.picked),
+            atlas_core::paths::canonical(&sub).unwrap()
+        );
     }
 
     #[test]
@@ -839,7 +852,7 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let proj = t.path().join("proj");
         project(&proj);
-        let canon = proj.canonicalize().unwrap();
+        let canon = atlas_core::paths::canonical(&proj).unwrap();
         let entries = vec![entry("abc", &canon)];
         assert_eq!(
             probe(&entries, &proj).unwrap().registered.as_deref(),
@@ -865,8 +878,14 @@ mod tests {
         let (first, fresh) = register(&mut entries, &proj).unwrap();
         assert!(fresh);
         assert_eq!(entries.len(), 1);
-        assert_eq!(Path::new(&first.root), proj.canonicalize().unwrap());
-        assert_eq!(first.id, registry::id_for(&proj.canonicalize().unwrap()));
+        assert_eq!(
+            Path::new(&first.root),
+            atlas_core::paths::canonical(&proj).unwrap()
+        );
+        assert_eq!(
+            first.id,
+            registry::id_for(&atlas_core::paths::canonical(&proj).unwrap())
+        );
         let (again, fresh) = register(&mut entries, &proj).unwrap();
         assert!(!fresh);
         assert_eq!(again.id, first.id);

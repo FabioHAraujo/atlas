@@ -6,7 +6,7 @@
  */
 import { api } from "#lib/api.ts";
 import { modalOpen } from "#lib/modalOpen.ts";
-import { DEFAULT_KEYMAP, bindingsOf, label, merge, rebind, strokeOf, unbind } from "#lib/keys.ts";
+import { bindingsOf, defaultKeymap, label, merge, rebind, strokesOf, unbind } from "#lib/keys.ts";
 
 export interface Command {
 	id: string;
@@ -79,40 +79,47 @@ async function saveKeymap(next: Record<string, string | null>) {
 
 /** Bind `stroke` to `id`; resolves to the command that lost the key, if any. `null`: invalid stroke. */
 export async function bindKey(id: string, stroke: string): Promise<{ displaced?: string } | null> {
-	const r = rebind(DEFAULT_KEYMAP, keymap.user, id, stroke);
+	const r = rebind(defaultKeymap(), keymap.user, id, stroke);
 	if (!r) return null;
 	await saveKeymap(r.keymap);
 	return { displaced: r.displaced };
 }
 
-export const unbindKey = (id: string) => saveKeymap(unbind(DEFAULT_KEYMAP, keymap.user, id));
+export const unbindKey = (id: string) => saveKeymap(unbind(defaultKeymap(), keymap.user, id));
 
 /** Drop every override: back to the default keymap. */
 export const resetKeymap = () => saveKeymap({});
 
 /** Stroke labels bound to a command (`["⌘B"]`). */
 export function bindingLabels(id: string): string[] {
-	return bindingsOf(id, merge(DEFAULT_KEYMAP, keymap.user)).map(label);
+	return bindingsOf(id, merge(defaultKeymap(), keymap.user)).map((k) => label(k));
 }
 
 /** First binding of a command, as a label. */
 export function shortcutFor(id: string): string | undefined {
-	for (const [k, v] of merge(DEFAULT_KEYMAP, keymap.user)) if (v === id) return label(k);
+	for (const [k, v] of merge(defaultKeymap(), keymap.user)) if (v === id) return label(k);
 }
 
 /**
- * Run the command bound to `stroke` (canonical spelling). `true` = handled. The one resolution path of
- * a key: the window handler and keys forwarded from a browser page (`browserKeys.ts`) both end here.
+ * Run the command bound to `stroke` (canonical spelling); several strokes are tried in order, the first command
+ * that runs wins (off macOS a Ctrl chord can mean a ⌘ binding or a ⌃ one, see keys.ts `strokesOf`). `true` =
+ * handled. The one resolution path of a key: the window handler and keys forwarded from a browser page
+ * (`browserKeys.ts`) both end here.
  */
-export function dispatchStroke(stroke: string | null): boolean {
-	const id = stroke && merge(DEFAULT_KEYMAP, keymap.user).get(stroke);
-	const c = id ? commands.get(id) : undefined;
+export function dispatchStroke(strokes: string | null | readonly string[]): boolean {
 	// A modal owns the keyboard: the page behind it is inert, so its shortcuts are too (the layer's own Esc and Tab
 	// are handled by the kit before this runs).
-	if (!c || modalOpen() || !(c.when?.() ?? true)) return false;
-	noteRun(c.id);
-	c.run();
-	return true;
+	if (!strokes || modalOpen()) return false;
+	const effective = merge(defaultKeymap(), keymap.user);
+	for (const s of typeof strokes === "string" ? [strokes] : strokes) {
+		const id = effective.get(s);
+		const c = id ? commands.get(id) : undefined;
+		if (!c || !(c.when?.() ?? true)) continue;
+		noteRun(c.id);
+		c.run();
+		return true;
+	}
+	return false;
 }
 
 /**
@@ -121,5 +128,5 @@ export function dispatchStroke(stroke: string | null): boolean {
  */
 export function dispatch(e: KeyboardEvent, ownedByFocus?: (e: KeyboardEvent) => boolean): boolean {
 	if (ownedByFocus?.(e)) return false;
-	return dispatchStroke(strokeOf(e));
+	return dispatchStroke(strokesOf(e));
 }

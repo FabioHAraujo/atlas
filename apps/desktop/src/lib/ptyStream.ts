@@ -9,7 +9,8 @@ export function ptyStream(o: {
 	/** `pty_attach` with replay: hostd answers with one `replay` event, then live output. */
 	attach: () => Promise<unknown>;
 	decode: (data: string) => Uint8Array;
-	write: (bytes: Uint8Array) => void;
+	/** `replay` is true for the history that follows a `reset` (the caller may reveal its view once it is drawn). */
+	write: (bytes: Uint8Array, replay?: boolean) => void;
 	reset: () => void;
 }) {
 	let alive = true;
@@ -24,7 +25,7 @@ export function ptyStream(o: {
 			const bytes = o.decode(e.data);
 			if (e.replay) {
 				o.reset();
-				o.write(bytes);
+				o.write(bytes, true);
 				replayed = true;
 				pending.splice(0).forEach((b) => o.write(b));
 			} else if (replayed) o.write(bytes);

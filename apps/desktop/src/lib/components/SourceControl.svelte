@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { kbd, primaryKey } from "#lib/keys.ts";
 	import { Button, DropdownMenu, DropdownMenuItem, Spinner, TextArea, toast } from "@codeatlasdev/ui";
 	import { Plus, Minus, Undo2, Sparkles, Ellipsis, GitPullRequest, Square, RefreshCw } from "@lucide/svelte";
 	import { listen } from "@tauri-apps/api/event";
@@ -175,8 +176,8 @@
 		</div>
 	{/if}
 
-	<div class="msg" role="presentation" onkeydown={(e) => e.key === "Enter" && e.metaKey && commit()}>
-		<TextArea bind:value={message} placeholder="Commit message (⌘Enter to commit)" rows={3} />
+	<div class="msg" role="presentation" onkeydown={(e) => e.key === "Enter" && primaryKey(e) && commit()}>
+		<TextArea bind:value={message} placeholder={`Commit message (${kbd("cmd-enter")} to commit)`} rows={3} />
 		{#if gen.phase === "running"}
 			<span class="dim">Writing with {gen.agent || "the agent"}…</span>
 		{:else if gen.error}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	/** One worktree of a project: agent glyph, name/branch, linked PR, services count, menu. */
+	import { primaryKey } from "#lib/keys.ts";
 	import { Ellipsis, GitBranch, Pin } from "@lucide/svelte";
 	import AgentGlyph from "#lib/components/AgentGlyph.svelte";
 	import RowMore from "#lib/components/RowMore.svelte";
@@ -30,7 +31,7 @@
 	);
 
 	function select(e: MouseEvent) {
-		if (e.metaKey) {
+		if (primaryKey(e)) {
 			sidebar.multi[p.id] = !sidebar.multi[p.id];
 			return;
 		}

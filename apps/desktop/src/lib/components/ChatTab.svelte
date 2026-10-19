@@ -4,6 +4,7 @@
 	 * (see `rpc.ts`) and writes commands back. The transcript and composer are in `chat/`.
 	 */
 	import { onMount } from "svelte";
+	import { primaryKey } from "#lib/keys.ts";
 	import { listen } from "@tauri-apps/api/event";
 	import { toast } from "@codeatlasdev/ui";
 	import { SquareTerminal } from "@lucide/svelte";
@@ -133,7 +134,7 @@
 	}
 
 	function onwindowkey(e: KeyboardEvent) {
-		if (focused && e.metaKey && e.key === "f") {
+		if (focused && primaryKey(e) && e.key === "f") {
 			searchOpen = !searchOpen;
 			if (!searchOpen) search = "";
 			e.preventDefault();

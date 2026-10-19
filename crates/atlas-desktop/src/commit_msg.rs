@@ -12,6 +12,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use atlas_core::sys::CommandExt as _;
+
 use crate::host::HostHub;
 use crate::worktree::git;
 
@@ -513,6 +515,7 @@ pub async fn run_provider(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
+        .no_window()
         .spawn()
     {
         Ok(c) => c,
@@ -1184,6 +1187,7 @@ mod tests {
 
     // ----- the run, against a fake provider: a real child process, the real streaming and cancel code -----
 
+    #[cfg(unix)]
     /// A fake provider script: prints `body` after reading the whole prompt, then exits `code`.
     fn fake(dir: &Path, script: &str) -> Vec<String> {
         let p = dir.join("fake.sh");
@@ -1191,6 +1195,7 @@ mod tests {
         vec!["sh".into(), p.to_string_lossy().into_owned()]
     }
 
+    #[cfg(unix)]
     fn run(argv: Vec<String>, prompt: &str) -> (Event, Vec<Event>) {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1209,6 +1214,7 @@ mod tests {
         (done, events.into_inner().unwrap())
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_provider_reply_is_cleaned_and_the_prompt_reaches_its_stdin() {
         let d = tempfile::tempdir().unwrap();
@@ -1230,6 +1236,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn output_streams_in_pieces_each_chunk_the_whole_message_so_far() {
         let d = tempfile::tempdir().unwrap();
@@ -1259,6 +1266,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_failing_provider_reports_its_own_reason() {
         let d = tempfile::tempdir().unwrap();
@@ -1289,6 +1297,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_empty_reply_and_a_missing_binary_are_errors_not_empty_messages() {
         let d = tempfile::tempdir().unwrap();
@@ -1301,6 +1310,7 @@ mod tests {
     }
 
     // A provider that exits without reading stdin (a rejected flag) must not hang or panic the writer.
+    #[cfg(unix)]
     #[test]
     fn a_provider_that_never_reads_the_prompt_does_not_hang() {
         let d = tempfile::tempdir().unwrap();
@@ -1310,6 +1320,7 @@ mod tests {
     }
 
     // Cancel mid-stream: the child is killed (not left running) and the result is Cancelled, no message.
+    #[cfg(unix)]
     #[test]
     fn cancel_kills_the_provider_mid_stream() {
         let d = tempfile::tempdir().unwrap();

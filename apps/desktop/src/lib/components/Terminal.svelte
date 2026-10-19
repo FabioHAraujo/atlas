@@ -16,6 +16,8 @@
 	import { copyText, keyAction } from "./terminal/clipboardKeys.ts";
 	import { browserFontEnv, usableFamilies } from "./terminal/xtermFont.ts";
 	import FindInput from "./FindInput.svelte";
+	import { IS_MAC, primaryKey } from "#lib/keys.ts";
+	import { xtermKey } from "#lib/termKeys.ts";
 	import { ptyStream, type PtyEvent } from "#lib/ptyStream.ts";
 
 	let {
@@ -145,7 +147,7 @@
 		t.loadAddon(search);
 		t.loadAddon(new Unicode11Addon());
 		t.unicode.activeVersion = "11";
-		t.loadAddon(new WebLinksAddon((ev, url) => onLink(url, ev.metaKey)));
+		t.loadAddon(new WebLinksAddon((ev, url) => onLink(url, primaryKey(ev))));
 		if (visible) loadWebgl(t);
 		t.open(el);
 		// `el` is laid out: fit now, not after the attach answers (that painted the first frames at 80x24, then reflowed).
@@ -171,15 +173,23 @@
 				return false;
 			}
 			if (e.type !== "keydown") return true;
-			if (e.metaKey && e.key === "f") {
-				searchOpen = true;
-				return false;
-			}
-			// Let app shortcuts (⌘T, ⌘W, ⌘\ …) reach the window handler.
-			if (e.metaKey) return false;
-			if (e.shiftKey && e.key === "Enter") {
-				void host.ptyWrite(pty, "\x1b[13;2u");
-				return false;
+			switch (xtermKey(e, t.hasSelection(), IS_MAC)) {
+				case "search":
+					searchOpen = true;
+					return false;
+				case "copy":
+					void navigator.clipboard.writeText(t.getSelection());
+					t.clearSelection();
+					e.preventDefault();
+					return false;
+				// The browser's own paste follows; xterm's paste handler sends the text.
+				case "paste":
+				// App shortcuts (⌘T, ⌘W, ⌘\ …; Ctrl+Shift+P, Ctrl+Tab … off macOS) reach the window handler.
+				case "app":
+					return false;
+				case "shiftEnter":
+					void host.ptyWrite(pty, "\x1b[13;2u");
+					return false;
 			}
 			return true;
 		});
@@ -204,21 +214,17 @@
 					return host.ptyResize(pty, t.cols, t.rows);
 				}),
 			decode: b64bytes,
-			// While hidden (after a replay's reset) show the terminal only once the replay has been drawn.
-			write: (b) =>
-				t.write(
-					b,
-					drawn
-						? undefined
-						: () => {
-								const render = t.onRender(() => {
-									render.dispose();
-									drawn = true;
-								});
-								t.refresh(0, t.rows - 1);
-							},
-				),
-			// Fresh buffer behind a hidden host: the reset's blank frame is never on screen.
+			write: (b, replay) => {
+				if (!replay) return t.write(b);
+				// Fresh buffer behind a hidden host: the reset's blank frame is never on screen.
+				t.write(b, () => {
+					const render = t.onRender(() => {
+						render.dispose();
+						drawn = true;
+					});
+					t.refresh(0, t.rows - 1);
+				});
+			},
 			reset: () => {
 				drawn = false;
 				t.reset();

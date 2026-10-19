@@ -572,6 +572,14 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 	),
 	entry(
 		"workspaces",
+		"Auto clean up",
+		"ws-autoclean",
+		"Remove worktrees automatically",
+		"Remove linked worktrees whose PR was merged or that sat idle, never with unsaved or unpushed work.",
+		"auto delete merged idle stale prune restore",
+	),
+	entry(
+		"workspaces",
 		"Clean up",
 		"ws-cleanup",
 		"Clean up worktrees",
@@ -610,6 +618,14 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 		"omp integration",
 		"Lets omp report its status and tools to Atlas.",
 		"hooks plugin enable",
+	),
+	entry(
+		"agents",
+		"Custom agents",
+		"agent-custom",
+		"Add agent",
+		"Run any agent CLI (OpenCode, Gemini CLI, Amp…) from the + menu and ⌘⇧A.",
+		"custom opencode gemini amp aider cli preset add",
 	),
 	entry(
 		"agents",

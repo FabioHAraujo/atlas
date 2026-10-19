@@ -13,26 +13,27 @@ This page is the honest version of "how much can you trust an Atlas download". I
 |---|---|---|
 | Dependency policy | `cargo deny check` (advisories from the RustSec database, licenses on an allow-list, duplicate and banned crates) runs in `bun run check`, in CI (`cargo-deny` job) and before every release. The one ignored advisory has a written reason. | [`deny.toml`](https://github.com/codeatlasdev/atlas/blob/main/deny.toml) |
 | Pinned inputs | `Cargo.lock` and `bun.lock` are committed. CI, the gate that every release runs first (`bun run check`) and the release build use `--locked`, the desktop build uses `bun install --frozen-lockfile`, and the Rust toolchain is pinned. | `Cargo.lock`, `rust-toolchain.toml` |
-| Update PRs | Dependabot opens weekly, grouped updates for Cargo, the two npm projects and GitHub Actions, so a pending dependency change is a reviewable pull request. | [`.github/dependabot.yml`](https://github.com/codeatlasdev/atlas/blob/main/.github/dependabot.yml) |
-| Pinned actions | Every `uses:` in the workflows is pinned to a full commit SHA with the version in a comment. | `.github/workflows/*.yml` |
-| Least privilege CI | Every workflow sets `permissions: contents: read`; only the `publish` job of `release.yml` raises it (`contents: write`). CI checkouts use `persist-credentials: false`. Pull requests from forks run with a read-only token and no secrets. | `.github/workflows/*.yml` |
-| Contribution provenance | Every commit needs a `Signed-off-by` ([DCO](https://developercertificate.org/)), checked by the `dco` workflow. | `.github/workflows/dco.yml`, `scripts/check-dco.sh` |
+| Update PRs | Dependabot opens weekly, grouped updates for Cargo, the two npm projects and GitHub Actions, so a pending dependency change is a reviewable pull request. A new version waits 7 days (`cooldown`) before its pull request, so a compromised or yanked release is usually caught first. | [`.github/dependabot.yml`](https://github.com/codeatlasdev/atlas/blob/main/.github/dependabot.yml) |
+| Pinned actions | Every `uses:` in the workflows is pinned to a full commit SHA with the exact version in a comment (`# v7.0.1`). | `.github/workflows/*.yml`, `.github/actions/*` |
+| Workflow audit | actionlint (syntax, expressions, shellcheck of `run:` blocks) and [zizmor](https://docs.zizmor.sh) (template injection, credential persistence, cache poisoning, excessive permissions, unpinned actions) run in `bun run check` and the `Workflow lint` CI job. Every suppression is in `.github/zizmor.yml` with its reason. | `scripts/lint-workflows.sh` |
+| Least privilege CI | Every workflow sets `permissions: contents: read`; the `Plan` job adds `actions: read` and `pull-requests: read`, the `CI` aggregate job has none, and only the `publish` job of `release.yml` raises it (`contents: write`). Every checkout uses `persist-credentials: false`. Pull requests from forks run with a read-only token and no secrets; untrusted text (the pull request title) reaches scripts only through `env`. | `.github/workflows/*.yml` |
+| Contribution provenance | Every commit needs a `Signed-off-by` ([DCO](https://developercertificate.org/)), checked by the `Signed-off-by` job. | `.github/workflows/pr.yml`, `scripts/check-dco.sh` |
 | Release integrity | Each release asset has a `.sha256` and `manifest.json` lists the checksum of every file. `atlas update`, `atlas desktop` and the installer verify the checksum before installing anything. | [Installation](installation.md) |
 | SBOM | The release job attaches a CycloneDX SBOM of the CLI's dependency tree (`atlas-<version>-sbom.cdx.json`) when `cargo-cyclonedx` is available, and warns loudly when it is not, so a release can ship without one. | `release.yml` |
 | Code signing | Binaries and the app are **ad-hoc** code signed (`codesign --sign -`), which satisfies the Apple silicon "must be signed" rule. | `release.yml` |
-| No hosted build | Releases are built on the maintainer's machine with `act`; no secret is stored in GitHub. | [Releasing](release.md) |
+| Hosted build | Releases are built on GitHub-hosted runners from the tag; no long-lived secret: the publish job uses the run's `GITHUB_TOKEN`. | [Releasing](release.md) |
 | Network surface | Atlas makes no network request other than update checks and downloads from GitHub; there is no telemetry. | [PRIVACY.md](https://github.com/codeatlasdev/atlas/blob/main/PRIVACY.md) |
 
 ## What is deliberately not claimed
 
-- **No SLSA level.** SLSA Build L2 and above require the build to run on a hosted platform and not on an individual's workstation. Atlas is built on a maintainer's laptop, so even a signed provenance document would be at most Build L1. Atlas publishes none and claims none.
-- **No GitHub artifact attestations.** They need the GitHub Actions OIDC token of a hosted run (`id-token: write`); `act` does not provide it. A hosted job that only attests files already uploaded would prove "these bytes were uploaded", not "these bytes were built from this commit", so it is not used.
+- **No SLSA level.** Atlas builds on GitHub-hosted runners from the tag, but publishes no signed provenance document and claims no SLSA level.
+- **No GitHub artifact attestations yet.** They need the GitHub Actions OIDC token of a hosted run (`id-token: write`), which release builds now have, so they are possible; they are not enabled. A hosted job that only attests files already uploaded would prove "these bytes were uploaded", not "these bytes were built from this commit", so attest the build job's own output when this is turned on.
 - **Not Developer ID signed or notarized.** Gatekeeper may ask for confirmation on first open of a downloaded app. The installer and `atlas update` fetch with `curl`, which is the path that works without a prompt.
 - **Not reproducible bit for bit.** Code signing and the macOS bundle embed timestamps; nothing here promises two builds are byte identical.
 - **No signed checksum file yet** (it is in the list below). The SBOM is best effort, see the table above.
 - **No third-party audit.** Dependencies are screened by `cargo deny`, not reviewed line by line.
 
-Provenance in one sentence: *maintainer-built locally, ad-hoc code signed, checksummed.*
+Provenance in one sentence: *built on GitHub-hosted runners from the tag, ad-hoc code signed, checksummed.*
 
 ## Release checklist addition
 
@@ -54,7 +55,7 @@ Settings → Rules → Rulesets → New branch ruleset.
    - Require signed commits.
    - Require a pull request before merging, with **0** required approvals (there is one maintainer).
    - Require status checks to pass, using the real check names from `.github/workflows`:
-     `Rust (macOS, full workspace)`, `Rust (Linux, without the macOS-only crates)`, `Desktop frontend + skills`, `Site build`, `Duplication (jscpd, <= 1.5%)`, `cargo-deny` (all from `ci.yml`) and `Signed-off-by` (from `dco.yml`).
+     `CI` (the aggregate job of `ci.yml`: it passes only when every other job passed, so jobs can change without touching the ruleset), and `Signed-off-by` and `Conventional title` (from `pr.yml`).
 4. Bypass list: add the maintainer's role with **For pull requests only**, so a direct push is impossible but the maintainer can still merge a pull request when a hosted check is unavailable.
 
 A required check has to be reported by something. CI runs on GitHub-hosted runners for pull requests; releases do not need them. If the maintainer prefers not to spend those minutes, drop the hosted checks from the list and keep `Signed-off-by` only.

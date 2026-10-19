@@ -64,6 +64,7 @@ const GO: Entries = &[
     Some(("atlas::Logs", "Logs")),
     Some(("atlas::Config", "Config")),
     Some(("git::Diff", "Changes")),
+    Some(("git::Branch", "Switch Branch…")),
     Some(("atlas::RestartService", "Restart Focused Service")),
 ];
 
@@ -73,6 +74,10 @@ const VIEW: Entries = &[
     Some(("workspace::ToggleRightDock", "Toggle Right Sidebar")),
     Some(("workspace::ToggleBottomDock", "Toggle Bottom Dock")),
     Some(("workspace::ToggleZoom", "Zoom Pane")),
+    None,
+    Some(("shell::ZoomIn", "Zoom In")),
+    Some(("shell::ZoomOut", "Zoom Out")),
+    Some(("shell::ZoomReset", "Actual Size")),
     None,
     Some(("pane::SplitRight", "Split Right")),
     Some(("pane::SplitDown", "Split Down")),

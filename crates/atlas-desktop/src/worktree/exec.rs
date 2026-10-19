@@ -26,7 +26,7 @@ pub(super) fn shell_argv(host: &str, script: &str) -> Vec<String> {
 }
 
 /// Run `argv` in `cwd` on the host that owns `cwd` (see `HostHub::call`).
-pub(super) async fn exec(
+pub(crate) async fn exec(
     hub: &HostHub,
     cwd: &Path,
     argv: &[&str],

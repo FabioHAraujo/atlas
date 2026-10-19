@@ -114,7 +114,9 @@
 				Scanning… {discovery.dirs.toLocaleString()} folders · {(discovery.elapsedMs / 1000).toFixed(1)}s ·
 				{split.projects.length} found
 			</span>
-			<span class="cur mono" title={discovery.current}>{tilde(discovery.current)}</span>
+			<span class="cur mono" dir="rtl" title={discovery.current}
+				><bdi dir="ltr">{tilde(discovery.current)}</bdi></span
+			>
 			<Button size="sm" variant="ghost" onclick={() => discovery.cancel()}>Cancel</Button>
 		{:else if discovery.error}
 			<TriangleAlert size={13} /> <span>{discovery.error}</span>
@@ -188,7 +190,7 @@
 						{#if f.branch}<span class="meta mono">{f.branch}</span>{/if}
 						<span class="meta when">{ago(f.modified)}</span>
 					</div>
-					<div class="path mono selectable" title={f.path}>{tilde(f.path)}</div>
+					<div class="path mono ca-selectable" title={f.path}>{tilde(f.path)}</div>
 					{#if f.remote}<div class="path mono">{f.remote}</div>{/if}
 					{#if f.error}
 						<div class="err" title={f.error}><TriangleAlert size={11} /> atlas.yaml has problems</div>
@@ -259,7 +261,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		direction: rtl;
 		text-align: left;
 		font-size: 11px;
 		color: var(--ca-text-secondary);

@@ -8,8 +8,14 @@ mod agent;
 mod agent_mode;
 mod boot;
 mod browser;
+// Pure decision code driven only by the AppKit monitor: unused outside macOS, still built so its tests run.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod browser_keys;
+#[cfg(target_os = "macos")]
+mod browser_keys_mac;
 mod capture;
 mod cmds;
+mod commit_msg;
 mod ctl;
 #[cfg(debug_assertions)]
 mod debug;
@@ -19,7 +25,9 @@ mod diag;
 #[cfg(target_os = "macos")]
 mod display_mac;
 mod git;
+mod git_branch;
 mod host;
+mod lifecycle;
 mod live;
 mod live_server;
 mod menu;
@@ -55,6 +63,7 @@ mod tray;
 mod updates;
 mod workspace;
 mod worktree;
+mod zoom;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
@@ -116,6 +125,8 @@ macro_rules! handlers {
             cmds::projects_remove_missing,
             cmds::projects_find_moved,
             cmds::project_init,
+            cmds::project_probe,
+            cmds::project_init_preview,
             cmds::stack_start,
             cmds::stack_stop,
             cmds::service_cmd,
@@ -171,6 +182,11 @@ macro_rules! handlers {
             git::git_status,
             git::git_run,
             git::git_files,
+            commit_msg::commit_msg_provider,
+            commit_msg::commit_msg_generate,
+            commit_msg::commit_msg_cancel,
+            git_branch::git_branches,
+            git_branch::git_switch,
             ctl::ctl_reply,
             remote::ssh_config_hosts,
             remote::ssh_status,
@@ -181,6 +197,7 @@ macro_rules! handlers {
             remote::ssh_forwards,
             remote::projects_add_remote,
             menu::menu_sync,
+            zoom::zoom_set,
             live_server::live_open,
             live_server::live_touch,
             live_server::live_stop,
@@ -195,6 +212,7 @@ macro_rules! handlers {
             browser::browser_eval,
             browser::browser_pick,
             browser::browser_pick_cancel,
+            browser_keys::browser_set_keys,
             browser::window_region_png,
             capture::capture_cmd,
             term::term_open,
@@ -384,6 +402,7 @@ fn main() {
             app.manage(std::sync::Arc::new(host::HostHub::default()));
             host::start(&handle);
             app.manage(std::sync::Arc::new(agent::hooks::AgentHub::default()));
+            app.manage(commit_msg::Runs::default());
             agent::hooks::start(&handle);
             app.manage(std::sync::Arc::new(capture::Capture::default()));
             app.manage(std::sync::Arc::new(ctl::Ctl::default()));
@@ -393,6 +412,8 @@ fn main() {
 
             #[cfg(target_os = "macos")]
             swipe_mac::install(&handle);
+            #[cfg(target_os = "macos")]
+            browser_keys_mac::install(&handle);
             #[cfg(target_os = "macos")]
             if let Some(win) = app.get_window("main") {
                 use window_vibrancy::{
@@ -419,10 +440,16 @@ fn main() {
         })
         .on_menu_event(|app, ev| menu::on_event(app, ev.id().as_ref()))
         .on_window_event(|win, ev| match ev {
-            // Closing hides; stacks keep running in their runners. ⌘Q quits.
+            // Closing hides while the tray can bring the window back; stacks keep running in their runners.
+            // ⌘Q / the tray's Quit exit. With no tray host (Linux without an AppIndicator host) there is no way
+            // back to a hidden window, so closing the main window quits (lifecycle.rs).
             WindowEvent::CloseRequested { api, .. } => {
-                api.prevent_close();
-                let _ = win.hide();
+                if win.label() != "main"
+                    || lifecycle::close(tray::reachable(win.app_handle())) == lifecycle::Close::Hide
+                {
+                    api.prevent_close();
+                    let _ = win.hide();
+                }
             }
             // window-state's restored position lands as the first move, after setup
             // and Ready; check it once there.
@@ -461,6 +488,13 @@ fn main() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = ev {
                 show_main(app);
+            }
+            // An exit the user did not ask for (the last window going away) is held while the tray can reopen the
+            // app; an explicit `exit(code)` (tray Quit, ⌘Q, the updater's restart) always goes through.
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = &ev
+                && lifecycle::exit(*code, tray::reachable(app)) == lifecycle::Exit::Prevent
+            {
+                api.prevent_exit();
             }
             // Quitting with "restart when idle" armed and no terminal left: end the old host now.
             if matches!(ev, tauri::RunEvent::Exit) {

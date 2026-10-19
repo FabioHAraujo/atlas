@@ -1,8 +1,8 @@
 <script lang="ts">
+	import AgentLogo from "#lib/components/AgentLogo.svelte";
 	/** The "+" menu of a tab strip: new terminal/agent/panel/changes/PR tabs, split, rename, close. */
 	import { DropdownMenu, DropdownMenuItem } from "@codeatlasdev/ui";
 	import {
-		Bot,
 		FileCode2,
 		FileDiff,
 		GitPullRequest,
@@ -11,7 +11,6 @@
 		ScrollText,
 		SquareTerminal,
 	} from "@lucide/svelte";
-	import Overlay from "#lib/components/Overlay.svelte";
 	import { shortcutFor } from "#lib/keymap.svelte.ts";
 	import { agents } from "#lib/stores/agents.svelte.ts";
 	import { openDiff } from "#lib/stores/files.svelte.ts";
@@ -34,56 +33,70 @@
 	}
 </script>
 
-<Overlay width={24} height={24}>
-	<DropdownMenu align="start">
-		{#snippet trigger()}
-			<span class="plus" aria-label="New tab" title="New tab {shortcutFor('workspace::NewTerminal') ?? ''}"
-				><Plus size={14} /></span
-			>
-		{/snippet}
-		<DropdownMenuItem onclick={() => w && ws.newTerminal(w.id, { groupId })}>
-			<SquareTerminal size={14} /> Terminal
-			<span class="kbd">{shortcutFor("workspace::NewTerminal") ?? ""}</span>
+<DropdownMenu align="start">
+	{#snippet trigger()}
+		<span class="plus" aria-label="New tab" title="New tab {shortcutFor('workspace::NewTerminal') ?? ''}"
+			><Plus size={14} /></span
+		>
+	{/snippet}
+	<DropdownMenuItem onclick={() => w && ws.newTerminal(w.id, { groupId })}>
+		{#snippet icon()}<SquareTerminal />{/snippet}
+		Terminal
+		<span class="kbd">{shortcutFor("workspace::NewTerminal") ?? ""}</span>
+	</DropdownMenuItem>
+	{#each agents.list.filter((a) => a.installed) as a (a.id)}
+		<DropdownMenuItem brandIcon onclick={() => w && agents.launch(w.id, a.id, { groupId })}>
+			{#snippet icon()}<AgentLogo agent={a.id} bare />{/snippet}
+			New {a.label} session
 		</DropdownMenuItem>
-		{#each agents.list.filter((a) => a.installed) as a (a.id)}
-			<DropdownMenuItem onclick={() => w && agents.launch(w.id, a.id, { groupId })}>
-				<Bot size={14} /> New {a.label} session
-			</DropdownMenuItem>
-		{/each}
-		{#if agents.list.find((a) => a.id === "omp" && a.installed)}
-			<DropdownMenuItem onclick={() => w && agents.launch(w.id, "omp", { groupId, chat: true })}>
-				<Bot size={14} /> New omp chat
-			</DropdownMenuItem>
-		{/if}
-		{#if project}
-			<DropdownMenuItem onclick={() => openKind("services")}><LayoutGrid size={14} /> Panel</DropdownMenuItem>
-			<DropdownMenuItem onclick={() => openKind("logs")}><ScrollText size={14} /> Logs</DropdownMenuItem>
-			<DropdownMenuItem onclick={() => openKind("config")}><FileCode2 size={14} /> Config</DropdownMenuItem>
-		{/if}
-		{#if w}
-			<DropdownMenuItem onclick={() => openDiff(w.id)}><FileDiff size={14} /> Changes</DropdownMenuItem>
-			<DropdownMenuItem onclick={() => pr.openTab(w.id)}
-				><GitPullRequest size={14} /> Pull request</DropdownMenuItem
-			>
-		{/if}
-		<DropdownMenuItem onclick={() => g?.activeTab && ws.split(groupId, "h", g.activeTab)}
-			>Split right <span class="kbd">{shortcutFor("pane::SplitRight") ?? ""}</span></DropdownMenuItem
-		>
-		<DropdownMenuItem onclick={() => g?.activeTab && ws.split(groupId, "v", g.activeTab)}
-			>Split down <span class="kbd">{shortcutFor("pane::SplitDown") ?? ""}</span></DropdownMenuItem
-		>
-		{#if active}
-			{#if !pinned(active)}<DropdownMenuItem onclick={() => onrename(active.id)}>Rename tab</DropdownMenuItem
-				>{/if}
-			<DropdownMenuItem onclick={() => ws.closeMany(groupId, active.id)}>
-				Close others <span class="kbd">{shortcutFor("pane::CloseOtherItems") ?? ""}</span>
-			</DropdownMenuItem>
-			<DropdownMenuItem onclick={() => ws.closeMany(groupId)}>
-				Close all <span class="kbd">{shortcutFor("pane::CloseAllItems") ?? ""}</span>
-			</DropdownMenuItem>
-		{/if}
-	</DropdownMenu>
-</Overlay>
+	{/each}
+	{#if agents.list.find((a) => a.id === "omp" && a.installed)}
+		<DropdownMenuItem brandIcon onclick={() => w && agents.launch(w.id, "omp", { groupId, chat: true })}>
+			{#snippet icon()}<AgentLogo agent="omp" bare />{/snippet}
+			New omp chat
+		</DropdownMenuItem>
+	{/if}
+	{#if project}
+		<DropdownMenuItem onclick={() => openKind("services")}>
+			{#snippet icon()}<LayoutGrid />{/snippet}
+			Panel
+		</DropdownMenuItem>
+		<DropdownMenuItem onclick={() => openKind("logs")}>
+			{#snippet icon()}<ScrollText />{/snippet}
+			Logs
+		</DropdownMenuItem>
+		<DropdownMenuItem onclick={() => openKind("config")}>
+			{#snippet icon()}<FileCode2 />{/snippet}
+			Config
+		</DropdownMenuItem>
+	{/if}
+	{#if w}
+		<DropdownMenuItem onclick={() => openDiff(w.id)}>
+			{#snippet icon()}<FileDiff />{/snippet}
+			Changes
+		</DropdownMenuItem>
+		<DropdownMenuItem onclick={() => pr.openTab(w.id)}>
+			{#snippet icon()}<GitPullRequest />{/snippet}
+			Pull request
+		</DropdownMenuItem>
+	{/if}
+	<DropdownMenuItem onclick={() => g?.activeTab && ws.split(groupId, "h", g.activeTab)}
+		>Split right <span class="kbd">{shortcutFor("pane::SplitRight") ?? ""}</span></DropdownMenuItem
+	>
+	<DropdownMenuItem onclick={() => g?.activeTab && ws.split(groupId, "v", g.activeTab)}
+		>Split down <span class="kbd">{shortcutFor("pane::SplitDown") ?? ""}</span></DropdownMenuItem
+	>
+	{#if active}
+		{#if !pinned(active)}<DropdownMenuItem onclick={() => onrename(active.id)}>Rename tab</DropdownMenuItem
+			>{/if}
+		<DropdownMenuItem onclick={() => ws.closeMany(groupId, active.id)}>
+			Close others <span class="kbd">{shortcutFor("pane::CloseOtherItems") ?? ""}</span>
+		</DropdownMenuItem>
+		<DropdownMenuItem onclick={() => ws.closeMany(groupId)}>
+			Close all <span class="kbd">{shortcutFor("pane::CloseAllItems") ?? ""}</span>
+		</DropdownMenuItem>
+	{/if}
+</DropdownMenu>
 
 <style>
 	.plus {

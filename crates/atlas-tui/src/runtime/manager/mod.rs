@@ -43,6 +43,10 @@ pub struct ServiceManager {
     pub(crate) session: String,
     /// Unix seconds at manager creation; immutable for the whole run.
     pub(crate) started_at: u64,
+    /// How long a service with no port, health URL or `ready_log` must stay alive before it
+    /// counts as Running ([`types::MIN_UPTIME`]). A field so tests can pick a window that no
+    /// machine load can blur.
+    pub(crate) min_uptime: std::time::Duration,
     pub(crate) services: HashMap<String, ManagedService>,
     pub(crate) order: Vec<String>,
     pub(crate) event_tx: mpsc::UnboundedSender<ManagerEvent>,
@@ -144,6 +148,25 @@ impl ServiceManager {
             // a late event from a retired watcher.
             if service.sched.tracker.pending_at.is_some() || service.sched.gave_up {
                 return;
+            }
+            // Watchers send Running without looking at the child (the no-probe one
+            // after MIN_UPTIME). Refuse it when the child already exited (not yet
+            // reaped by check_health, which decides that exit), and, for a service with
+            // no probe, before MIN_UPTIME of the CURRENT spawn: a watcher of the previous
+            // spawn can fire right after a restart.
+            if state == ServiceState::Running {
+                let exited = service
+                    .child
+                    .as_mut()
+                    .is_some_and(|c| !matches!(c.try_wait(), Ok(None)));
+                let too_young = service.sched.no_probe
+                    && !service
+                        .sched
+                        .spawned_at
+                        .is_some_and(|t| t.elapsed() >= self.min_uptime);
+                if exited || too_young {
+                    return;
+                }
             }
             service.sched.note_state(&state);
             service.status.state = state;

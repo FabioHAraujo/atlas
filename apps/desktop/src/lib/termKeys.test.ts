@@ -208,3 +208,23 @@ test("xterm keys on macOS: ⌘F searches, other ⌘ chords are the app's, Ctrl s
 	expect(xtermKey(k("v", { ctrlKey: true }), false, true)).toBeNull();
 	expect(xtermKey(k("Enter", { shiftKey: true }), false, true)).toBe("shiftEnter");
 });
+
+// Layout zoom (issue #25) binds ⌘= ⌘- ⌘0 in the app keymap, and the window handler would take them before the
+// terminal sees its font-size chords. A focused terminal must keep all four spellings (⌘+ is ⇧⌘= or ⌘ with "+").
+test("a focused terminal keeps ⌘= ⌘+ ⇧⌘= ⌘- ⌘0 for its font size, not the layout zoom", async () => {
+	const { terminalKeeps, termAction } = await import("./termKeys.ts");
+	const e = (key, shiftKey = false) => ({ key, metaKey: true, altKey: false, ctrlKey: false, shiftKey });
+	for (const [key, shift] of [
+		["=", false],
+		["+", false],
+		["+", true],
+		["-", false],
+		["0", false],
+	]) {
+		expect(terminalKeeps(e(key, shift)), `${shift ? "⇧" : ""}⌘${key}`).toBe(true);
+		expect(termAction(e(key, shift))?.kind, `${shift ? "⇧" : ""}⌘${key}`).toBe("font");
+	}
+	// ⇧⌘- and ⇧⌘0 are not font chords: the app keeps them
+	expect(terminalKeeps(e("-", true))).toBe(false);
+	expect(terminalKeeps(e("0", true))).toBe(false);
+});

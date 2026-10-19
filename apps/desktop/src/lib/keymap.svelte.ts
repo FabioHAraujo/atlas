@@ -5,6 +5,7 @@
  * its current binding.
  */
 import { api } from "#lib/api.ts";
+import { modalOpen } from "#lib/modalOpen.ts";
 import { bindingsOf, defaultKeymap, label, merge, rebind, strokesOf, unbind } from "#lib/keys.ts";
 
 export interface Command {
@@ -53,10 +54,10 @@ export function noteRun(id: string) {
 	localStorage.setItem(RECENT_KEY, JSON.stringify(recent.ids));
 }
 
-/** Run a registered command by id (no-op when unknown or its `when` is false). */
+/** Run a registered command by id (no-op when unknown, its `when` is false or a modal is open over the app). */
 export function runCommand(id: string) {
 	const c = commands.get(id);
-	if (c && (c.when?.() ?? true)) (noteRun(id), c.run());
+	if (c && !modalOpen() && (c.when?.() ?? true)) (noteRun(id), c.run());
 }
 
 /** User overrides from settings.json `keymap`. */
@@ -100,14 +101,17 @@ export function shortcutFor(id: string): string | undefined {
 }
 
 /**
- * Run the command bound to this key event. `true` = handled. `ownedByFocus` lets the focused
- * surface keep a chord (a GPU terminal claims ⇧⌘D for split-down like Ghostty, not "Changes").
+ * Run the command bound to `stroke` (canonical spelling); several strokes are tried in order, the first command
+ * that runs wins (off macOS a Ctrl chord can mean a ⌘ binding or a ⌃ one, see keys.ts `strokesOf`). `true` =
+ * handled. The one resolution path of a key: the window handler and keys forwarded from a browser page
+ * (`browserKeys.ts`) both end here.
  */
-export function dispatch(e: KeyboardEvent, ownedByFocus?: (e: KeyboardEvent) => boolean): boolean {
-	if (ownedByFocus?.(e)) return false;
+export function dispatchStroke(strokes: string | null | readonly string[]): boolean {
+	// A modal owns the keyboard: the page behind it is inert, so its shortcuts are too (the layer's own Esc and Tab
+	// are handled by the kit before this runs).
+	if (!strokes || modalOpen()) return false;
 	const effective = merge(defaultKeymap(), keymap.user);
-	// Off macOS a Ctrl chord can mean a ⌘ binding or a ⌃ one (see keys.ts `strokesOf`): first that runs wins.
-	for (const s of strokesOf(e)) {
+	for (const s of typeof strokes === "string" ? [strokes] : strokes) {
 		const id = effective.get(s);
 		const c = id ? commands.get(id) : undefined;
 		if (!c || !(c.when?.() ?? true)) continue;
@@ -116,4 +120,13 @@ export function dispatch(e: KeyboardEvent, ownedByFocus?: (e: KeyboardEvent) => 
 		return true;
 	}
 	return false;
+}
+
+/**
+ * Run the command bound to this key event. `true` = handled. `ownedByFocus` lets the focused
+ * surface keep a chord (a GPU terminal claims ⇧⌘D for split-down like Ghostty, not "Changes").
+ */
+export function dispatch(e: KeyboardEvent, ownedByFocus?: (e: KeyboardEvent) => boolean): boolean {
+	if (ownedByFocus?.(e)) return false;
+	return dispatchStroke(strokesOf(e));
 }

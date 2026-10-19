@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "setup": "scripts/setup.sh",
-    "check": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked && cargo deny check && scripts/check-skills.sh && bun run desktop:check && bun run release:test",
+    "check": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo nextest run --workspace --locked && cargo test --workspace --locked --doc && cargo deny check && scripts/check-skills.sh && scripts/lint-workflows.sh && bun run desktop:check && bun run release:test",
+    "sweep": "scripts/sweep.sh",
+    "lint:workflows": "scripts/lint-workflows.sh",
     "fmt": "cargo fmt --all && cd apps/desktop && bun run format",
     "dup": "bunx jscpd",
     "deps:update": "for d in . apps/desktop site studio; do (cd $d && bunx npm-check-updates -u --configFilePath \"$(git rev-parse --show-toplevel)\") || exit 1; done && bun install && (cd apps/desktop && bun install) && (cd site && bun install)",
@@ -24,9 +26,8 @@
     "icons:check": "bun scripts/icons.ts --check",
     "release": "scripts/release.sh",
     "release:dry": "scripts/release.sh --dry-run",
-    "release:act": "scripts/act-release.sh",
-    "release:test": "bun test scripts && python3 -m unittest scripts/test_generate_manifest.py && scripts/test-bootstrap-channel.sh && scripts/test-labels.sh",
-    "ci:act": "act workflow_dispatch -W .github/workflows/ci.yml -j rust-macos"
+    "release:publish": "scripts/release.sh --publish",
+    "release:test": "bun test scripts && python3 -m unittest scripts/test_generate_manifest.py && scripts/test-bootstrap-channel.sh && scripts/test-labels.sh"
   },
   "license": "MIT OR Apache-2.0",
   "homepage": "https://atlas.codeatlas.com.br",

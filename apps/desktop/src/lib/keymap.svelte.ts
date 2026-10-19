@@ -5,6 +5,7 @@
  * its current binding.
  */
 import { api } from "#lib/api.ts";
+import { modalOpen } from "#lib/modalOpen.ts";
 import { DEFAULT_KEYMAP, bindingsOf, label, merge, rebind, strokeOf, unbind } from "#lib/keys.ts";
 
 export interface Command {
@@ -53,10 +54,10 @@ export function noteRun(id: string) {
 	localStorage.setItem(RECENT_KEY, JSON.stringify(recent.ids));
 }
 
-/** Run a registered command by id (no-op when unknown or its `when` is false). */
+/** Run a registered command by id (no-op when unknown, its `when` is false or a modal is open over the app). */
 export function runCommand(id: string) {
 	const c = commands.get(id);
-	if (c && (c.when?.() ?? true)) (noteRun(id), c.run());
+	if (c && !modalOpen() && (c.when?.() ?? true)) (noteRun(id), c.run());
 }
 
 /** User overrides from settings.json `keymap`. */
@@ -100,16 +101,25 @@ export function shortcutFor(id: string): string | undefined {
 }
 
 /**
+ * Run the command bound to `stroke` (canonical spelling). `true` = handled. The one resolution path of
+ * a key: the window handler and keys forwarded from a browser page (`browserKeys.ts`) both end here.
+ */
+export function dispatchStroke(stroke: string | null): boolean {
+	const id = stroke && merge(DEFAULT_KEYMAP, keymap.user).get(stroke);
+	const c = id ? commands.get(id) : undefined;
+	// A modal owns the keyboard: the page behind it is inert, so its shortcuts are too (the layer's own Esc and Tab
+	// are handled by the kit before this runs).
+	if (!c || modalOpen() || !(c.when?.() ?? true)) return false;
+	noteRun(c.id);
+	c.run();
+	return true;
+}
+
+/**
  * Run the command bound to this key event. `true` = handled. `ownedByFocus` lets the focused
  * surface keep a chord (a GPU terminal claims ⇧⌘D for split-down like Ghostty, not "Changes").
  */
 export function dispatch(e: KeyboardEvent, ownedByFocus?: (e: KeyboardEvent) => boolean): boolean {
 	if (ownedByFocus?.(e)) return false;
-	const s = strokeOf(e);
-	const id = s && merge(DEFAULT_KEYMAP, keymap.user).get(s);
-	const c = id ? commands.get(id) : undefined;
-	if (!c || !(c.when?.() ?? true)) return false;
-	noteRun(c.id);
-	c.run();
-	return true;
+	return dispatchStroke(strokeOf(e));
 }

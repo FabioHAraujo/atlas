@@ -51,5 +51,28 @@ if ! command -v cargo-deny >/dev/null; then
   say "▶ cargo install cargo-deny"
   cargo install cargo-deny --locked
 fi
+if ! command -v cargo-nextest >/dev/null; then
+  say "▶ cargo install cargo-nextest"
+  cargo install cargo-nextest --locked
+fi
+# Workflow linters for `bun run check` (scripts/lint-workflows.sh). Homebrew on macOS (and Linuxbrew);
+# otherwise zizmor through cargo and actionlint through Go.
+if ! command -v zizmor >/dev/null; then
+  say "▶ install zizmor"
+  if command -v brew >/dev/null; then brew install zizmor; else cargo install zizmor --locked; fi
+fi
+if ! command -v actionlint >/dev/null; then
+  say "▶ install actionlint"
+  if command -v brew >/dev/null; then brew install actionlint
+  elif command -v go >/dev/null; then go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12   # same as ci.yml
+  else die "actionlint not found (brew install actionlint, or go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12)"
+  fi
+fi
 
 say "✓ toolchain ready ($(cargo tauri --version))"
+
+# Advice only: target/ has no GC (docs/build-perf.md); never delete here.
+target="$(dirname "$0")/../target"
+if [[ -d $target ]] && (( $(du -sk "$target" | cut -f1) > 20971520 )); then
+  say "target/ is $(du -sh "$target" | cut -f1); run: bun run sweep"
+fi

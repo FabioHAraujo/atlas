@@ -3,6 +3,8 @@
  * keeps the workspace, registry, dock badge and window theme in sync. Returns one cleanup.
  */
 import { colorScheme, toast } from "@codeatlasdev/ui";
+import { nativeFeel } from "@codeatlasdev/ui/kit";
+import { allowContextMenu } from "#lib/contextMenu.ts";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { untrack } from "svelte";
@@ -14,7 +16,7 @@ import { errors, startErrorHandler } from "#lib/errors/errors.svelte.ts";
 import { loadKeymap, register } from "#lib/keymap.svelte.ts";
 import { startCtl } from "#lib/ctl.ts";
 import { startMenu } from "#lib/menu.svelte.ts";
-import { nativeFeel } from "#lib/native.ts";
+import { startModalWatch } from "#lib/modalOpen.ts";
 import { metrics } from "#lib/panel/metrics.svelte.ts";
 import { shellCommands } from "#lib/shell/commands.svelte.ts";
 import { offerGhostty, startThemeCommands } from "#lib/shell/themeCommands.svelte.ts";
@@ -28,7 +30,7 @@ import { ask, confirmDialog, promptDialog } from "#lib/stores/ask.svelte.ts";
 import { discovery } from "#lib/stores/discovery.svelte.ts";
 import { welcome } from "#lib/onboarding/welcome.svelte.ts";
 import { sound } from "#lib/sound/sound.svelte.ts";
-import { loadPrefs } from "#lib/stores/prefs.svelte.ts";
+import { loadPrefs, prefs } from "#lib/stores/prefs.svelte.ts";
 import { store } from "#lib/stores/projects.svelte.ts";
 import { quick } from "#lib/stores/quick.svelte.ts";
 import { themes } from "#lib/stores/theme.svelte.ts";
@@ -42,7 +44,6 @@ import { navigator as jumps } from "#lib/lsp/history.ts";
 import { hooks, worktrees } from "#lib/stores/worktrees.svelte.ts";
 import * as captureDom from "#lib/capture/dom.ts";
 import * as agentDebug from "#lib/debug/agent.ts";
-import { idleQueue } from "#lib/idleQueue.ts";
 import { runSelectionBench, type BenchEnv } from "#lib/debug/selectionBench.ts";
 import { idleFloor, runGesture, type GestureRunOpts } from "#lib/debug/gestureRun.ts";
 import { swipeDebug } from "#lib/shell/nativeSwipe.ts";
@@ -58,6 +59,7 @@ function exposeStores() {
 				...stores,
 				shell,
 				docks,
+				prefs,
 				themes,
 				updates,
 				/** The overlays `scripts/contrast-audit.ts` opens: dialogs (`ask`), the project scan and the kit's toasts. */
@@ -171,12 +173,6 @@ function syncEffects() {
 		});
 	});
 
-	// A space switch is activity: deferred UI work (`idleQueue`, kit overlays of neighbour layers) waits for it to settle.
-	$effect(() => {
-		void shell.activeId;
-		idleQueue.bump();
-	});
-
 	// Remember (worktree, tab) visits for ⌘[ / ⌘].
 	$effect(() => {
 		const w = ws.selected;
@@ -216,13 +212,14 @@ export function startSession(): () => void {
 	startCtl().catch(() => {});
 	loadKeymap().catch(() => {});
 	const stopMenu = startMenu();
+	const stopModalWatch = startModalWatch();
 	loadPrefs().catch(() => {});
 	themes.init().then(offerGhostty, fail);
 	const unregister = register(shellCommands());
 	const stopThemeCommands = startThemeCommands();
 	hooks.launchAgent = (id, agent, prompt) => agents.launch(id, agent, { prompt });
 	exposeStores();
-	const stopFeel = nativeFeel();
+	const stopFeel = nativeFeel({ blockZoom: true, allowContextMenu });
 	const stopTray = startTrayFeed();
 	// The popover's sparklines need samples even with no Panel open.
 	const stopMetrics = metrics.start();
@@ -232,6 +229,7 @@ export function startSession(): () => void {
 		unregister();
 		stopThemeCommands();
 		void stopMenu.then((f) => f());
+		stopModalWatch();
 		void stopHostStatus.then((f) => f());
 		void stopSound.then((f) => f());
 		store.dispose();

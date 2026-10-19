@@ -1,9 +1,9 @@
 <script lang="ts">
+	import AgentLogo from "#lib/components/AgentLogo.svelte";
 	import { useSpace } from "#lib/shell/spaceCtx.ts";
 	import { invoke } from "@tauri-apps/api/core";
 	import { Select, Skeleton, toast } from "@codeatlasdev/ui";
 	import { Play, Copy, FolderSearch, Globe, RefreshCw, PanelRightClose, Pin } from "@lucide/svelte";
-	import Overlay from "#lib/components/Overlay.svelte";
 	import Tip from "#lib/components/Tip.svelte";
 	import { docks, toggleDock } from "#lib/stores/docks.svelte.ts";
 	import { api, errText } from "#lib/api.ts";
@@ -163,18 +163,16 @@
 				oninput={onSearch}
 				onkeydown={(e) => e.key === "Enter" && (clearTimeout(typing), loadSessions())}
 			/>
-			<Overlay fill height={30}>
-				<Select
-					size="sm"
-					value={scope}
-					options={[
-						{ value: "workspace", label: "Workspace" },
-						{ value: "project", label: "Project" },
-						{ value: "all", label: "All" },
-					]}
-					onchange={(v) => (scope = v as typeof scope)}
-				/>
-			</Overlay>
+			<Select
+				size="sm"
+				value={scope}
+				options={[
+					{ value: "workspace", label: "Workspace" },
+					{ value: "project", label: "Project" },
+					{ value: "all", label: "All" },
+				]}
+				onchange={(v) => (scope = v as typeof scope)}
+			/>
 		</div>
 		<div class="list">
 			{#each sessions as s (s.file)}
@@ -183,7 +181,7 @@
 					class:open={open === s.file}
 					onclick={() => (open = open === s.file ? null : s.file)}
 				>
-					<span class="agent">{s.agent}</span>
+					<span class="agent"><AgentLogo agent={s.agent} size={10} />{s.agent}</span>
 					<span class="title">{s.title ?? s.first_prompt ?? s.id}</span>
 					<span class="dim">{when(s.mtime)}</span>
 				</button>
@@ -330,6 +328,9 @@
 		background: var(--ca-action-hover);
 	}
 	.agent {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
 		font-size: 10px;
 		padding: 0 4px;
 		border-radius: 3px;

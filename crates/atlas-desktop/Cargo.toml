@@ -1,6 +1,6 @@
 [package]
 name = "atlas-desktop"
-version = "1.5.0-alpha.8"
+version = "1.5.0-alpha.13"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -61,6 +61,11 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
 dispatch2 = "0.3"
 atlas-term = { path = "../atlas-term" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Already in the graph through wry/gtk (same 0.18 line); used to ask the session bus whether a StatusNotifier host
+# exists (tray.rs), because a tray icon with no host is silently invisible.
+gio = "0.18"
 
 [dev-dependencies]
 serde_norway = { workspace = true }

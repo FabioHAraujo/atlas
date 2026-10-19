@@ -1064,6 +1064,7 @@ fn seed_docker_path(bin: &std::path::Path) {
 
 /// A project dir with `infra:` (compose file present) and two command-less services, `postgres` on
 /// `pg` and `redis` on `redis` (atlas.yaml rejects a shared port).
+#[cfg(unix)]
 fn infra_project(pg: u16, redis: u16) -> (tempfile::TempDir, ProjectConfig) {
     let dir = tempfile::TempDir::new().unwrap();
     std::fs::write(dir.path().join("compose.yml"), "services: {}\n").unwrap();
@@ -1092,6 +1093,7 @@ fn fake_docker(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
 }
 
 /// Drain events until `InfraReady`, applying what the real event loops apply.
+#[cfg(unix)]
 async fn run_until_infra_ready(
     mgr: &mut ServiceManager,
     rx: &mut mpsc::UnboundedReceiver<ManagerEvent>,

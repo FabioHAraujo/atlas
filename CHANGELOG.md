@@ -18,6 +18,12 @@ All notable changes to Atlas (CLI, TUI, MCP server and Atlas Desktop). Versions 
 - **Terminal tabs on Windows were titled with the shell's full path** (`C:\WINDOWS\System32\…\powershell.exe`), or stayed "Terminal" when the shell set its title before the tab attached (PowerShell sets it once): the title is the program's name (`powershell`, `cmd - npm run dev`) and is taken from the attach answer too.
 - **A theme error on every window load on Windows.** WebView2 runs the startup script before `<html>` exists; the cached theme is now applied as soon as it does.
 - **A missing command in `atlas.yaml` on Windows** (`cmd` exits 1, not 127) is explained like on macOS and Linux: the program is named, with the `Path` Atlas used and how to add its folder.
+- Desktop: kit menus and listboxes (the + new-tab menu, Select, Combobox) open above the native terminal and browser instead of under them (#86).
+- Desktop (Linux): no more repeated "Failed to start the audio device" errors when WebKitGTK has no usable audio device; sounds stay off for the session (#87).
+
+### Changed
+
+- Desktop: `@codeatlasdev/ui` 4.2 → 4.5.
 
 ## [1.5.0-alpha.13] — 2026-10-17
 
